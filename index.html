@@ -371,6 +371,78 @@
       border-color: var(--accent2);
     }
 
+    /* === Hero CTA === */
+    .hero-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.9rem;
+      background: linear-gradient(135deg, #FF6B4A, #ff8f70);
+      color: #fff;
+      text-decoration: none;
+      padding: 0.9rem 1.6rem;
+      border-radius: 14px;
+      margin-top: 1.4rem;
+      box-shadow: 0 8px 28px rgba(255, 107, 74, 0.35), 0 2px 8px rgba(0,0,0,0.2);
+      transition: all 0.25s ease;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    .hero-cta:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 36px rgba(255, 107, 74, 0.45), 0 4px 12px rgba(0,0,0,0.25);
+    }
+    .hero-cta:active {
+      transform: translateY(0);
+    }
+    .cta-icon {
+      font-size: 1.6rem;
+      line-height: 1;
+    }
+    .cta-text {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.15rem;
+    }
+    .cta-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .cta-desc {
+      font-size: 0.78rem;
+      opacity: 0.88;
+      font-weight: 400;
+    }
+    .cta-arrow {
+      font-size: 1.3rem;
+      margin-left: 0.4rem;
+      opacity: 0.9;
+      transition: transform 0.2s;
+    }
+    .hero-cta:hover .cta-arrow {
+      transform: translateX(4px);
+    }
+
+    .hero-links {
+      margin-top: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      font-size: 0.85rem;
+    }
+    .hero-link {
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .hero-link:hover {
+      color: var(--accent2);
+    }
+    .link-sep {
+      color: var(--rule);
+    }
+
     /* === Footer === */
     footer {
       border-top: 1px solid var(--rule);
@@ -419,10 +491,20 @@
         <h1><span>CheapLive</span> 便宜直播</h1>
         <p class="subtitle">无需电脑的移动虚拟主播工作台</p>
         <p class="tagline">"便宜，不等于将就。没有电脑，也能把虚拟形象带进游戏直播。"</p>
-        <div class="demo-links" style="margin-top:1.2rem;display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap;">
-          <a class="repo-link" href="src/face-tracking/index.html" style="background:linear-gradient(180deg,rgba(255,107,74,0.25),rgba(255,107,74,0.12));border-color:rgba(255,107,74,0.45);color:#fff;">🎭 面部捕捉演示</a>
-          <a class="repo-link" href="https://github.com/SamZebrado/CheapLive" target="_blank" rel="noopener">GitHub 仓库</a>
-          <a class="repo-link" href="https://gitee.com/samzebrado/CheapLive" target="_blank" rel="noopener">Gitee 仓库</a>
+
+        <a class="hero-cta" href="src/face-tracking/index.html">
+          <span class="cta-icon">🎭</span>
+          <span class="cta-text">
+            <span class="cta-title">试试面部捕捉演示</span>
+            <span class="cta-desc">浏览器直接运行 · 无需安装 · 萨卡班甲鱼实时驱动</span>
+          </span>
+          <span class="cta-arrow">→</span>
+        </a>
+
+        <div class="hero-links">
+          <a class="hero-link" href="https://github.com/SamZebrado/CheapLive" target="_blank" rel="noopener">GitHub</a>
+          <span class="link-sep">·</span>
+          <a class="hero-link" href="https://gitee.com/samzebrado/CheapLive" target="_blank" rel="noopener">Gitee</a>
         </div>
       </div>
     </div>
