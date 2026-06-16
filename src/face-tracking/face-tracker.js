@@ -30,8 +30,56 @@ class FaceTracker {
     // 调试小人
     this.avatar = new DebugAvatar('avatar_canvas');
     this.setupAvatarControls();
+    this.loadSettings();
 
     this.init();
+  }
+
+  // localStorage 缓存设置
+  loadSettings() {
+    try {
+      const settings = JSON.parse(localStorage.getItem('cheaplive_settings') || '{}');
+
+      // 恢复隐私模式
+      if (settings.privacyMode) {
+        this.privacyToggle.checked = true;
+        this.togglePrivacy(true);
+      }
+
+      // 恢复镜像
+      if (settings.mirrorData) {
+        const mirrorToggle = document.getElementById('mirrorMode');
+        if (mirrorToggle) {
+          mirrorToggle.checked = true;
+          this.mirrorData = true;
+        }
+      }
+
+      // 恢复应用模式
+      if (settings.appMode) {
+        const appModeToggle = document.getElementById('appMode');
+        if (appModeToggle) {
+          appModeToggle.checked = true;
+          this.avatar.setAppMode(true);
+          this.toggleAppModeUI(true);
+        }
+      }
+    } catch (e) {
+      console.warn('加载设置失败:', e);
+    }
+  }
+
+  saveSettings() {
+    try {
+      const settings = {
+        privacyMode: this.privacyMode,
+        mirrorData: this.mirrorData,
+        appMode: this.avatar ? this.avatar.appMode : false,
+      };
+      localStorage.setItem('cheaplive_settings', JSON.stringify(settings));
+    } catch (e) {
+      console.warn('保存设置失败:', e);
+    }
   }
 
   setupAvatarControls() {
@@ -60,6 +108,7 @@ class FaceTracker {
     if (mirrorToggle) {
       mirrorToggle.addEventListener('change', (e) => {
         this.mirrorData = e.target.checked;
+        this.saveSettings();
       });
     }
 
@@ -69,60 +118,18 @@ class FaceTracker {
       appModeToggle.addEventListener('change', (e) => {
         this.avatar.setAppMode(e.target.checked);
         this.toggleAppModeUI(e.target.checked);
+        this.saveSettings();
       });
     }
   }
 
   toggleAppModeUI(enabled) {
-    // 隐藏/显示调试面板
-    const dataPanel = document.querySelector('.data-panel');
-    const paramPanel = document.querySelector('.param-panel');
-    const avatarControls = document.querySelector('.avatar-controls');
-    const mirrorToggle = document.querySelector('.mirror-toggle');
-    const privacyToggle = document.querySelector('.privacy-toggle');
-    const controls = document.querySelector('.controls');
-    const status = document.getElementById('status');
-    const fps = document.getElementById('fps');
+    // 使用 body.app-mode 类控制 CSS，保持 1:1 长宽比
+    document.body.classList.toggle('app-mode', enabled);
 
-    if (enabled) {
-      if (dataPanel) dataPanel.style.display = 'none';
-      if (paramPanel) paramPanel.style.display = 'none';
-      if (avatarControls) avatarControls.style.display = 'none';
-      if (mirrorToggle) mirrorToggle.style.display = 'none';
-      if (privacyToggle) privacyToggle.style.display = 'none';
-      if (controls) controls.style.display = 'none';
-      if (status) status.style.display = 'none';
-      if (fps) fps.style.display = 'none';
-
-      // 扩大 avatar 区域
-      const avatarSection = document.querySelector('.avatar-section');
-      if (avatarSection) {
-        avatarSection.style.gridColumn = '1 / -1';
-        avatarSection.style.maxWidth = '100%';
-      }
-      const avatarWrapper = document.querySelector('.avatar-wrapper');
-      if (avatarWrapper) {
-        avatarWrapper.style.height = '70vh';
-      }
-    } else {
-      if (dataPanel) dataPanel.style.display = '';
-      if (paramPanel) paramPanel.style.display = '';
-      if (avatarControls) avatarControls.style.display = '';
-      if (mirrorToggle) mirrorToggle.style.display = '';
-      if (privacyToggle) privacyToggle.style.display = '';
-      if (controls) controls.style.display = '';
-      if (status) status.style.display = '';
-      if (fps) fps.style.display = '';
-
-      const avatarSection = document.querySelector('.avatar-section');
-      if (avatarSection) {
-        avatarSection.style.gridColumn = '';
-        avatarSection.style.maxWidth = '';
-      }
-      const avatarWrapper = document.querySelector('.avatar-wrapper');
-      if (avatarWrapper) {
-        avatarWrapper.style.height = '';
-      }
+    // 触发 avatar 重新调整大小
+    if (this.avatar) {
+      this.avatar.resize();
     }
   }
 
@@ -145,6 +152,7 @@ class FaceTracker {
       this.videoWrapper.classList.toggle('privacy-active', enabled);
     }
     this.status.textContent = enabled ? '隐私保护模式已启用 - 摄像头画面已隐藏' : '隐私保护模式已关闭';
+    this.saveSettings();
   }
 
   async loadModel() {

@@ -418,3 +418,44 @@ button:disabled {
   color: #ff8f70;
   font-weight: 600;
 }
+
+/* 应用模式：全屏居中，保持 1:1 长宽比 */
+body.app-mode .main-layout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 0;
+  gap: 0;
+}
+
+body.app-mode .video-section,
+body.app-mode .data-panel {
+  display: none;
+}
+
+body.app-mode .avatar-section {
+  grid-column: auto;
+  max-width: none;
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+body.app-mode .avatar-section h2,
+body.app-mode .avatar-controls,
+body.app-mode .mirror-toggle,
+body.app-mode .app-mode-toggle {
+  display: none;
+}
+
+body.app-mode .avatar-wrapper {
+  width: min(90vw, 90vh);
+  height: min(90vw, 90vh);
+  max-width: 600px;
+  max-height: 600px;
+  aspect-ratio: 1;
+}
