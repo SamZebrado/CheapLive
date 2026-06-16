@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CheapLive - 面部捕捉原型</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>CheapLive 面部捕捉原型</h1>
+      <p class="subtitle">基于 MediaPipe Face Landmarker - 纯浏览器端运行</p>
+    </header>
+
+    <div class="main-layout">
+      <!-- 左侧：视频和画布 -->
+      <div class="video-section">
+        <div class="video-wrapper">
+          <video id="webcam" autoplay playsinline></video>
+          <canvas id="output_canvas"></canvas>
+          <div id="loading" class="loading-overlay">
+            <div class="spinner"></div>
+            <p>正在加载模型...</p>
+          </div>
+        </div>
+        <div class="controls">
+          <button id="startBtn" class="btn-primary">启动摄像头</button>
+          <button id="stopBtn" class="btn-secondary" disabled>停止</button>
+        </div>
+        <div id="status" class="status">点击"启动摄像头"开始</div>
+      </div>
+
+      <!-- 右侧：数据面板 -->
+      <div class="data-panel">
+        <h2>面部参数</h2>
+        
+        <div class="param-group">
+          <h3>眼睛</h3>
+          <div class="param-row">
+            <span class="param-label">左眼开合</span>
+            <div class="param-bar">
+              <div id="eyeLeft" class="param-fill"></div>
+            </div>
+            <span id="eyeLeftVal" class="param-value">0.00</span>
+          </div>
+          <div class="param-row">
+            <span class="param-label">右眼开合</span>
+            <div class="param-bar">
+              <div id="eyeRight" class="param-fill"></div>
+            </div>
+            <span id="eyeRightVal" class="param-value">0.00</span>
+          </div>
+        </div>
+
+        <div class="param-group">
+          <h3>嘴巴</h3>
+          <div class="param-row">
+            <span class="param-label">嘴巴开合</span>
+            <div class="param-bar">
+              <div id="mouthOpen" class="param-fill"></div>
+            </div>
+            <span id="mouthOpenVal" class="param-value">0.00</span>
+          </div>
+          <div class="param-row">
+            <span class="param-label">嘴巴微笑</span>
+            <div class="param-bar">
+              <div id="mouthSmile" class="param-fill"></div>
+            </div>
+            <span id="mouthSmileVal" class="param-value">0.00</span>
+          </div>
+        </div>
+
+        <div class="param-group">
+          <h3>眉毛</h3>
+          <div class="param-row">
+            <span class="param-label">左眉上扬</span>
+            <div class="param-bar">
+              <div id="browLeft" class="param-fill"></div>
+            </div>
+            <span id="browLeftVal" class="param-value">0.00</span>
+          </div>
+          <div class="param-row">
+            <span class="param-label">右眉上扬</span>
+            <div class="param-bar">
+              <div id="browRight" class="param-fill"></div>
+            </div>
+            <span id="browRightVal" class="param-value">0.00</span>
+          </div>
+        </div>
+
+        <div class="param-group">
+          <h3>头部姿态</h3>
+          <div class="param-row">
+            <span class="param-label">头部左右</span>
+            <div class="param-bar">
+              <div id="headYaw" class="param-fill"></div>
+            </div>
+            <span id="headYawVal" class="param-value">0.00</span>
+          </div>
+          <div class="param-row">
+            <span class="param-label">头部上下</span>
+            <div class="param-bar">
+              <div id="headPitch" class="param-fill"></div>
+            </div>
+            <span id="headPitchVal" class="param-value">0.00</span>
+          </div>
+          <div class="param-row">
+            <span class="param-label">头部倾斜</span>
+            <div class="param-bar">
+              <div id="headRoll" class="param-fill"></div>
+            </div>
+            <span id="headRollVal" class="param-value">0.00</span>
+          </div>
+        </div>
+
+        <div class="fps-counter">
+          FPS: <span id="fps">0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="face-tracker.js"></script>
+</body>
+</html>

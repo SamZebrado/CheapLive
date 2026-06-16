@@ -1,0 +1,243 @@
+:root {
+  --bg: #0F0F1A;
+  --bg2: #1A1A2E;
+  --bg3: #252542;
+  --ink: #EAEAF0;
+  --muted: #8888A0;
+  --rule: #2E2E4A;
+  --accent: #FF6B4A;
+  --accent2: #4ECDC4;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+header h1 {
+  font-size: 1.8rem;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.main-layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .main-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 视频区域 */
+.video-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.video-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4/3;
+  background: var(--bg2);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+}
+
+.video-wrapper video,
+.video-wrapper canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.video-wrapper canvas {
+  z-index: 2;
+}
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg2);
+  z-index: 10;
+  gap: 16px;
+}
+
+.loading-overlay.hidden {
+  display: none;
+}
+
+.spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid var(--rule);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.btn-primary,
+.btn-secondary {
+  padding: 12px 28px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #ff8566;
+}
+
+.btn-secondary {
+  background: var(--bg3);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--rule);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.status {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+  min-height: 24px;
+}
+
+/* 数据面板 */
+.data-panel {
+  background: var(--bg2);
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid var(--rule);
+  height: fit-content;
+}
+
+.data-panel h2 {
+  font-size: 1.2rem;
+  color: var(--accent2);
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--accent);
+}
+
+.param-group {
+  margin-bottom: 20px;
+}
+
+.param-group h3 {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.param-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 50px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.param-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: right;
+}
+
+.param-bar {
+  height: 8px;
+  background: var(--bg3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.param-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  border-radius: 4px;
+  transition: width 0.1s ease-out;
+}
+
+.param-value {
+  font-size: 0.8rem;
+  color: var(--accent2);
+  font-family: 'Courier New', monospace;
+  text-align: right;
+}
+
+.fps-counter {
+  text-align: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.fps-counter span {
+  color: var(--accent);
+  font-weight: 700;
+}
