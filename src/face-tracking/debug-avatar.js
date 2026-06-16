@@ -30,11 +30,19 @@ export class DebugAvatar {
     // 特征点在球面上的局部 3D 坐标 (x, y, z)
     // z 正方向朝向观察者
     this.features = {
-      eyeLeft: { x: -35, y: -12, z: 60, r: 22 },
-      eyeRight: { x: 20, y: -12, z: 60, r: 22 },
-      nostrilLeft: { x: -10, y: 14, z: 65, rx: 5, ry: 4 },
-      nostrilRight: { x: 2, y: 14, z: 65, rx: 5, ry: 4 },
-      mouth: { x: -4, y: 34, z: 55, w: 24 },
+      eyeLeft: { x: -38, y: -14, z: 58, r: 24 },
+      eyeRight: { x: 22, y: -14, z: 58, r: 24 },
+      nostrilLeft: { x: -10, y: 16, z: 62, rx: 5, ry: 4 },
+      nostrilRight: { x: 2, y: 16, z: 62, rx: 5, ry: 4 },
+      mouth: { x: -4, y: 36, z: 52, w: 26 },
+    };
+
+    // 纺锤形身体控制点（用于 drawSpindleBody）
+    this.spindle = {
+      headR: 75,      // 头部圆半径
+      bodyLength: 140, // 身体总长度（不含尾巴）
+      bodyWidth: 55,   // 身体最宽处
+      tailLength: 60,  // 尾巴长度
     };
 
     this.resize();
@@ -118,8 +126,8 @@ export class DebugAvatar {
     ctx.translate(cx, cy);
     ctx.scale(scale, scale);
 
-    // 绘制球体基底（正圆，随 pitch/yaw 有轻微透视变形）
-    this.drawSphereBase(ctx, yaw, pitch);
+    // 绘制纺锤形身体（萨卡班甲鱼：纺锤形，无鳍，有尾巴，无鳞片）
+    this.drawSpindleBody(ctx, yaw, pitch);
 
     // 收集所有特征点，按 z 深度排序（远的先画）
     const featureList = [];
@@ -195,35 +203,105 @@ export class DebugAvatar {
     }
   }
 
-  drawSphereBase(ctx, yaw, pitch) {
-    const r = this.sphereR;
+  drawSpindleBody(ctx, yaw, pitch) {
+    const s = this.spindle;
 
-    // 球体透视：pitch 影响高度压缩，yaw 影响宽度压缩
-    const scaleY = 1 - Math.abs(Math.sin(pitch)) * 0.15;
-    const scaleX = 1 - Math.abs(Math.sin(yaw)) * 0.1;
+    // 纺锤形身体：头部圆 + 中间宽 + 尾部尖 + 分叉尾巴
+    // 无鳍，无鳞片
+
+    // 透视压缩
+    const scaleY = 1 - Math.abs(Math.sin(pitch)) * 0.12;
+    const scaleX = 1 - Math.abs(Math.sin(yaw)) * 0.08;
 
     ctx.save();
     ctx.scale(scaleX, scaleY);
 
-    // 正圆头部
+    // === 纺锤形身体路径 ===
     ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
 
-    // 填充：上半灰褐，下半米白，水平分界线在 52%
-    const bodyGrad = ctx.createLinearGradient(0, -r, 0, r);
+    // 头顶（圆弧形）
+    ctx.arc(-s.headR * 0.3, 0, s.headR, Math.PI * 0.5, Math.PI * 1.5, true);
+
+    // 背部弧线：从头部圆右侧开始，向后逐渐收窄
+    ctx.bezierCurveTo(
+      s.headR * 0.5, -s.bodyWidth,
+      s.bodyLength * 0.6, -s.bodyWidth * 0.85,
+      s.bodyLength, -s.bodyWidth * 0.3
+    );
+
+    // 尾柄（连接到尾巴）
+    ctx.bezierCurveTo(
+      s.bodyLength + 15, -s.bodyWidth * 0.15,
+      s.bodyLength + 25, -5,
+      s.bodyLength + s.tailLength * 0.5, 0
+    );
+
+    // 尾巴下分叉
+    ctx.bezierCurveTo(
+      s.bodyLength + 25, 8,
+      s.bodyLength + 20, 15,
+      s.bodyLength + s.tailLength * 0.3, 18
+    );
+    ctx.bezierCurveTo(
+      s.bodyLength + 10, 22,
+      s.bodyLength + 5, 18,
+      s.bodyLength, 12
+    );
+
+    // 腹部弧线：向前逐渐变宽回到头部
+    ctx.bezierCurveTo(
+      s.bodyLength * 0.6, s.bodyWidth * 0.7,
+      s.headR * 0.5, s.bodyWidth * 0.9,
+      -s.headR * 0.3, s.headR
+    );
+
+    ctx.closePath();
+
+    // === 填充：上半灰褐，下半米白，水平分界线 ===
+    const bodyGrad = ctx.createLinearGradient(0, -s.bodyWidth, 0, s.bodyWidth);
     bodyGrad.addColorStop(0, '#bdb8aa');
-    bodyGrad.addColorStop(0.52, '#bdb8aa');
-    bodyGrad.addColorStop(0.52, '#f2f1ea');
+    bodyGrad.addColorStop(0.50, '#bdb8aa');
+    bodyGrad.addColorStop(0.50, '#f2f1ea');
     bodyGrad.addColorStop(1, '#f2f1ea');
     ctx.fillStyle = bodyGrad;
     ctx.fill();
 
-    // 轮廓
+    // === 轮廓 ===
     ctx.strokeStyle = '#7c7a72';
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 3.5;
+    ctx.lineJoin = 'round';
     ctx.stroke();
 
+    // === 尾巴（对称分叉，像两片叶子） ===
+    this.drawTail(ctx, s.bodyLength, s.tailLength);
+
     ctx.restore();
+  }
+
+  drawTail(ctx, bodyEndX, tailLen) {
+    // 上尾叶
+    ctx.beginPath();
+    ctx.moveTo(bodyEndX, -2);
+    ctx.quadraticCurveTo(bodyEndX + tailLen * 0.5, -tailLen * 0.6, bodyEndX + tailLen, -tailLen * 0.3);
+    ctx.quadraticCurveTo(bodyEndX + tailLen * 0.7, -tailLen * 0.1, bodyEndX + tailLen * 0.3, 0);
+    ctx.closePath();
+    ctx.fillStyle = '#a8a49c';
+    ctx.fill();
+    ctx.strokeStyle = '#7c7a72';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // 下尾叶
+    ctx.beginPath();
+    ctx.moveTo(bodyEndX, 2);
+    ctx.quadraticCurveTo(bodyEndX + tailLen * 0.5, tailLen * 0.6, bodyEndX + tailLen, tailLen * 0.3);
+    ctx.quadraticCurveTo(bodyEndX + tailLen * 0.7, tailLen * 0.1, bodyEndX + tailLen * 0.3, 0);
+    ctx.closePath();
+    ctx.fillStyle = '#a8a49c';
+    ctx.fill();
+    ctx.strokeStyle = '#7c7a72';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
   }
 
   draw3DEye(ctx, x, y, radius, openness, opacity) {
