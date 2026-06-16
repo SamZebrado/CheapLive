@@ -255,9 +255,9 @@ class FaceTracker {
       map[cat.categoryName] = cat.score;
     }
 
-    // 眼睛
-    this.setParam('eyeLeft', map['eyeBlinkLeft'] || 0);
-    this.setParam('eyeRight', map['eyeBlinkRight'] || 0);
+    // 眼睛：eyeBlinkLeft 是眨眼程度（0=睁眼，1=闭眼），需要反转成睁眼度
+    this.setParam('eyeLeft', 1 - (map['eyeBlinkLeft'] || 0));
+    this.setParam('eyeRight', 1 - (map['eyeBlinkRight'] || 0));
 
     // 嘴巴
     this.setParam('mouthOpen', map['jawOpen'] || 0);
