@@ -21,21 +21,73 @@ class FaceTracker {
 
     this.running = false;
     this.privacyMode = false;
-    this.mirrorData = false; // 镜像：交换左右面部数据
+    this.mirrorData = false;
     this.lastVideoTime = -1;
     this.fps = 0;
     this.lastFpsTime = 0;
     this.frameCount = 0;
 
+    // 灵敏度（0~200，100=默认）
+    this.sensitivity = {
+      eye: 100,
+      mouth: 100,
+      brow: 100,
+      head: 100,
+      pos: 100,
+    };
+
+    // 平滑值（用于嘴部等需要平滑的参数）
+    this.smoothed = {
+      mouthOpen: 0,
+      mouthSmile: 0,
+    };
+    this.smoothFactor = 0.35; // 0=不平滑, 1=完全平滑（不更新）
+
     // 调试小人
     this.avatar = new DebugAvatar('avatar_canvas');
     this.setupAvatarControls();
+    this.setupSensitivityControls();
     this.loadSettings();
 
     this.init();
   }
 
-  // localStorage 缓存设置
+  // 灵敏度控制
+  setupSensitivityControls() {
+    const sliders = [
+      { id: 'sensEye', key: 'eye' },
+      { id: 'sensMouth', key: 'mouth' },
+      { id: 'sensBrow', key: 'brow' },
+      { id: 'sensHead', key: 'head' },
+      { id: 'sensPos', key: 'pos' },
+    ];
+    sliders.forEach(({ id, key }) => {
+      const slider = document.getElementById(id);
+      const valEl = document.getElementById(id + 'Val');
+      if (slider) {
+        slider.addEventListener('input', () => {
+          this.sensitivity[key] = Number(slider.value);
+          if (valEl) valEl.textContent = slider.value + '%';
+          this.saveSettings();
+        });
+      }
+    });
+  }
+
+  // 应用灵敏度：将原始值（0~1）通过灵敏度映射到输出值（0~1）
+  // sens: 0~200，100=默认（线性映射），<100=钝化，>100=放大
+  applySensitivity(rawValue, sensKey) {
+    const sens = this.sensitivity[sensKey] / 100; // 0~2
+    // 以 0.5 为中心进行缩放
+    return 0.5 + (rawValue - 0.5) * sens;
+  }
+
+  // 平滑插值：避免嘴部动作跳变
+  smoothValue(key, target) {
+    const current = this.smoothed[key] || 0;
+    this.smoothed[key] = current + (target - current) * (1 - this.smoothFactor);
+    return this.smoothed[key];
+  }
   loadSettings() {
     try {
       const settings = JSON.parse(localStorage.getItem('cheaplive_settings') || '{}');
@@ -64,6 +116,21 @@ class FaceTracker {
           this.toggleAppModeUI(true);
         }
       }
+
+      // 恢复灵敏度
+      if (settings.sensitivity) {
+        Object.assign(this.sensitivity, settings.sensitivity);
+        const sliderMap = {
+          eye: 'sensEye', mouth: 'sensMouth', brow: 'sensBrow',
+          head: 'sensHead', pos: 'sensPos',
+        };
+        for (const [key, id] of Object.entries(sliderMap)) {
+          const slider = document.getElementById(id);
+          const valEl = document.getElementById(id + 'Val');
+          if (slider) slider.value = this.sensitivity[key];
+          if (valEl) valEl.textContent = this.sensitivity[key] + '%';
+        }
+      }
     } catch (e) {
       console.warn('加载设置失败:', e);
     }
@@ -75,6 +142,7 @@ class FaceTracker {
         privacyMode: this.privacyMode,
         mirrorData: this.mirrorData,
         appMode: this.avatar ? this.avatar.appMode : false,
+        sensitivity: this.sensitivity,
       };
       localStorage.setItem('cheaplive_settings', JSON.stringify(settings));
     } catch (e) {
@@ -330,20 +398,32 @@ class FaceTracker {
     // 镜像模式下交换左右眼数据
     const eyeLeftRaw = 1 - (map['eyeBlinkLeft'] || 0);
     const eyeRightRaw = 1 - (map['eyeBlinkRight'] || 0);
-    this.setParam('eyeLeft', this.mirrorData ? eyeRightRaw : eyeLeftRaw);
-    this.setParam('eyeRight', this.mirrorData ? eyeLeftRaw : eyeRightRaw);
+    // 应用眼睛灵敏度
+    const eyeLeftSens = this.applySensitivity(eyeLeftRaw, 'eye');
+    const eyeRightSens = this.applySensitivity(eyeRightRaw, 'eye');
+    this.setParam('eyeLeft', this.mirrorData ? eyeRightSens : eyeLeftSens);
+    this.setParam('eyeRight', this.mirrorData ? eyeLeftSens : eyeRightSens);
 
-    // 嘴巴
-    this.setParam('mouthOpen', map['jawOpen'] || 0);
+    // 嘴巴：应用灵敏度 + 平滑插值
+    const mouthRaw = map['jawOpen'] || 0;
+    const mouthSens = this.applySensitivity(mouthRaw, 'mouth');
+    const mouthSmoothed = this.smoothValue('mouthOpen', mouthSens);
+    this.setParam('mouthOpen', mouthSmoothed);
+
     const smileLeft = map['mouthSmileLeft'] || 0;
     const smileRight = map['mouthSmileRight'] || 0;
-    this.setParam('mouthSmile', (smileLeft + smileRight) / 2);
+    const smileRaw = (smileLeft + smileRight) / 2;
+    const smileSens = this.applySensitivity(smileRaw, 'mouth');
+    const smileSmoothed = this.smoothValue('mouthSmile', smileSens);
+    this.setParam('mouthSmile', smileSmoothed);
 
-    // 眉毛：镜像模式下交换
+    // 眉毛：镜像模式下交换 + 应用灵敏度
     const browLeftRaw = map['browInnerUp'] || 0;
     const browRightRaw = map['browOuterUpLeft'] || 0;
-    this.setParam('browLeft', this.mirrorData ? browRightRaw : browLeftRaw);
-    this.setParam('browRight', this.mirrorData ? browLeftRaw : browRightRaw);
+    const browLeftSens = this.applySensitivity(browLeftRaw, 'brow');
+    const browRightSens = this.applySensitivity(browRightRaw, 'brow');
+    this.setParam('browLeft', this.mirrorData ? browRightSens : browLeftSens);
+    this.setParam('browRight', this.mirrorData ? browLeftSens : browRightSens);
   }
 
   updateHeadPose(matrix, landmarks) {
@@ -366,22 +446,26 @@ class FaceTracker {
     // 镜像模式下左右翻转 headYaw 和 headRoll
     let headYawNorm = (yaw / Math.PI + 1) / 2;
     let headRollNorm = (roll / Math.PI + 1) / 2;
+    let headPitchNorm = (pitch / Math.PI + 1) / 2;
     if (this.mirrorData) {
       headYawNorm = 1 - headYawNorm;
       headRollNorm = 1 - headRollNorm;
     }
-    this.setParam('headYaw', headYawNorm);
-    this.setParam('headPitch', (pitch / Math.PI + 1) / 2);
-    this.setParam('headRoll', headRollNorm);
+    // 应用头部姿态灵敏度
+    this.setParam('headYaw', this.applySensitivity(headYawNorm, 'head'));
+    this.setParam('headPitch', this.applySensitivity(headPitchNorm, 'head'));
+    this.setParam('headRoll', this.applySensitivity(headRollNorm, 'head'));
 
     // 头部在画面中的位置（基于 landmarks 的鼻子中心点）
     if (landmarks && landmarks.length > 0) {
       // 鼻子中心点索引 1（MediaPipe Face Landmarker）
       const nose = landmarks[1];
       // 镜像模式下水平位置翻转
-      const headX = this.mirrorData ? (1 - nose.x) : nose.x;
-      this.setParam('headX', headX);
-      this.setParam('headY', nose.y);
+      const headXRaw = this.mirrorData ? (1 - nose.x) : nose.x;
+      const headYRaw = nose.y;
+      // 应用位置灵敏度
+      this.setParam('headX', this.applySensitivity(headXRaw, 'pos'));
+      this.setParam('headY', this.applySensitivity(headYRaw, 'pos'));
     }
   }
 
