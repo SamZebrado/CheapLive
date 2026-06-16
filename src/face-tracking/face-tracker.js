@@ -4,6 +4,7 @@
  */
 
 import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm';
+import { DebugAvatar } from './debug-avatar.js';
 
 class FaceTracker {
   constructor() {
@@ -22,7 +23,32 @@ class FaceTracker {
     this.lastFpsTime = 0;
     this.frameCount = 0;
 
+    // 调试小人
+    this.avatar = new DebugAvatar('avatar_canvas');
+    this.setupAvatarControls();
+
     this.init();
+  }
+
+  setupAvatarControls() {
+    document.getElementById('testBlink').addEventListener('click', () => {
+      this.avatar.updateParams({ eyeLeft: 0, eyeRight: 0 });
+      setTimeout(() => this.avatar.updateParams({ eyeLeft: 1, eyeRight: 1 }), 200);
+    });
+    document.getElementById('testSmile').addEventListener('click', () => {
+      this.avatar.updateParams({ mouthSmile: 1 });
+      setTimeout(() => this.avatar.updateParams({ mouthSmile: 0 }), 1000);
+    });
+    document.getElementById('testOpen').addEventListener('click', () => {
+      this.avatar.updateParams({ mouthOpen: 1 });
+      setTimeout(() => this.avatar.updateParams({ mouthOpen: 0 }), 1000);
+    });
+    document.getElementById('testReset').addEventListener('click', () => {
+      this.avatar.updateParams({
+        eyeLeft: 1, eyeRight: 1, mouthOpen: 0, mouthSmile: 0,
+        browLeft: 0, browRight: 0, headYaw: 0.5, headPitch: 0.5, headRoll: 0.5
+      });
+    });
   }
 
   async init() {
@@ -251,6 +277,19 @@ class FaceTracker {
     const val = document.getElementById(id + 'Val');
     if (fill) fill.style.width = (clamped * 100) + '%';
     if (val) val.textContent = clamped.toFixed(2);
+
+    // 同步更新调试小人
+    if (this.avatar) {
+      const paramMap = {
+        eyeLeft: 'eyeLeft', eyeRight: 'eyeRight',
+        mouthOpen: 'mouthOpen', mouthSmile: 'mouthSmile',
+        browLeft: 'browLeft', browRight: 'browRight',
+        headYaw: 'headYaw', headPitch: 'headPitch', headRoll: 'headRoll'
+      };
+      if (paramMap[id]) {
+        this.avatar.updateParams({ [paramMap[id]]: clamped });
+      }
+    }
   }
 }
 
