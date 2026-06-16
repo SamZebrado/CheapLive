@@ -67,7 +67,7 @@ export class DebugAvatar {
     const posY = (this.params.headY - 0.5) * 80;
     const headYaw = (this.params.headYaw - 0.5) * 40;
     const headPitch = (this.params.headPitch - 0.5) * 30;
-    const headRoll = (this.params.headRoll - 0.5) * 20;
+    const headRoll = (this.params.headRoll - 0.5) * 45; // 增大到 ±45 度
 
     const cx = w / 2 + posX;
     const cy = h / 2 + posY;

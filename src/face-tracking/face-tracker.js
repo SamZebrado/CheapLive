@@ -454,7 +454,8 @@ class FaceTracker {
     // 应用头部姿态灵敏度
     this.setParam('headYaw', this.applySensitivity(headYawNorm, 'head'));
     this.setParam('headPitch', this.applySensitivity(headPitchNorm, 'head'));
-    this.setParam('headRoll', this.applySensitivity(headRollNorm, 'head'));
+    // roll 直接传递原始值（灵敏度对 roll 效果不明显，直接放大更直观）
+    this.setParam('headRoll', headRollNorm);
 
     // 头部在画面中的位置（基于 landmarks 的鼻子中心点）
     if (landmarks && landmarks.length > 0) {
