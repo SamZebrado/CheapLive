@@ -523,3 +523,50 @@ body.app-mode .avatar-wrapper {
   font-family: 'Courier New', monospace;
   text-align: right;
 }
+
+/* 性能模式 */
+.perf-group {
+  border-top: 1px solid var(--rule);
+  padding-top: 16px;
+  margin-top: 8px;
+}
+
+.perf-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.perf-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg2);
+  border: 1px solid var(--rule);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.perf-option:hover {
+  border-color: var(--accent);
+}
+
+.perf-option input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.perf-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 40px;
+}
+
+.perf-desc {
+  font-size: 0.75rem;
+  color: var(--muted);
+}

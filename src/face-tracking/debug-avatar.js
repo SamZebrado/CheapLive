@@ -37,12 +37,12 @@ export class DebugAvatar {
       mouth: { x: -4, y: 36, z: 52, w: 26 },
     };
 
-    // 纺锤形身体控制点（用于 drawSpindleBody）
+    // 纺锤形身体控制点（3D 坐标，用于 rotate3D 旋转）
     this.spindle = {
-      headR: 75,      // 头部圆半径
-      bodyLength: 140, // 身体总长度（不含尾巴）
-      bodyWidth: 55,   // 身体最宽处
-      tailLength: 60,  // 尾巴长度
+      headR: 75,
+      bodyLength: 140,
+      bodyWidth: 55,
+      tailLength: 60,
     };
 
     this.resize();
@@ -73,19 +73,16 @@ export class DebugAvatar {
 
   // 3D 旋转：先 yaw（Y轴），再 pitch（X轴），再 roll（Z轴）
   rotate3D(x, y, z, yaw, pitch, roll) {
-    // yaw (Y轴旋转)
     let cosY = Math.cos(yaw), sinY = Math.sin(yaw);
     let x1 = x * cosY + z * sinY;
     let z1 = -x * sinY + z * cosY;
     let y1 = y;
 
-    // pitch (X轴旋转)
     let cosP = Math.cos(pitch), sinP = Math.sin(pitch);
     let y2 = y1 * cosP - z1 * sinP;
     let z2 = y1 * sinP + z1 * cosP;
     let x2 = x1;
 
-    // roll (Z轴旋转)
     let cosR = Math.cos(roll), sinR = Math.sin(roll);
     let x3 = x2 * cosR - y2 * sinR;
     let y3 = x2 * sinR + y2 * cosR;
@@ -109,10 +106,6 @@ export class DebugAvatar {
     const posX = (this.params.headX - 0.5) * 120;
     const posY = (this.params.headY - 0.5) * 80;
 
-    // 头部姿态角度（从 0~1 归一化值转换到弧度）
-    // yaw: 左右转头 (-60~+60度)
-    // pitch: 低头抬头 (-40~+40度)
-    // roll: 歪头 (-45~+45度)
     const yaw = (this.params.headYaw - 0.5) * Math.PI * 0.66;
     const pitch = (this.params.headPitch - 0.5) * Math.PI * 0.44;
     const roll = (this.params.headRoll - 0.5) * Math.PI * 0.5;
@@ -126,68 +119,87 @@ export class DebugAvatar {
     ctx.translate(cx, cy);
     ctx.scale(scale, scale);
 
-    // 绘制纺锤形身体（萨卡班甲鱼：纺锤形，无鳍，有尾巴，无鳞片）
-    this.drawSpindleBody(ctx, yaw, pitch);
+    // 收集所有可旋转的元素（身体 + 特征点）
+    const renderList = [];
 
-    // 收集所有特征点，按 z 深度排序（远的先画）
-    const featureList = [];
+    // === 身体轮廓点（旋转后绘制纺锤形） ===
+    const s = this.spindle;
+    const bodyPoints = [
+      { x: -s.headR * 0.3, y: -s.headR, z: 0, type: 'body' },
+      { x: s.headR * 0.5, y: -s.bodyWidth, z: 0, type: 'body' },
+      { x: s.bodyLength * 0.6, y: -s.bodyWidth * 0.85, z: 0, type: 'body' },
+      { x: s.bodyLength, y: -s.bodyWidth * 0.3, z: 0, type: 'body' },
+      { x: s.bodyLength + 15, y: -s.bodyWidth * 0.15, z: 0, type: 'body' },
+      { x: s.bodyLength + 25, y: -5, z: 0, type: 'body' },
+      { x: s.bodyLength + s.tailLength * 0.5, y: 0, z: 0, type: 'body' },
+      { x: s.bodyLength + 25, y: 8, z: 0, type: 'body' },
+      { x: s.bodyLength + 20, y: 15, z: 0, type: 'body' },
+      { x: s.bodyLength + s.tailLength * 0.3, y: 18, z: 0, type: 'body' },
+      { x: s.bodyLength + 10, y: 22, z: 0, type: 'body' },
+      { x: s.bodyLength + 5, y: 18, z: 0, type: 'body' },
+      { x: s.bodyLength, y: 12, z: 0, type: 'body' },
+      { x: s.bodyLength * 0.6, y: s.bodyWidth * 0.7, z: 0, type: 'body' },
+      { x: s.headR * 0.5, y: s.bodyWidth * 0.9, z: 0, type: 'body' },
+      { x: -s.headR * 0.3, y: s.headR, z: 0, type: 'body' },
+    ];
 
-    // 左眼
+    // 旋转身体点并计算平均 z 值
+    const rotatedBody = bodyPoints.map(p => ({
+      ...this.rotate3D(p.x, p.y, p.z, yaw, pitch, roll),
+      type: 'body'
+    }));
+    const bodyZ = rotatedBody.reduce((sum, p) => sum + p.z, 0) / rotatedBody.length;
+
+    renderList.push({
+      type: 'spindleBody',
+      z: bodyZ,
+      points: rotatedBody,
+      tailEnd: this.rotate3D(s.bodyLength, 0, 0, yaw, pitch, roll),
+      tailLen: s.tailLength,
+    });
+
+    // === 特征点 ===
     const leftEye3D = this.rotate3D(
-      this.features.eyeLeft.x,
-      this.features.eyeLeft.y,
-      this.features.eyeLeft.z,
+      this.features.eyeLeft.x, this.features.eyeLeft.y, this.features.eyeLeft.z,
       yaw, pitch, roll
     );
-    featureList.push({ type: 'eye', ...leftEye3D, r: this.features.eyeLeft.r, openness: this.params.eyeLeft, side: 'left' });
+    renderList.push({ type: 'eye', ...leftEye3D, r: this.features.eyeLeft.r, openness: this.params.eyeLeft, side: 'left' });
 
-    // 右眼
     const rightEye3D = this.rotate3D(
-      this.features.eyeRight.x,
-      this.features.eyeRight.y,
-      this.features.eyeRight.z,
+      this.features.eyeRight.x, this.features.eyeRight.y, this.features.eyeRight.z,
       yaw, pitch, roll
     );
-    featureList.push({ type: 'eye', ...rightEye3D, r: this.features.eyeRight.r, openness: this.params.eyeRight, side: 'right' });
+    renderList.push({ type: 'eye', ...rightEye3D, r: this.features.eyeRight.r, openness: this.params.eyeRight, side: 'right' });
 
-    // 左鼻孔
     const leftNostril3D = this.rotate3D(
-      this.features.nostrilLeft.x,
-      this.features.nostrilLeft.y,
-      this.features.nostrilLeft.z,
+      this.features.nostrilLeft.x, this.features.nostrilLeft.y, this.features.nostrilLeft.z,
       yaw, pitch, roll
     );
-    featureList.push({ type: 'nostril', ...leftNostril3D, rx: this.features.nostrilLeft.rx, ry: this.features.nostrilLeft.ry });
+    renderList.push({ type: 'nostril', ...leftNostril3D, rx: this.features.nostrilLeft.rx, ry: this.features.nostrilLeft.ry });
 
-    // 右鼻孔
     const rightNostril3D = this.rotate3D(
-      this.features.nostrilRight.x,
-      this.features.nostrilRight.y,
-      this.features.nostrilRight.z,
+      this.features.nostrilRight.x, this.features.nostrilRight.y, this.features.nostrilRight.z,
       yaw, pitch, roll
     );
-    featureList.push({ type: 'nostril', ...rightNostril3D, rx: this.features.nostrilRight.rx, ry: this.features.nostrilRight.ry });
+    renderList.push({ type: 'nostril', ...rightNostril3D, rx: this.features.nostrilRight.rx, ry: this.features.nostrilRight.ry });
 
-    // 嘴巴
     const mouth3D = this.rotate3D(
-      this.features.mouth.x,
-      this.features.mouth.y,
-      this.features.mouth.z,
+      this.features.mouth.x, this.features.mouth.y, this.features.mouth.z,
       yaw, pitch, roll
     );
-    featureList.push({ type: 'mouth', ...mouth3D, w: this.features.mouth.w, openness: this.params.mouthOpen, smile: this.params.mouthSmile });
+    renderList.push({ type: 'mouth', ...mouth3D, w: this.features.mouth.w, openness: this.params.mouthOpen, smile: this.params.mouthSmile });
 
-    // 按 z 值排序（z 小的先画，z 大的后画）
-    featureList.sort((a, b) => a.z - b.z);
+    // 按 z 值排序（z 小的先画）
+    renderList.sort((a, b) => a.z - b.z);
 
-    // 绘制特征点
-    for (const f of featureList) {
-      // 透视缩放：z 越大（越靠近观察者），越大；z 越小（越远），越小
+    // 绘制
+    for (const f of renderList) {
       const perspective = Math.max(0.3, (f.z + 80) / 140);
-      // z 为负（背面）时淡化
       const opacity = f.z < -20 ? 0.15 : 1;
 
-      if (f.type === 'eye') {
+      if (f.type === 'spindleBody') {
+        this.drawRotatedSpindle(ctx, f.points, f.tailEnd, f.tailLen, yaw, pitch, perspective, opacity);
+      } else if (f.type === 'eye') {
         this.draw3DEye(ctx, f.x, f.y, f.r * perspective, f.openness, opacity);
       } else if (f.type === 'nostril') {
         this.draw3DNostril(ctx, f.x, f.y, f.rx * perspective, f.ry * perspective, opacity);
@@ -203,62 +215,31 @@ export class DebugAvatar {
     }
   }
 
-  drawSpindleBody(ctx, yaw, pitch) {
-    const s = this.spindle;
-
-    // 纺锤形身体：头部圆 + 中间宽 + 尾部尖 + 分叉尾巴
-    // 无鳍，无鳞片
-
-    // 透视压缩
-    const scaleY = 1 - Math.abs(Math.sin(pitch)) * 0.12;
-    const scaleX = 1 - Math.abs(Math.sin(yaw)) * 0.08;
-
+  drawRotatedSpindle(ctx, points, tailEnd, tailLen, yaw, pitch, perspective, opacity) {
     ctx.save();
-    ctx.scale(scaleX, scaleY);
+    ctx.globalAlpha = opacity;
 
-    // === 纺锤形身体路径 ===
+    // 纺锤形身体路径
     ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
 
-    // 头顶（圆弧形）
-    ctx.arc(-s.headR * 0.3, 0, s.headR, Math.PI * 0.5, Math.PI * 1.5, true);
+    // 背部弧线
+    ctx.bezierCurveTo(points[1].x, points[1].y, points[2].x, points[2].y, points[3].x, points[3].y);
 
-    // 背部弧线：从头部圆右侧开始，向后逐渐收窄
-    ctx.bezierCurveTo(
-      s.headR * 0.5, -s.bodyWidth,
-      s.bodyLength * 0.6, -s.bodyWidth * 0.85,
-      s.bodyLength, -s.bodyWidth * 0.3
-    );
-
-    // 尾柄（连接到尾巴）
-    ctx.bezierCurveTo(
-      s.bodyLength + 15, -s.bodyWidth * 0.15,
-      s.bodyLength + 25, -5,
-      s.bodyLength + s.tailLength * 0.5, 0
-    );
+    // 尾柄
+    ctx.bezierCurveTo(points[4].x, points[4].y, points[5].x, points[5].y, points[6].x, points[6].y);
 
     // 尾巴下分叉
-    ctx.bezierCurveTo(
-      s.bodyLength + 25, 8,
-      s.bodyLength + 20, 15,
-      s.bodyLength + s.tailLength * 0.3, 18
-    );
-    ctx.bezierCurveTo(
-      s.bodyLength + 10, 22,
-      s.bodyLength + 5, 18,
-      s.bodyLength, 12
-    );
+    ctx.bezierCurveTo(points[7].x, points[7].y, points[8].x, points[8].y, points[9].x, points[9].y);
+    ctx.bezierCurveTo(points[10].x, points[10].y, points[11].x, points[11].y, points[12].x, points[12].y);
 
-    // 腹部弧线：向前逐渐变宽回到头部
-    ctx.bezierCurveTo(
-      s.bodyLength * 0.6, s.bodyWidth * 0.7,
-      s.headR * 0.5, s.bodyWidth * 0.9,
-      -s.headR * 0.3, s.headR
-    );
+    // 腹部弧线
+    ctx.bezierCurveTo(points[13].x, points[13].y, points[14].x, points[14].y, points[15].x, points[15].y);
 
     ctx.closePath();
 
-    // === 填充：上半灰褐，下半米白，水平分界线 ===
-    const bodyGrad = ctx.createLinearGradient(0, -s.bodyWidth, 0, s.bodyWidth);
+    // 填充：上半灰褐，下半米白
+    const bodyGrad = ctx.createLinearGradient(0, -60 * perspective, 0, 60 * perspective);
     bodyGrad.addColorStop(0, '#bdb8aa');
     bodyGrad.addColorStop(0.50, '#bdb8aa');
     bodyGrad.addColorStop(0.50, '#f2f1ea');
@@ -266,24 +247,37 @@ export class DebugAvatar {
     ctx.fillStyle = bodyGrad;
     ctx.fill();
 
-    // === 轮廓 ===
+    // 轮廓
     ctx.strokeStyle = '#7c7a72';
     ctx.lineWidth = 3.5;
     ctx.lineJoin = 'round';
     ctx.stroke();
 
-    // === 尾巴（对称分叉，像两片叶子） ===
-    this.drawTail(ctx, s.bodyLength, s.tailLength);
+    // 尾巴
+    this.drawRotatedTail(ctx, tailEnd, tailLen, yaw, pitch, perspective);
 
     ctx.restore();
   }
 
-  drawTail(ctx, bodyEndX, tailLen) {
+  drawRotatedTail(ctx, tailEnd, tailLen, yaw, pitch, perspective) {
+    const t = tailLen * perspective;
+    const x = tailEnd.x;
+    const y = tailEnd.y;
+
+    // 根据 yaw 调整尾巴展开角度
+    const tailAngle = Math.sin(yaw) * 0.3;
+
     // 上尾叶
     ctx.beginPath();
-    ctx.moveTo(bodyEndX, -2);
-    ctx.quadraticCurveTo(bodyEndX + tailLen * 0.5, -tailLen * 0.6, bodyEndX + tailLen, -tailLen * 0.3);
-    ctx.quadraticCurveTo(bodyEndX + tailLen * 0.7, -tailLen * 0.1, bodyEndX + tailLen * 0.3, 0);
+    ctx.moveTo(x, y - 2);
+    ctx.quadraticCurveTo(
+      x + t * 0.5, y - t * 0.6 + tailAngle * 20,
+      x + t, y - t * 0.3 + tailAngle * 10
+    );
+    ctx.quadraticCurveTo(
+      x + t * 0.7, y - t * 0.1,
+      x + t * 0.3, y
+    );
     ctx.closePath();
     ctx.fillStyle = '#a8a49c';
     ctx.fill();
@@ -293,9 +287,15 @@ export class DebugAvatar {
 
     // 下尾叶
     ctx.beginPath();
-    ctx.moveTo(bodyEndX, 2);
-    ctx.quadraticCurveTo(bodyEndX + tailLen * 0.5, tailLen * 0.6, bodyEndX + tailLen, tailLen * 0.3);
-    ctx.quadraticCurveTo(bodyEndX + tailLen * 0.7, tailLen * 0.1, bodyEndX + tailLen * 0.3, 0);
+    ctx.moveTo(x, y + 2);
+    ctx.quadraticCurveTo(
+      x + t * 0.5, y + t * 0.6 + tailAngle * 20,
+      x + t, y + t * 0.3 + tailAngle * 10
+    );
+    ctx.quadraticCurveTo(
+      x + t * 0.7, y + t * 0.1,
+      x + t * 0.3, y
+    );
     ctx.closePath();
     ctx.fillStyle = '#a8a49c';
     ctx.fill();
@@ -308,7 +308,6 @@ export class DebugAvatar {
     ctx.save();
     ctx.globalAlpha = opacity;
 
-    // 眼白
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.fillStyle = '#ffffff';
@@ -317,7 +316,6 @@ export class DebugAvatar {
     ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // 瞳孔
     const pupilRadius = radius * (0.25 + openness * 0.55);
     const pupilY = y + 1;
 
@@ -326,7 +324,6 @@ export class DebugAvatar {
     ctx.fillStyle = '#1a1a1a';
     ctx.fill();
 
-    // 闭眼效果
     if (openness < 0.3) {
       const closedAmount = 1 - (openness / 0.3);
       const eyelidY = y - radius + (radius * 2 * (1 - closedAmount * 0.85));

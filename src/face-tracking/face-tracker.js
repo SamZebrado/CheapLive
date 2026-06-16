@@ -27,6 +27,12 @@ class FaceTracker {
     this.lastFpsTime = 0;
     this.frameCount = 0;
 
+    // 性能控制
+    this.perfMode = 'normal'; // 'normal' | 'low' | 'minimal'
+    this.frameSkip = 0;       // 跳帧计数器
+    this.renderInterval = 0;  // 渲染间隔（ms）
+    this.lastRenderTime = 0;  // 上次渲染时间
+
     // 灵敏度（0~200，100=默认）
     this.sensitivity = {
       eye: 100,
@@ -131,6 +137,13 @@ class FaceTracker {
           if (valEl) valEl.textContent = this.sensitivity[key] + '%';
         }
       }
+
+      // 恢复性能模式
+      if (settings.perfMode) {
+        this.perfMode = settings.perfMode;
+        const perfRadio = document.querySelector(`input[name="perfMode"][value="${settings.perfMode}"]`);
+        if (perfRadio) perfRadio.checked = true;
+      }
     } catch (e) {
       console.warn('加载设置失败:', e);
     }
@@ -143,6 +156,7 @@ class FaceTracker {
         mirrorData: this.mirrorData,
         appMode: this.avatar ? this.avatar.appMode : false,
         sensitivity: this.sensitivity,
+        perfMode: this.perfMode,
       };
       localStorage.setItem('cheaplive_settings', JSON.stringify(settings));
     } catch (e) {
@@ -189,6 +203,16 @@ class FaceTracker {
         this.saveSettings();
       });
     }
+
+    // 性能模式开关
+    const perfRadios = document.querySelectorAll('input[name="perfMode"]');
+    perfRadios.forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        this.perfMode = e.target.value;
+        this.frameSkip = 0;
+        this.saveSettings();
+      });
+    });
   }
 
   toggleAppModeUI(enabled) {
@@ -321,23 +345,50 @@ class FaceTracker {
       document.getElementById('fps').textContent = this.fps;
     }
 
-    if (this.webcam.currentTime !== this.lastVideoTime) {
+    // 性能模式：跳帧控制
+    let shouldDetect = true;
+    let shouldRender = true;
+
+    if (this.perfMode === 'low') {
+      // 低性能模式：每 2 帧检测一次，渲染间隔 33ms (30fps)
+      this.frameSkip++;
+      if (this.frameSkip % 2 !== 0) shouldDetect = false;
+      if (now - this.lastRenderTime < 33) shouldRender = false;
+    } else if (this.perfMode === 'minimal') {
+      // 最低性能模式：每 3 帧检测一次，渲染间隔 50ms (20fps)
+      this.frameSkip++;
+      if (this.frameSkip % 3 !== 0) shouldDetect = false;
+      if (now - this.lastRenderTime < 50) shouldRender = false;
+    }
+
+    if (shouldDetect && this.webcam.currentTime !== this.lastVideoTime) {
       this.lastVideoTime = this.webcam.currentTime;
 
       const results = this.faceLandmarker.detectForVideo(this.webcam, now);
 
-      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      if (shouldRender) {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.lastRenderTime = now;
 
-      if (results.faceLandmarks && results.faceLandmarks.length > 0) {
-        const landmarks = results.faceLandmarks[0];
-        this.drawLandmarks(landmarks);
+        if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+          const landmarks = results.faceLandmarks[0];
+          this.drawLandmarks(landmarks);
 
+          if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
+            this.updateBlendshapes(results.faceBlendshapes[0]);
+          }
+
+          if (results.facialTransformationMatrixes && results.facialTransformationMatrixes.length > 0) {
+            this.updateHeadPose(results.facialTransformationMatrixes[0], landmarks);
+          }
+        }
+      } else {
+        // 不渲染画面，但仍在后台更新 blendshapes（保持 avatar 动画）
         if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
           this.updateBlendshapes(results.faceBlendshapes[0]);
         }
-
         if (results.facialTransformationMatrixes && results.facialTransformationMatrixes.length > 0) {
-          this.updateHeadPose(results.facialTransformationMatrixes[0], landmarks);
+          this.updateHeadPose(results.facialTransformationMatrixes[0], results.faceLandmarks[0]);
         }
       }
     }
