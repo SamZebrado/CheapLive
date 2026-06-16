@@ -21,6 +21,7 @@ class FaceTracker {
 
     this.running = false;
     this.privacyMode = false;
+    this.mirrorData = false; // 镜像：交换左右面部数据
     this.lastVideoTime = -1;
     this.fps = 0;
     this.lastFpsTime = 0;
@@ -54,11 +55,11 @@ class FaceTracker {
       });
     });
 
-    // 镜像开关
+    // 镜像开关：交换左右面部数据，而非翻转图形
     const mirrorToggle = document.getElementById('mirrorMode');
     if (mirrorToggle) {
       mirrorToggle.addEventListener('change', (e) => {
-        this.avatar.setMirror(e.target.checked);
+        this.mirrorData = e.target.checked;
       });
     }
 
@@ -318,8 +319,11 @@ class FaceTracker {
     }
 
     // 眼睛：eyeBlinkLeft 是眨眼程度（0=睁眼，1=闭眼），需要反转成睁眼度
-    this.setParam('eyeLeft', 1 - (map['eyeBlinkLeft'] || 0));
-    this.setParam('eyeRight', 1 - (map['eyeBlinkRight'] || 0));
+    // 镜像模式下交换左右眼数据
+    const eyeLeftRaw = 1 - (map['eyeBlinkLeft'] || 0);
+    const eyeRightRaw = 1 - (map['eyeBlinkRight'] || 0);
+    this.setParam('eyeLeft', this.mirrorData ? eyeRightRaw : eyeLeftRaw);
+    this.setParam('eyeRight', this.mirrorData ? eyeLeftRaw : eyeRightRaw);
 
     // 嘴巴
     this.setParam('mouthOpen', map['jawOpen'] || 0);
@@ -327,9 +331,11 @@ class FaceTracker {
     const smileRight = map['mouthSmileRight'] || 0;
     this.setParam('mouthSmile', (smileLeft + smileRight) / 2);
 
-    // 眉毛
-    this.setParam('browLeft', map['browInnerUp'] || 0);
-    this.setParam('browRight', map['browOuterUpLeft'] || 0);
+    // 眉毛：镜像模式下交换
+    const browLeftRaw = map['browInnerUp'] || 0;
+    const browRightRaw = map['browOuterUpLeft'] || 0;
+    this.setParam('browLeft', this.mirrorData ? browRightRaw : browLeftRaw);
+    this.setParam('browRight', this.mirrorData ? browLeftRaw : browRightRaw);
   }
 
   updateHeadPose(matrix, landmarks) {
@@ -349,15 +355,24 @@ class FaceTracker {
     }
 
     // 归一化到 0-1 范围
-    this.setParam('headYaw', (yaw / Math.PI + 1) / 2);
+    // 镜像模式下左右翻转 headYaw 和 headRoll
+    let headYawNorm = (yaw / Math.PI + 1) / 2;
+    let headRollNorm = (roll / Math.PI + 1) / 2;
+    if (this.mirrorData) {
+      headYawNorm = 1 - headYawNorm;
+      headRollNorm = 1 - headRollNorm;
+    }
+    this.setParam('headYaw', headYawNorm);
     this.setParam('headPitch', (pitch / Math.PI + 1) / 2);
-    this.setParam('headRoll', (roll / Math.PI + 1) / 2);
+    this.setParam('headRoll', headRollNorm);
 
     // 头部在画面中的位置（基于 landmarks 的鼻子中心点）
     if (landmarks && landmarks.length > 0) {
       // 鼻子中心点索引 1（MediaPipe Face Landmarker）
       const nose = landmarks[1];
-      this.setParam('headX', nose.x);
+      // 镜像模式下水平位置翻转
+      const headX = this.mirrorData ? (1 - nose.x) : nose.x;
+      this.setParam('headX', headX);
       this.setParam('headY', nose.y);
     }
   }

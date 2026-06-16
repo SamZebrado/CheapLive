@@ -94,22 +94,9 @@ export class DebugAvatar {
     const p = this.params;
     const faceR = 85; // 正圆半径
 
-    // === 身体：正圆形脸 + 向后延伸的尾巴 ===
-
-    // 1. 正圆形头部
+    // === 正圆形头部 ===
     ctx.beginPath();
     ctx.arc(0, 0, faceR, 0, Math.PI * 2);
-
-    // 2. 从圆右侧延伸出身体
-    // 上背弧线
-    ctx.bezierCurveTo(faceR + 10, -faceR * 0.6, faceR + 50, -faceR * 0.5, faceR + 80, -20);
-    // 尾部上沿
-    ctx.bezierCurveTo(faceR + 100, -5, faceR + 105, 0, faceR + 100, 10);
-    // 尾部下沿
-    ctx.bezierCurveTo(faceR + 105, 20, faceR + 100, 25, faceR + 80, 30);
-    // 下腹弧线回到圆
-    ctx.bezierCurveTo(faceR + 50, faceR * 0.5, faceR + 10, faceR * 0.6, 0, faceR);
-    ctx.closePath();
 
     // 填充：上半灰褐 #bdb8aa，下半米白 #f2f1ea，水平分界线在 52%
     const bodyGrad = ctx.createLinearGradient(0, -faceR, 0, faceR);
@@ -123,52 +110,14 @@ export class DebugAvatar {
     // 轮廓
     ctx.strokeStyle = '#7c7a72';
     ctx.lineWidth = 4;
-    ctx.lineJoin = 'round';
     ctx.stroke();
 
-    // === 背鳍（小三角，背部中央偏后） ===
-    ctx.beginPath();
-    ctx.moveTo(faceR + 15, -faceR * 0.55);
-    ctx.lineTo(faceR + 35, -faceR * 0.9);
-    ctx.lineTo(faceR + 55, -faceR * 0.5);
-    ctx.closePath();
-    ctx.fillStyle = '#a8a49c';
-    ctx.fill();
-    ctx.strokeStyle = '#7c7a72';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-
-    // === 臀鳍（小三角，腹部中央偏后） ===
-    ctx.beginPath();
-    ctx.moveTo(faceR + 15, faceR * 0.55);
-    ctx.lineTo(faceR + 35, faceR * 0.9);
-    ctx.lineTo(faceR + 55, faceR * 0.5);
-    ctx.closePath();
-    ctx.fillStyle = '#a8a49c';
-    ctx.fill();
-    ctx.strokeStyle = '#7c7a72';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-
-    // === 尾鳍（对称分叉） ===
-    ctx.beginPath();
-    ctx.moveTo(faceR + 95, 5);
-    ctx.quadraticCurveTo(faceR + 130, -25, faceR + 125, -5);
-    ctx.quadraticCurveTo(faceR + 140, 5, faceR + 125, 15);
-    ctx.quadraticCurveTo(faceR + 130, 35, faceR + 95, 15);
-    ctx.closePath();
-    ctx.fillStyle = '#a8a49c';
-    ctx.fill();
-    ctx.strokeStyle = '#7c7a72';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-
-    // === 眼睛（大圆眼，白色底，黑色瞳孔） ===
-    // 参考电音蝌蚪：占脸宽 24%，高度在 36%
-    const eyeY = -faceR * 0.15;
-    const leftEyeX = -faceR * 0.35;
-    const rightEyeX = faceR * 0.15;
-    const eyeRadius = faceR * 0.28;
+    // === 眼睛（大圆眼，间距更大） ===
+    // 增大眼间距：左眼在 -0.42，右眼在 +0.22（之前是 -0.35 / +0.15）
+    const eyeY = -faceR * 0.12;
+    const leftEyeX = -faceR * 0.42;
+    const rightEyeX = faceR * 0.22;
+    const eyeRadius = faceR * 0.26;
 
     this.drawSacabaEye(ctx, leftEyeX, eyeY, eyeRadius, p.eyeLeft);
     this.drawSacabaEye(ctx, rightEyeX, eyeY, eyeRadius, p.eyeRight);
@@ -176,14 +125,14 @@ export class DebugAvatar {
     // === 鼻孔（两个小黑椭圆，在两眼之间偏下） ===
     ctx.fillStyle = '#1a1a1a';
     ctx.beginPath();
-    ctx.ellipse(-faceR * 0.12, faceR * 0.12, 5, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(-faceR * 0.12, faceR * 0.15, 5, 4, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.ellipse(faceR * 0.02, faceR * 0.12, 5, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(faceR * 0.02, faceR * 0.15, 5, 4, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // === 嘴巴（小三角形嘴，在头部前端下方） ===
-    this.drawSacabaMouth(ctx, -faceR * 0.05, faceR * 0.35, p.mouthOpen, p.mouthSmile);
+    this.drawSacabaMouth(ctx, -faceR * 0.05, faceR * 0.38, p.mouthOpen, p.mouthSmile);
   }
 
   drawSacabaEye(ctx, x, y, radius, openness) {
