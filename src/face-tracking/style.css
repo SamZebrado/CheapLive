@@ -397,7 +397,8 @@ button:disabled {
 }
 
 /* 镜像开关 */
-.mirror-toggle {
+.mirror-toggle,
+.app-mode-toggle {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -406,4 +407,14 @@ button:disabled {
   background: var(--bg2);
   border-radius: 8px;
   border: 1px solid var(--rule);
+}
+
+.app-mode-toggle {
+  background: linear-gradient(135deg, rgba(255, 107, 74, 0.12), rgba(255, 140, 100, 0.08));
+  border-color: rgba(255, 107, 74, 0.25);
+}
+
+.app-mode-toggle .toggle-label {
+  color: #ff8f70;
+  font-weight: 600;
 }

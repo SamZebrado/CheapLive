@@ -61,6 +61,68 @@ class FaceTracker {
         this.avatar.setMirror(e.target.checked);
       });
     }
+
+    // 应用模式开关
+    const appModeToggle = document.getElementById('appMode');
+    if (appModeToggle) {
+      appModeToggle.addEventListener('change', (e) => {
+        this.avatar.setAppMode(e.target.checked);
+        this.toggleAppModeUI(e.target.checked);
+      });
+    }
+  }
+
+  toggleAppModeUI(enabled) {
+    // 隐藏/显示调试面板
+    const dataPanel = document.querySelector('.data-panel');
+    const paramPanel = document.querySelector('.param-panel');
+    const avatarControls = document.querySelector('.avatar-controls');
+    const mirrorToggle = document.querySelector('.mirror-toggle');
+    const privacyToggle = document.querySelector('.privacy-toggle');
+    const controls = document.querySelector('.controls');
+    const status = document.getElementById('status');
+    const fps = document.getElementById('fps');
+
+    if (enabled) {
+      if (dataPanel) dataPanel.style.display = 'none';
+      if (paramPanel) paramPanel.style.display = 'none';
+      if (avatarControls) avatarControls.style.display = 'none';
+      if (mirrorToggle) mirrorToggle.style.display = 'none';
+      if (privacyToggle) privacyToggle.style.display = 'none';
+      if (controls) controls.style.display = 'none';
+      if (status) status.style.display = 'none';
+      if (fps) fps.style.display = 'none';
+
+      // 扩大 avatar 区域
+      const avatarSection = document.querySelector('.avatar-section');
+      if (avatarSection) {
+        avatarSection.style.gridColumn = '1 / -1';
+        avatarSection.style.maxWidth = '100%';
+      }
+      const avatarWrapper = document.querySelector('.avatar-wrapper');
+      if (avatarWrapper) {
+        avatarWrapper.style.height = '70vh';
+      }
+    } else {
+      if (dataPanel) dataPanel.style.display = '';
+      if (paramPanel) paramPanel.style.display = '';
+      if (avatarControls) avatarControls.style.display = '';
+      if (mirrorToggle) mirrorToggle.style.display = '';
+      if (privacyToggle) privacyToggle.style.display = '';
+      if (controls) controls.style.display = '';
+      if (status) status.style.display = '';
+      if (fps) fps.style.display = '';
+
+      const avatarSection = document.querySelector('.avatar-section');
+      if (avatarSection) {
+        avatarSection.style.gridColumn = '';
+        avatarSection.style.maxWidth = '';
+      }
+      const avatarWrapper = document.querySelector('.avatar-wrapper');
+      if (avatarWrapper) {
+        avatarWrapper.style.height = '';
+      }
+    }
   }
 
   async init() {

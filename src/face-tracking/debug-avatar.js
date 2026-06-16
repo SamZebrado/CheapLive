@@ -1,7 +1,7 @@
 /**
  * CheapLive Debug Avatar - Sacabambaspis Edition
  * 萨卡班甲鱼调试形象，根据面捕参数实时变形
- * 参考真实 Sacabambaspis 化石复原图和 HaageemeeOtamatone 鱼脸模式
+ * 参考 HaageemeeOtamatone 鱼脸模式：正圆形脸，灰白水平分界
  */
 
 export class DebugAvatar {
@@ -9,19 +9,20 @@ export class DebugAvatar {
     this.canvas = document.getElementById(canvasId);
     this.ctx = this.canvas.getContext('2d');
     this.params = {
-      eyeLeft: 1,      // 0=闭眼, 1=睁眼
+      eyeLeft: 1,
       eyeRight: 1,
-      mouthOpen: 0,    // 0=闭嘴, 1=张嘴
-      mouthSmile: 0,   // 0=中性, 1=微笑
+      mouthOpen: 0,
+      mouthSmile: 0,
       browLeft: 0,
       browRight: 0,
-      headYaw: 0.5,    // 0=左, 0.5=中, 1=右
-      headPitch: 0.5,  // 0=上, 0.5=中, 1=下
-      headRoll: 0.5,   // 0=左倾, 0.5=正, 1=右倾
-      headX: 0.5,      // 0=左, 0.5=中, 1=右
-      headY: 0.5,      // 0=上, 0.5=中, 1=下
+      headYaw: 0.5,
+      headPitch: 0.5,
+      headRoll: 0.5,
+      headX: 0.5,
+      headY: 0.5,
     };
     this.mirror = false;
+    this.appMode = false; // 应用模式：隐藏调试标签
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -44,14 +45,23 @@ export class DebugAvatar {
     this.draw();
   }
 
+  setAppMode(enabled) {
+    this.appMode = enabled;
+    this.draw();
+  }
+
   draw() {
     const ctx = this.ctx;
     const w = this.canvas.width;
     const h = this.canvas.height;
 
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#1A1A2E';
-    ctx.fillRect(0, 0, w, h);
+
+    // 应用模式下背景透明（或纯色），调试模式下用深色背景
+    if (!this.appMode) {
+      ctx.fillStyle = '#1A1A2E';
+      ctx.fillRect(0, 0, w, h);
+    }
 
     const posX = (this.params.headX - 0.5) * 120;
     const posY = (this.params.headY - 0.5) * 80;
@@ -74,51 +84,53 @@ export class DebugAvatar {
     this.drawSacabambaspis(ctx);
 
     ctx.restore();
-    this.drawLabels(ctx, w, h);
+
+    if (!this.appMode) {
+      this.drawLabels(ctx, w, h);
+    }
   }
 
   drawSacabambaspis(ctx) {
     const p = this.params;
+    const faceR = 85; // 正圆半径
 
-    // === 身体：Sacabambaspis 是扁平的盾皮鱼 ===
-    // 整体呈圆角菱形/盾牌状，头部圆钝，身体向后逐渐收窄
+    // === 身体：正圆形脸 + 向后延伸的尾巴 ===
+
+    // 1. 正圆形头部
     ctx.beginPath();
-    // 头顶（圆弧形）
-    ctx.arc(-40, -10, 75, Math.PI * 1.15, Math.PI * 1.85, false);
-    // 右侧背部弧线
-    ctx.bezierCurveTo(50, -75, 110, -50, 140, -15);
+    ctx.arc(0, 0, faceR, 0, Math.PI * 2);
+
+    // 2. 从圆右侧延伸出身体
+    // 上背弧线
+    ctx.bezierCurveTo(faceR + 10, -faceR * 0.6, faceR + 50, -faceR * 0.5, faceR + 80, -20);
     // 尾部上沿
-    ctx.bezierCurveTo(165, 0, 170, 5, 160, 15);
+    ctx.bezierCurveTo(faceR + 100, -5, faceR + 105, 0, faceR + 100, 10);
     // 尾部下沿
-    ctx.bezierCurveTo(170, 25, 165, 30, 140, 35);
-    // 右侧腹部弧线
-    ctx.bezierCurveTo(110, 60, 50, 65, -20, 55);
-    // 底部（较平）
-    ctx.bezierCurveTo(-60, 50, -80, 40, -90, 20);
-    // 左侧腹部回到头部
-    ctx.bezierCurveTo(-100, 0, -95, -20, -85, -40);
+    ctx.bezierCurveTo(faceR + 105, 20, faceR + 100, 25, faceR + 80, 30);
+    // 下腹弧线回到圆
+    ctx.bezierCurveTo(faceR + 50, faceR * 0.5, faceR + 10, faceR * 0.6, 0, faceR);
     ctx.closePath();
 
-    // 身体填充：上半灰褐，下半米白，水平分界线
-    const bodyGrad = ctx.createLinearGradient(0, -80, 0, 70);
-    bodyGrad.addColorStop(0, '#b5b0a2');
-    bodyGrad.addColorStop(0.50, '#b5b0a2');
-    bodyGrad.addColorStop(0.50, '#f0eee6');
-    bodyGrad.addColorStop(1, '#f0eee6');
+    // 填充：上半灰褐 #bdb8aa，下半米白 #f2f1ea，水平分界线在 52%
+    const bodyGrad = ctx.createLinearGradient(0, -faceR, 0, faceR);
+    bodyGrad.addColorStop(0, '#bdb8aa');
+    bodyGrad.addColorStop(0.52, '#bdb8aa');
+    bodyGrad.addColorStop(0.52, '#f2f1ea');
+    bodyGrad.addColorStop(1, '#f2f1ea');
     ctx.fillStyle = bodyGrad;
     ctx.fill();
 
-    // 身体轮廓
+    // 轮廓
     ctx.strokeStyle = '#7c7a72';
     ctx.lineWidth = 4;
     ctx.lineJoin = 'round';
     ctx.stroke();
 
-    // === 背鳍（小三角形，在背部中央偏后） ===
+    // === 背鳍（小三角，背部中央偏后） ===
     ctx.beginPath();
-    ctx.moveTo(30, -72);
-    ctx.lineTo(55, -105);
-    ctx.lineTo(75, -68);
+    ctx.moveTo(faceR + 15, -faceR * 0.55);
+    ctx.lineTo(faceR + 35, -faceR * 0.9);
+    ctx.lineTo(faceR + 55, -faceR * 0.5);
     ctx.closePath();
     ctx.fillStyle = '#a8a49c';
     ctx.fill();
@@ -126,11 +138,11 @@ export class DebugAvatar {
     ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // === 臀鳍（小三角形，在腹部中央偏后） ===
+    // === 臀鳍（小三角，腹部中央偏后） ===
     ctx.beginPath();
-    ctx.moveTo(30, 62);
-    ctx.lineTo(55, 95);
-    ctx.lineTo(75, 58);
+    ctx.moveTo(faceR + 15, faceR * 0.55);
+    ctx.lineTo(faceR + 35, faceR * 0.9);
+    ctx.lineTo(faceR + 55, faceR * 0.5);
     ctx.closePath();
     ctx.fillStyle = '#a8a49c';
     ctx.fill();
@@ -140,10 +152,10 @@ export class DebugAvatar {
 
     // === 尾鳍（对称分叉） ===
     ctx.beginPath();
-    ctx.moveTo(155, 5);
-    ctx.quadraticCurveTo(190, -30, 185, -5);
-    ctx.quadraticCurveTo(200, 5, 185, 15);
-    ctx.quadraticCurveTo(190, 40, 155, 15);
+    ctx.moveTo(faceR + 95, 5);
+    ctx.quadraticCurveTo(faceR + 130, -25, faceR + 125, -5);
+    ctx.quadraticCurveTo(faceR + 140, 5, faceR + 125, 15);
+    ctx.quadraticCurveTo(faceR + 130, 35, faceR + 95, 15);
     ctx.closePath();
     ctx.fillStyle = '#a8a49c';
     ctx.fill();
@@ -151,59 +163,27 @@ export class DebugAvatar {
     ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // === 眼睛（萨卡班甲鱼标志性的大圆眼，位置偏前上方） ===
-    // 眼睛在头部前侧，间距较大，非常圆
-    const eyeY = -35;
-    const leftEyeX = -55;
-    const rightEyeX = 15;
-    const eyeRadius = 26;
+    // === 眼睛（大圆眼，白色底，黑色瞳孔） ===
+    // 参考电音蝌蚪：占脸宽 24%，高度在 36%
+    const eyeY = -faceR * 0.15;
+    const leftEyeX = -faceR * 0.35;
+    const rightEyeX = faceR * 0.15;
+    const eyeRadius = faceR * 0.28;
 
     this.drawSacabaEye(ctx, leftEyeX, eyeY, eyeRadius, p.eyeLeft);
     this.drawSacabaEye(ctx, rightEyeX, eyeY, eyeRadius, p.eyeRight);
 
-    // === 鼻孔（两个小黑点，在两眼之间偏下） ===
+    // === 鼻孔（两个小黑椭圆，在两眼之间偏下） ===
     ctx.fillStyle = '#1a1a1a';
     ctx.beginPath();
-    ctx.ellipse(-22, -5, 4, 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(-faceR * 0.12, faceR * 0.12, 5, 4, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.ellipse(-14, -5, 4, 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(faceR * 0.02, faceR * 0.12, 5, 4, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // === 嘴巴（小三角形嘴，在头部前端下方） ===
-    this.drawSacabaMouth(ctx, -18, 18, p.mouthOpen, p.mouthSmile);
-
-    // === 头部侧线（Sacabambaspis 特征：感觉沟） ===
-    ctx.strokeStyle = 'rgba(124, 122, 114, 0.25)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(-70, -10);
-    ctx.quadraticCurveTo(-30, -5, 20, -8);
-    ctx.quadraticCurveTo(80, -12, 130, -5);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(-70, 15);
-    ctx.quadraticCurveTo(-30, 20, 20, 18);
-    ctx.quadraticCurveTo(80, 15, 130, 20);
-    ctx.stroke();
-
-    // === 身体鳞片纹理（ subtle 的菱形鳞片） ===
-    ctx.strokeStyle = 'rgba(124, 122, 114, 0.12)';
-    ctx.lineWidth = 1;
-    for (let row = 0; row < 3; row++) {
-      for (let col = 0; col < 4; col++) {
-        const sx = 10 + col * 22;
-        const sy = -15 + row * 18;
-        ctx.beginPath();
-        ctx.moveTo(sx, sy - 6);
-        ctx.lineTo(sx + 8, sy);
-        ctx.lineTo(sx, sy + 6);
-        ctx.lineTo(sx - 8, sy);
-        ctx.closePath();
-        ctx.stroke();
-      }
-    }
+    this.drawSacabaMouth(ctx, -faceR * 0.05, faceR * 0.35, p.mouthOpen, p.mouthSmile);
   }
 
   drawSacabaEye(ctx, x, y, radius, openness) {
@@ -220,7 +200,7 @@ export class DebugAvatar {
 
     // 瞳孔（黑色实心圆）
     // 睁眼时瞳孔大，闭眼时瞳孔小
-    const pupilRadius = radius * (0.25 + openness * 0.55); // 0.25~0.80
+    const pupilRadius = radius * (0.25 + openness * 0.55);
     const pupilY = y + 1;
 
     ctx.beginPath();
@@ -228,18 +208,16 @@ export class DebugAvatar {
     ctx.fillStyle = '#1a1a1a';
     ctx.fill();
 
-    // 闭眼效果：当 openness < 0.3 时，用眼皮覆盖
+    // 闭眼效果
     if (openness < 0.3) {
-      const closedAmount = 1 - (openness / 0.3); // 0~1
+      const closedAmount = 1 - (openness / 0.3);
       const eyelidY = y - radius + (radius * 2 * (1 - closedAmount * 0.85));
 
-      // 上眼皮（灰褐色，覆盖眼睛上半部分）
       ctx.beginPath();
       ctx.ellipse(x, eyelidY - radius * 0.1, radius + 2, radius * closedAmount * 0.9, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#b5b0a2';
+      ctx.fillStyle = '#bdb8aa';
       ctx.fill();
 
-      // 闭眼线
       ctx.beginPath();
       ctx.moveTo(x - radius * 0.85, eyelidY);
       ctx.quadraticCurveTo(x, eyelidY + 3, x + radius * 0.85, eyelidY);
@@ -251,12 +229,11 @@ export class DebugAvatar {
   }
 
   drawSacabaMouth(ctx, x, y, openness, smile) {
-    const width = 22;
-    const openHeight = 14 * openness;
+    const width = 24;
+    const openHeight = 16 * openness;
     const smileOffset = smile * 4;
 
     if (openness > 0.2) {
-      // 张嘴（小三角形）
       ctx.beginPath();
       ctx.moveTo(x - width / 2, y - smileOffset);
       ctx.lineTo(x + width / 2, y - smileOffset);
@@ -270,7 +247,6 @@ export class DebugAvatar {
       ctx.lineJoin = 'round';
       ctx.stroke();
     } else {
-      // 闭嘴（小弧线）
       ctx.beginPath();
       ctx.moveTo(x - width / 2, y + smileOffset * 0.3);
       ctx.quadraticCurveTo(x, y - 2 - smileOffset, x + width / 2, y + smileOffset * 0.3);
