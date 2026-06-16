@@ -41,7 +41,7 @@
 
       <!-- 中间：调试小人 -->
       <div class="avatar-section">
-        <h2>调试小人</h2>
+        <h2>萨卡班甲鱼</h2>
         <div class="avatar-wrapper">
           <canvas id="avatar_canvas"></canvas>
         </div>
@@ -50,6 +50,13 @@
           <button id="testSmile" class="btn-small">测试微笑</button>
           <button id="testOpen" class="btn-small">测试张嘴</button>
           <button id="testReset" class="btn-small">重置</button>
+        </div>
+        <div class="mirror-toggle">
+          <label class="toggle-switch">
+            <input type="checkbox" id="mirrorMode">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">镜像翻转</span>
         </div>
       </div>
 
@@ -133,6 +140,24 @@
               <div id="headRoll" class="param-fill"></div>
             </div>
             <span id="headRollVal" class="param-value">0.00</span>
+          </div>
+        </div>
+
+        <div class="param-group">
+          <h3>头部位置</h3>
+          <div class="param-row">
+            <span class="param-label">画面左右</span>
+            <div class="param-bar">
+              <div id="headX" class="param-fill"></div>
+            </div>
+            <span id="headXVal" class="param-value">0.00</span>
+          </div>
+          <div class="param-row">
+            <span class="param-label">画面上下</span>
+            <div class="param-bar">
+              <div id="headY" class="param-fill"></div>
+            </div>
+            <span id="headYVal" class="param-value">0.00</span>
           </div>
         </div>
 

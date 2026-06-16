@@ -1,7 +1,7 @@
 /**
  * CheapLive Debug Avatar - Sacabambaspis Edition
  * 萨卡班甲鱼调试形象，根据面捕参数实时变形
- * 灰白配色、大圆眼睛、三角形嘴
+ * 参考 HaageemeeOtamatone 项目的鱼脸模式配色和造型
  */
 
 export class DebugAvatar {
@@ -18,7 +18,10 @@ export class DebugAvatar {
       headYaw: 0.5,    // 0=左, 0.5=中, 1=右
       headPitch: 0.5,  // 0=上, 0.5=中, 1=下
       headRoll: 0.5,   // 0=左倾, 0.5=正, 1=右倾
+      headX: 0.5,      // 0=左, 0.5=中, 1=右 (头部在画面中的水平位置)
+      headY: 0.5,      // 0=上, 0.5=中, 1=下 (头部在画面中的垂直位置)
     };
+    this.mirror = false; // 镜像翻转
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -36,12 +39,15 @@ export class DebugAvatar {
     this.draw();
   }
 
+  setMirror(enabled) {
+    this.mirror = enabled;
+    this.draw();
+  }
+
   draw() {
     const ctx = this.ctx;
     const w = this.canvas.width;
     const h = this.canvas.height;
-    const cx = w / 2;
-    const cy = h / 2;
 
     // 清空画布
     ctx.clearRect(0, 0, w, h);
@@ -50,14 +56,31 @@ export class DebugAvatar {
     ctx.fillStyle = '#1A1A2E';
     ctx.fillRect(0, 0, w, h);
 
-    // 头部姿态影响
+    // 计算头部位置（基于 headX/headY，模拟人在画面中的位置）
+    // headX: 0=左, 0.5=中, 1=右  →  偏移范围 ±60px
+    // headY: 0=上, 0.5=中, 1=下  →  偏移范围 ±40px
+    const posX = (this.params.headX - 0.5) * 120;
+    const posY = (this.params.headY - 0.5) * 80;
+
+    // 头部姿态影响（相对于自身中心的旋转/倾斜）
     const headYaw = (this.params.headYaw - 0.5) * 40;
     const headPitch = (this.params.headPitch - 0.5) * 30;
     const headRoll = (this.params.headRoll - 0.5) * 20;
 
+    const cx = w / 2 + posX;
+    const cy = h / 2 + posY;
+
     ctx.save();
-    ctx.translate(cx + headYaw, cy + headPitch);
+    ctx.translate(cx, cy);
     ctx.rotate(headRoll * Math.PI / 180);
+
+    // 镜像翻转
+    if (this.mirror) {
+      ctx.scale(-1, 1);
+    }
+
+    // 头部朝向微调（yaw/pitch 影响绘制时的偏移）
+    ctx.translate(headYaw * 0.5, headPitch * 0.5);
 
     const scale = Math.min(w, h) * 0.0035;
     ctx.scale(scale, scale);
@@ -73,9 +96,9 @@ export class DebugAvatar {
   drawSacabambaspis(ctx) {
     const p = this.params;
 
-    // === 身体（扁平鱼形） ===
+    // === 身体（扁平鱼形，参考电音蝌蚪配色） ===
     ctx.beginPath();
-    // 头部圆弧
+    // 头部圆弧（左侧）
     ctx.arc(-60, 0, 70, Math.PI * 0.5, Math.PI * 1.5, true);
     // 背部弧线
     ctx.bezierCurveTo(-20, -85, 80, -75, 130, -40);
@@ -86,125 +109,122 @@ export class DebugAvatar {
     ctx.bezierCurveTo(80, 75, -20, 85, -60, 70);
     ctx.closePath();
 
-    // 身体渐变（灰白配色）
-    const bodyGrad = ctx.createLinearGradient(-60, -80, 130, 80);
-    bodyGrad.addColorStop(0, '#D0D5DD');
-    bodyGrad.addColorStop(0.5, '#E8ECF0');
-    bodyGrad.addColorStop(1, '#C5CCD6');
+    // 身体渐变（上半灰褐 #bdb8aa，下半米白 #f2f1ea）
+    const bodyGrad = ctx.createLinearGradient(0, -85, 0, 85);
+    bodyGrad.addColorStop(0, '#bdb8aa');
+    bodyGrad.addColorStop(0.52, '#bdb8aa');
+    bodyGrad.addColorStop(0.52, '#f2f1ea');
+    bodyGrad.addColorStop(1, '#f2f1ea');
     ctx.fillStyle = bodyGrad;
     ctx.fill();
 
-    // 身体轮廓
-    ctx.strokeStyle = '#8B95A5';
-    ctx.lineWidth = 3;
+    // 身体轮廓（灰色描边，较粗）
+    ctx.strokeStyle = '#7c7a72';
+    ctx.lineWidth = 4;
     ctx.stroke();
 
     // === 背部鳍 ===
     ctx.beginPath();
-    ctx.moveTo(20, -75);
-    ctx.quadraticCurveTo(40, -110, 70, -85);
-    ctx.quadraticCurveTo(50, -80, 20, -75);
-    ctx.fillStyle = '#B8C0CC';
+    ctx.moveTo(20, -78);
+    ctx.quadraticCurveTo(45, -115, 75, -88);
+    ctx.quadraticCurveTo(55, -82, 20, -78);
+    ctx.fillStyle = '#a8a49c';
     ctx.fill();
-    ctx.strokeStyle = '#8B95A5';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#7c7a72';
+    ctx.lineWidth = 2.5;
     ctx.stroke();
 
     // === 腹部鳍 ===
     ctx.beginPath();
-    ctx.moveTo(20, 75);
-    ctx.quadraticCurveTo(40, 110, 70, 85);
-    ctx.quadraticCurveTo(50, 80, 20, 75);
-    ctx.fillStyle = '#B8C0CC';
+    ctx.moveTo(20, 78);
+    ctx.quadraticCurveTo(45, 115, 75, 88);
+    ctx.quadraticCurveTo(55, 82, 20, 78);
+    ctx.fillStyle = '#a8a49c';
     ctx.fill();
+    ctx.strokeStyle = '#7c7a72';
+    ctx.lineWidth = 2.5;
     ctx.stroke();
 
     // === 尾鳍 ===
     ctx.beginPath();
-    ctx.moveTo(150, 0);
-    ctx.quadraticCurveTo(190, -35, 180, -10);
-    ctx.quadraticCurveTo(200, 0, 180, 10);
-    ctx.quadraticCurveTo(190, 35, 150, 0);
-    ctx.fillStyle = '#B8C0CC';
+    ctx.moveTo(155, 0);
+    ctx.quadraticCurveTo(195, -38, 185, -12);
+    ctx.quadraticCurveTo(205, 0, 185, 12);
+    ctx.quadraticCurveTo(195, 38, 155, 0);
+    ctx.fillStyle = '#a8a49c';
     ctx.fill();
-    ctx.strokeStyle = '#8B95A5';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#7c7a72';
+    ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // === 眼睛（大圆眼睛） ===
-    const eyeY = -15;
-    const eyeX = -35;
-    const eyeRadius = 28;
+    // === 眼睛（大圆眼睛，白色底，黑色瞳孔） ===
+    // 眼睛位置：参考电音蝌蚪，占脸宽 24%，高度在 36%
+    const eyeY = -18;
+    const leftEyeX = -42;
+    const rightEyeX = 42;
+    const eyeRadius = 32;
 
-    // 左眼
-    this.drawSacabaEye(ctx, eyeX - 5, eyeY, eyeRadius, p.eyeLeft);
-    // 右眼
-    this.drawSacabaEye(ctx, eyeX + 55, eyeY, eyeRadius, p.eyeRight);
+    this.drawSacabaEye(ctx, leftEyeX, eyeY, eyeRadius, p.eyeLeft);
+    this.drawSacabaEye(ctx, rightEyeX, eyeY, eyeRadius, p.eyeRight);
+
+    // === 鼻孔（两个黑色小椭圆，在脸中央） ===
+    ctx.fillStyle = '#1a1a1a';
+    // 左鼻孔
+    ctx.beginPath();
+    ctx.ellipse(-6, 18, 5, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // 右鼻孔
+    ctx.beginPath();
+    ctx.ellipse(6, 18, 5, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
 
     // === 嘴巴（三角形嘴） ===
-    this.drawSacabaMouth(ctx, 10, 25, p.mouthOpen, p.mouthSmile);
+    this.drawSacabaMouth(ctx, 0, 38, p.mouthOpen, p.mouthSmile);
 
-    // === 腮红 ===
-    ctx.beginPath();
-    ctx.ellipse(-55, 20, 18, 10, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 160, 170, 0.25)';
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.ellipse(65, 20, 18, 10, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 160, 170, 0.25)';
-    ctx.fill();
-
-    // === 身体纹理（鳞片感） ===
-    ctx.strokeStyle = 'rgba(139, 149, 165, 0.2)';
+    // === 身体纹理（鳞片感， subtle） ===
+    ctx.strokeStyle = 'rgba(124, 122, 114, 0.15)';
     ctx.lineWidth = 1;
     for (let i = 0; i < 5; i++) {
       ctx.beginPath();
-      ctx.arc(-20 + i * 25, 0, 35, Math.PI * 0.3, Math.PI * 0.7);
+      ctx.arc(-10 + i * 28, 5, 32, Math.PI * 0.3, Math.PI * 0.7);
       ctx.stroke();
     }
   }
 
   drawSacabaEye(ctx, x, y, radius, openness) {
-    // 眼白（大圆）
+    // 眼白（大圆，白色）
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = '#FFF';
+    ctx.fillStyle = '#ffffff';
     ctx.fill();
-    ctx.strokeStyle = '#8B95A5';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#7c7a72';
+    ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // 瞳孔（根据 openness 调整）
-    const pupilRadius = radius * 0.45 * (0.2 + openness * 0.8);
-    const pupilY = y + 3;
+    // 瞳孔（黑色实心圆，根据 openness 调整大小）
+    const pupilRadius = radius * 0.38 * (0.15 + openness * 0.85);
+    const pupilY = y + 2;
 
     ctx.beginPath();
     ctx.arc(x, pupilY, pupilRadius, 0, Math.PI * 2);
-    ctx.fillStyle = '#2C3E50';
+    ctx.fillStyle = '#111111';
     ctx.fill();
 
-    // 瞳孔高光
-    ctx.beginPath();
-    ctx.arc(x - pupilRadius * 0.35, pupilY - pupilRadius * 0.35, pupilRadius * 0.25, 0, Math.PI * 2);
-    ctx.fillStyle = '#FFF';
-    ctx.fill();
-
-    // 闭眼效果
-    if (openness < 0.3) {
+    // 闭眼效果（灰色覆盖 + 闭眼线）
+    if (openness < 0.25) {
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = '#D0D5DD';
+      ctx.fillStyle = '#c5c2ba';
       ctx.fill();
-      ctx.strokeStyle = '#8B95A5';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#7c7a72';
+      ctx.lineWidth = 2.5;
       ctx.stroke();
 
       // 闭眼线
       ctx.beginPath();
       ctx.moveTo(x - radius * 0.8, y);
       ctx.quadraticCurveTo(x, y + radius * 0.3, x + radius * 0.8, y);
-      ctx.strokeStyle = '#5A6575';
+      ctx.strokeStyle = '#5a5850';
       ctx.lineWidth = 2.5;
       ctx.lineCap = 'round';
       ctx.stroke();
@@ -212,9 +232,9 @@ export class DebugAvatar {
   }
 
   drawSacabaMouth(ctx, x, y, openness, smile) {
-    const width = 35;
-    const openHeight = 20 * openness;
-    const smileOffset = smile * 8;
+    const width = 32;
+    const openHeight = 18 * openness;
+    const smileOffset = smile * 6;
 
     if (openness > 0.2) {
       // 张嘴（三角形）
@@ -224,27 +244,18 @@ export class DebugAvatar {
       ctx.lineTo(x, y + openHeight + smileOffset);
       ctx.closePath();
 
-      ctx.fillStyle = '#C0392B';
+      ctx.fillStyle = '#8b3a3a';
       ctx.fill();
-      ctx.strokeStyle = '#922B21';
+      ctx.strokeStyle = '#5a2a2a';
       ctx.lineWidth = 2;
       ctx.lineJoin = 'round';
       ctx.stroke();
-
-      // 舌头
-      if (openness > 0.5) {
-        ctx.beginPath();
-        ctx.moveTo(x - width * 0.25, y + openHeight * 0.3);
-        ctx.quadraticCurveTo(x, y + openHeight * 0.8, x + width * 0.25, y + openHeight * 0.3);
-        ctx.fillStyle = '#E74C3C';
-        ctx.fill();
-      }
     } else {
       // 闭嘴（倒三角/微笑线）
       ctx.beginPath();
       ctx.moveTo(x - width / 2, y + smileOffset * 0.5);
-      ctx.quadraticCurveTo(x, y - 5 - smileOffset, x + width / 2, y + smileOffset * 0.5);
-      ctx.strokeStyle = '#5A6575';
+      ctx.quadraticCurveTo(x, y - 4 - smileOffset, x + width / 2, y + smileOffset * 0.5);
+      ctx.strokeStyle = '#5a5850';
       ctx.lineWidth = 2.5;
       ctx.lineCap = 'round';
       ctx.stroke();
@@ -260,6 +271,8 @@ export class DebugAvatar {
       `mouth: ${this.params.mouthOpen.toFixed(2)}`,
       `smile: ${this.params.mouthSmile.toFixed(2)}`,
       `yaw: ${this.params.headYaw.toFixed(2)}`,
+      `pos: ${this.params.headX.toFixed(2)},${this.params.headY.toFixed(2)}`,
+      `mirror: ${this.mirror ? 'on' : 'off'}`,
     ];
     labels.forEach((label, i) => {
       ctx.fillText(label, 10, h - 10 - (labels.length - 1 - i) * 14);

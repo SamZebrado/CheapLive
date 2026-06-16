@@ -49,9 +49,18 @@ class FaceTracker {
     document.getElementById('testReset').addEventListener('click', () => {
       this.avatar.updateParams({
         eyeLeft: 1, eyeRight: 1, mouthOpen: 0, mouthSmile: 0,
-        browLeft: 0, browRight: 0, headYaw: 0.5, headPitch: 0.5, headRoll: 0.5
+        browLeft: 0, browRight: 0, headYaw: 0.5, headPitch: 0.5, headRoll: 0.5,
+        headX: 0.5, headY: 0.5
       });
     });
+
+    // 镜像开关
+    const mirrorToggle = document.getElementById('mirrorMode');
+    if (mirrorToggle) {
+      mirrorToggle.addEventListener('change', (e) => {
+        this.avatar.setMirror(e.target.checked);
+      });
+    }
   }
 
   async init() {
@@ -152,7 +161,7 @@ class FaceTracker {
   }
 
   resetParams() {
-    const ids = ['eyeLeft', 'eyeRight', 'mouthOpen', 'mouthSmile', 'browLeft', 'browRight', 'headYaw', 'headPitch', 'headRoll'];
+    const ids = ['eyeLeft', 'eyeRight', 'mouthOpen', 'mouthSmile', 'browLeft', 'browRight', 'headYaw', 'headPitch', 'headRoll', 'headX', 'headY'];
     ids.forEach(id => {
       const fill = document.getElementById(id);
       const val = document.getElementById(id + 'Val');
@@ -189,7 +198,7 @@ class FaceTracker {
         }
 
         if (results.facialTransformationMatrixes && results.facialTransformationMatrixes.length > 0) {
-          this.updateHeadPose(results.facialTransformationMatrixes[0]);
+          this.updateHeadPose(results.facialTransformationMatrixes[0], landmarks);
         }
       }
     }
@@ -261,7 +270,7 @@ class FaceTracker {
     this.setParam('browRight', map['browOuterUpLeft'] || 0);
   }
 
-  updateHeadPose(matrix) {
+  updateHeadPose(matrix, landmarks) {
     // 从 4x4 变换矩阵提取欧拉角
     const m = matrix.data;
     const sy = Math.sqrt(m[0] * m[0] + m[4] * m[4]);
@@ -281,6 +290,14 @@ class FaceTracker {
     this.setParam('headYaw', (yaw / Math.PI + 1) / 2);
     this.setParam('headPitch', (pitch / Math.PI + 1) / 2);
     this.setParam('headRoll', (roll / Math.PI + 1) / 2);
+
+    // 头部在画面中的位置（基于 landmarks 的鼻子中心点）
+    if (landmarks && landmarks.length > 0) {
+      // 鼻子中心点索引 1（MediaPipe Face Landmarker）
+      const nose = landmarks[1];
+      this.setParam('headX', nose.x);
+      this.setParam('headY', nose.y);
+    }
   }
 
   setParam(id, value) {
@@ -296,7 +313,8 @@ class FaceTracker {
         eyeLeft: 'eyeLeft', eyeRight: 'eyeRight',
         mouthOpen: 'mouthOpen', mouthSmile: 'mouthSmile',
         browLeft: 'browLeft', browRight: 'browRight',
-        headYaw: 'headYaw', headPitch: 'headPitch', headRoll: 'headRoll'
+        headYaw: 'headYaw', headPitch: 'headPitch', headRoll: 'headRoll',
+        headX: 'headX', headY: 'headY'
       };
       if (paramMap[id]) {
         this.avatar.updateParams({ [paramMap[id]]: clamped });
