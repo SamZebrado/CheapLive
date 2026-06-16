@@ -174,6 +174,95 @@ button:disabled {
   min-height: 24px;
 }
 
+/* 隐私保护模式开关 */
+.privacy-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+  padding: 12px;
+  background: var(--bg2);
+  border-radius: 8px;
+  border: 1px solid var(--rule);
+}
+
+.toggle-switch {
+  position: relative;
+  width: 48px;
+  height: 26px;
+  cursor: pointer;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--bg3);
+  border-radius: 26px;
+  transition: background 0.3s;
+  border: 1px solid var(--rule);
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  left: 2px;
+  top: 2px;
+  background: var(--ink);
+  border-radius: 50%;
+  transition: transform 0.3s;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(22px);
+}
+
+.toggle-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.toggle-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* 隐私模式激活时隐藏视频 */
+.video-wrapper.privacy-active video,
+.video-wrapper.privacy-active canvas {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.video-wrapper.privacy-active {
+  background: var(--bg3);
+}
+
+.video-wrapper.privacy-active::after {
+  content: '隐私保护模式已启用';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 1rem;
+  z-index: 1;
+}
+
 /* 数据面板 */
 .data-panel {
   background: var(--bg2);

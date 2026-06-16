@@ -16,8 +16,11 @@ class FaceTracker {
     this.status = document.getElementById('status');
     this.startBtn = document.getElementById('startBtn');
     this.stopBtn = document.getElementById('stopBtn');
+    this.privacyToggle = document.getElementById('privacyMode');
+    this.videoWrapper = document.querySelector('.video-wrapper');
 
     this.running = false;
+    this.privacyMode = false;
     this.lastVideoTime = -1;
     this.fps = 0;
     this.lastFpsTime = 0;
@@ -54,6 +57,7 @@ class FaceTracker {
   async init() {
     this.startBtn.addEventListener('click', () => this.start());
     this.stopBtn.addEventListener('click', () => this.stop());
+    this.privacyToggle.addEventListener('change', (e) => this.togglePrivacy(e.target.checked));
 
     try {
       await this.loadModel();
@@ -61,6 +65,14 @@ class FaceTracker {
       this.status.textContent = '模型加载失败: ' + err.message;
       console.error(err);
     }
+  }
+
+  togglePrivacy(enabled) {
+    this.privacyMode = enabled;
+    if (this.videoWrapper) {
+      this.videoWrapper.classList.toggle('privacy-active', enabled);
+    }
+    this.status.textContent = enabled ? '隐私保护模式已启用 - 摄像头画面已隐藏' : '隐私保护模式已关闭';
   }
 
   async loadModel() {

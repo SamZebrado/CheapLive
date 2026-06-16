@@ -6,25 +6,39 @@
 - [x] 技术路线调研（MediaPipe、Web Audio API、WebRTC、Live2D SDK）
 - [x] GitHub Pages 参赛展示页
 - [x] AGENT_RULES.md 项目规则
-- [x] Git 仓库初始化（main 分支，3 个 commit）
+- [x] Git 仓库初始化（main 分支）
 - [x] 浏览器端面部捕捉原型（MediaPipe Face Landmarker）
   - [x] 模型加载（GPU 加速）
   - [x] 摄像头权限获取
   - [x] 468 个面部关键点检测
   - [x] 9 个面部参数可视化（眼睛、嘴巴、眉毛、头部姿态）
   - [x] FPS 计数器
+- [x] 萨卡班甲鱼调试形象（Canvas 2D 绘制）
+  - [x] 扁平鱼形身体、灰白渐变配色
+  - [x] 大圆眼睛，支持眨眼动画
+  - [x] 三角形嘴巴，支持张嘴/闭嘴
+  - [x] 背鳍、腹鳍、尾鳍
+  - [x] 身体鳞片纹理、腮红效果
+- [x] 隐私保护模式
+  - [x] 开关切换 UI（HTML + CSS）
+  - [x] 隐藏摄像头画面，仅显示占位提示
+  - [x] 面部捕捉仍在后台运行，虚拟形象继续驱动
+- [x] README.md 完善
+  - [x] 项目简介、技术栈、快速开始
+  - [x] 项目结构、功能模块、隐私说明
+  - [x] 开发计划、参考致谢、MIT 许可证
 
 ## 正在进行的任务
 
-- [ ] 手搓 Canvas 调试小人（用于测试面捕参数驱动）
 - [ ] Live2D 模型渲染原型
 - [ ] 面捕参数到 Live2D 模型的映射
+- [ ] 变声器面板（Web Audio API + SoundTouchJS）
+- [ ] WebRTC 局域网推流
 
 ## 已知问题
 
 - 网络不通，无法 push 到 GitHub/Gitee（需用户手动 push）
 - 浏览器环境无摄像头，无法验证真实面捕效果
-- 需要手搓调试模型替代 Live2D 进行早期测试
 - Live2D Cubism Web SDK 许可证需确认
 
 ## 当前可运行版本
@@ -37,7 +51,10 @@
 
 - [已运行本地测试] MediaPipe 模型加载成功（WebGL 2.0 GPU 加速）
 - [已运行本地测试] 页面 UI 渲染正常
+- [已运行本地测试] 隐私保护模式开关 UI 正常显示
+- [已核对] 萨卡班甲鱼调试形象代码已写入 debug-avatar.js
 - [未验证] 真实摄像头画面下的面捕效果
+- [未验证] 隐私保护模式在真实运行时的切换行为
 - [未验证] 面捕参数准确性
 
 ---
@@ -50,10 +67,11 @@
 - 限制：无法直接访问 MCP 工具（需在 IDE 中配置）
 
 ### 建议 Code Agent 任务
-1. **手搓 Canvas 调试小人** — 用 Canvas 绘制简单人形，根据面捕参数实时变形
-2. **Live2D SDK 集成** — 加载官方 SDK，确认许可证，实现基础模型显示
-3. **Git 推送** — 将本地 commit 推送到 GitHub/Gitee
-4. **设备测试** — 在真实手机/电脑上测试面捕效果
+1. **Live2D SDK 集成** — 加载官方 SDK，确认许可证，实现基础模型显示
+2. **面捕参数映射** — 将 MediaPipe Blendshapes 映射到 Live2D 模型参数
+3. **变声器面板** — Web Audio API + SoundTouchJS 实时变声
+4. **Git 推送** — 将本地 commit 推送到 GitHub/Gitee
+5. **设备测试** — 在真实手机/电脑上测试面捕效果
 
 ### Code Agent 接手前必读
 1. `AGENT_RULES.md` — 项目最高优先级规则
