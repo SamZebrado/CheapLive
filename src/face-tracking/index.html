@@ -10,6 +10,25 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- 安全上下文诊断 -->
+  <div id="sec-context-diag" style="display:none;background:#fff3cd;color:#856404;padding:8px 12px;font-size:12px;text-align:center;border-bottom:1px solid #ffc107;">
+    <span id="sec-context-msg"></span>
+  </div>
+  <script>
+    (function() {
+      const diag = document.getElementById('sec-context-diag');
+      if (!window.isSecureContext) {
+        diag.style.display = 'block';
+        document.getElementById('sec-context-msg').textContent =
+          '⚠ 当前为非安全上下文 (HTTP)。摄像头和麦克风可能不可用。请使用 HTTPS 或 localhost 访问。';
+      }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        diag.style.display = 'block';
+        document.getElementById('sec-context-msg').textContent =
+          '⚠ navigator.mediaDevices.getUserMedia 不可用。此浏览器不支持摄像头/麦克风访问。';
+      }
+    })();
+  </script>
   <div class="container">
     <header>
       <h1>CheapLive 面部捕捉原型</h1>
