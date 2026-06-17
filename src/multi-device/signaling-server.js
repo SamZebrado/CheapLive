@@ -17,8 +17,8 @@ const http = require('http');
 const url = require('url');
 
 const PORT = process.env.SIGNAL_PORT || 8766;
-const HEARTBEAT_INTERVAL_MS = 5000;
-const DEVICE_TTL_MS = 15000; // 15秒无心跳视为离线
+const HEARTBEAT_INTERVAL_MS = process.env.TEST_MODE ? 1000 : 5000;
+const DEVICE_TTL_MS = process.env.TEST_MODE ? 8000 : 15000; // 测试模式8秒TTL（>5s心跳），生产15秒
 
 // 内存中的设备注册表
 const devices = new Map(); // deviceId -> { id, name, ip, port, role, lastHeartbeat, sseRes }
@@ -224,7 +224,7 @@ const server = http.createServer((req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`CheapLive Signaling Server running on port ${PORT}`);
   console.log(`Device TTL: ${DEVICE_TTL_MS}ms`);
   console.log(`Heartbeat interval: ${HEARTBEAT_INTERVAL_MS}ms`);

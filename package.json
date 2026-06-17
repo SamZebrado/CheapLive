@@ -24,5 +24,8 @@
   "homepage": "https://github.com/SamZebrado/CheapLive#readme",
   "dependencies": {
     "playwright": "^1.61.0"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
   }
 }

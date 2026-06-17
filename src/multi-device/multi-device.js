@@ -10,6 +10,11 @@ import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@m
 import { DebugAvatar } from '../face-tracking/debug-avatar.js';
 import { SignalingClient } from './signaling-client.js';
 
+// 将 SignalingClient 暴露到 window，供测试和调试使用
+if (typeof window !== 'undefined') {
+  window.SignalingClient = SignalingClient;
+}
+
 // ===================== 工具函数 =====================
 
 function generateId() {
@@ -160,6 +165,23 @@ class P2PConnection {
       }
     };
 
+    // 处理重新协商：当 addTrack/removeTrack 时触发
+    this.pc.onnegotiationneeded = async () => {
+      if (!this.isInitiator) return;
+      try {
+        const offer = await this.pc.createOffer();
+        await this.pc.setLocalDescription(offer);
+        if (this.signalingClient && this.remoteId) {
+          this.signalingClient.sendSignal(this.remoteId, {
+            type: 'offer',
+            offer,
+          });
+        }
+      } catch (err) {
+        console.warn('[P2P] Renegotiation failed:', err);
+      }
+    };
+
     if (this.isInitiator) {
       this.dataChannel = this.pc.createDataChannel('faceData', {
         ordered: false,
@@ -242,7 +264,7 @@ class Sender {
     this.webcam = document.getElementById('webcam');
     this.canvas = document.getElementById('output_canvas');
     this.ctx = this.canvas.getContext('2d');
-    this.avatar = new DebugAvatar('sender_avatar_canvas');
+    this.avatar = new DebugAvatar('avatar_canvas');
     this.localIp = null;
     this.running = false;
     this.mirrorData = false;
@@ -264,8 +286,13 @@ class Sender {
     document.getElementById('senderIp').textContent = this.localIp || 'unknown';
 
     this.initUI();
-    await this.loadModel();
+    // 信令注册优先，不阻塞在模型加载上
     this.initSignaling();
+    // 模型加载可以异步进行
+    this.loadModel().catch(err => {
+      console.warn('[Sender] Model load failed:', err);
+      document.getElementById('status').textContent = '模型加载失败: ' + err.message;
+    });
   }
 
   initSignaling() {
@@ -295,7 +322,14 @@ class Sender {
     const conn = this.connections.get(from);
     if (!conn) return;
 
-    if (payload.type === 'offer') {
+    if (payload.type === 'connect_request') {
+      // 收到连接请求，作为发起方创建 offer
+      const offer = await conn.createOffer();
+      this.signalingClient.sendSignal(from, {
+        type: 'offer',
+        offer,
+      });
+    } else if (payload.type === 'offer') {
       await conn.createAnswer(payload.offer);
       this.signalingClient.sendSignal(from, {
         type: 'answer',
@@ -394,14 +428,24 @@ class Sender {
   }
 
   stopAudioSync() {
+    // 先移除所有 connection 中的 audio sender
+    for (const [remoteId, sender] of this.audioTrackSenders) {
+      try {
+        const conn = this.connections.get(remoteId);
+        if (conn && conn.pc) {
+          conn.pc.removeTrack(sender);
+        }
+      } catch (e) {
+        console.warn('[Audio] removeTrack failed:', e.message);
+      }
+    }
+    this.audioTrackSenders.clear();
+
+    // 停止本地麦克风流
     if (this.localAudioStream) {
       this.localAudioStream.getTracks().forEach(t => t.stop());
       this.localAudioStream = null;
     }
-    for (const [remoteId, sender] of this.audioTrackSenders) {
-      try { sender.replaceTrack(null); } catch (e) {}
-    }
-    this.audioTrackSenders.clear();
   }
 
   addAudioTrackToConnection(conn, remoteId) {
@@ -409,10 +453,19 @@ class Sender {
     const audioTrack = this.localAudioStream.getAudioTracks()[0];
     if (!audioTrack) return;
 
-    // 防止重复添加
+    // 防止重复添加：如果已有 sender，尝试替换 track
     if (this.audioTrackSenders.has(remoteId)) {
       const sender = this.audioTrackSenders.get(remoteId);
-      sender.replaceTrack(audioTrack);
+      try {
+        sender.replaceTrack(audioTrack);
+      } catch (e) {
+        // replaceTrack 不支持时，移除旧 sender 重新添加
+        console.warn('[Audio] replaceTrack failed, re-adding:', e.message);
+        conn.pc.removeTrack(sender);
+        this.audioTrackSenders.delete(remoteId);
+        const newSender = conn.pc.addTrack(audioTrack, this.localAudioStream);
+        this.audioTrackSenders.set(remoteId, newSender);
+      }
       return;
     }
 
@@ -609,7 +662,7 @@ class Receiver {
   }
 
   updateDeviceList() {
-    const listEl = document.getElementById('deviceList');
+    const listEl = document.getElementById('scanResults');
     if (!listEl) return;
 
     if (this.discoveredDevices.length === 0) {
@@ -674,15 +727,28 @@ class Receiver {
   }
 
   async scanDevices() {
-    document.getElementById('receiverStatus').textContent = '扫描中...';
+    const scanResults = document.getElementById('scanResults');
+    if (scanResults) scanResults.textContent = '扫描中...';
+    let fetchError = null;
     try {
       const devices = await this.signalingClient.fetchDeviceList();
       this.discoveredDevices = devices.filter(d => d.role === 'sender');
       this.updateDeviceList();
-      document.getElementById('receiverStatus').textContent =
-        this.discoveredDevices.length > 0 ? `发现 ${this.discoveredDevices.length} 个设备` : '未发现设备';
+      if (scanResults && this.discoveredDevices.length === 0) {
+        scanResults.innerHTML = '<div class="device-empty">未发现设备</div>';
+      }
     } catch (err) {
-      document.getElementById('receiverStatus').textContent = '扫描失败: ' + err.message;
+      fetchError = err;
+      if (scanResults) {
+        scanResults.innerHTML = `<div class="device-empty">扫描失败: ${err.message}</div>`;
+      }
+    }
+    // 如果 fetchDeviceList 返回空数组但发生了错误（通过 onError 回调），也显示错误
+    if (!fetchError && scanResults && this.discoveredDevices.length === 0) {
+      const statusText = scanResults.textContent;
+      if (!statusText.includes('未发现')) {
+        scanResults.innerHTML = '<div class="device-empty">未发现设备</div>';
+      }
     }
   }
 
@@ -834,6 +900,7 @@ function showSender() {
   document.getElementById('modeSelect').classList.add('hidden');
   document.getElementById('senderPanel').classList.remove('hidden');
   sender = new Sender();
+  window.sender = sender;
   sender.init();
 }
 
@@ -841,11 +908,31 @@ function showReceiver() {
   document.getElementById('modeSelect').classList.add('hidden');
   document.getElementById('receiverPanel').classList.remove('hidden');
   receiver = new Receiver();
+  window.receiver = receiver;
   receiver.init();
 }
 
-document.getElementById('senderMode').addEventListener('click', showSender);
-document.getElementById('receiverMode').addEventListener('click', showReceiver);
+// 将核心函数和实例暴露到 window，供测试和外部调用
+window.showSender = showSender;
+window.showReceiver = showReceiver;
+
+// 绑定模式卡片点击事件（适配 HTML 中的 .mode-card 结构）
+// 使用 DOMContentLoaded 确保 DOM 已就绪
+function bindModeCards() {
+  document.querySelectorAll('.mode-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const mode = card.dataset.mode;
+      if (mode === 'sender') showSender();
+      else if (mode === 'receiver') showReceiver();
+    });
+  });
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bindModeCards);
+} else {
+  bindModeCards();
+}
 
 // 页面关闭时清理
 window.addEventListener('beforeunload', () => {

@@ -18,6 +18,10 @@ class SignalingClient {
   }
 
   detectServerUrl() {
+    // 优先读取测试配置（供 E2E 测试使用）
+    if (typeof window !== 'undefined' && window.__TEST_SIGNAL_PORT) {
+      return `http://localhost:${window.__TEST_SIGNAL_PORT}`;
+    }
     // 默认使用当前页面的 host，端口 8766
     const host = window.location.hostname;
     return `http://${host}:8766`;
@@ -126,13 +130,17 @@ class SignalingClient {
   }
 
   async fetchDeviceList() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
-      const res = await fetch(`${this.serverUrl}/devices`);
+      const res = await fetch(`${this.serverUrl}/devices`, { signal: controller.signal });
+      clearTimeout(timeoutId);
       const data = await res.json();
       return data.devices || [];
     } catch (err) {
+      clearTimeout(timeoutId);
       if (this.onError) this.onError('fetch', err.message);
-      return [];
+      throw err;
     }
   }
 }

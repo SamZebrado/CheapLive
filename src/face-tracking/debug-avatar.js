@@ -194,7 +194,9 @@ export class DebugAvatar {
     }
 
     // 最后画尾巴（在所有截面之后）
-    this.draw3DTail(ctx, tailEnd, s.tailLength, yaw, pitch, perspective);
+    // 使用默认透视值（尾部通常在最远端）
+    const tailPerspective = Math.max(0.3, (tailEnd.z + 80) / 140);
+    this.draw3DTail(ctx, tailEnd, s.tailLength, yaw, pitch, tailPerspective);
 
     ctx.restore();
 

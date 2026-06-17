@@ -24,6 +24,11 @@ class VoiceChanger {
     this.outputGain = null;
     this.inputGain = null;
 
+    // 初始化状态标志，防止重复初始化
+    this.initialized = false;
+    // 启动状态标志，防止重复 start
+    this.started = false;
+
     // 监听模式: 'original' | 'changed' | 'mute'
     // original: 听原声（变声仅推流）
     // changed: 听变声（主播自己听到变声效果）
@@ -44,7 +49,7 @@ class VoiceChanger {
   }
 
   async init() {
-    if (this.audioContext) return;
+    if (this.initialized) return;
 
     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
@@ -73,8 +78,17 @@ class VoiceChanger {
     this.inputGain.connect(this.bypassGain);
     this.bypassGain.connect(this.audioContext.destination);
 
+    // 回声/反馈环路警告：
+    // inputGain 同时连接到 processor（变声链路）和 bypassGain（原声旁路），
+    // 两者最终都输出到 audioContext.destination（本地扬声器）。
+    // 如果麦克风能拾取到扬声器输出的声音，会形成声学反馈回路，产生回声或啸叫。
+    // 建议：使用耳机进行本地监听，或将 monitorMode 设为 'mute' 以关闭本地播放。
+    // applyMonitorMode('mute') 会将 outputGain 和 bypassGain 同时置零，完全切断本地输出。
+
     // 根据监听模式设置增益
     this.applyMonitorMode();
+
+    this.initialized = true;
   }
 
   async loadSoundTouch() {
@@ -89,8 +103,15 @@ class VoiceChanger {
   }
 
   async start(stream) {
+    if (this.started) return;
     await this.init();
     this.stream = stream;
+
+    // 断开旧的 source（如果有）
+    if (this.source) {
+      this.source.disconnect();
+      this.source = null;
+    }
 
     // 从 MediaStream 创建音频源
     this.source = this.audioContext.createMediaStreamSource(stream);
@@ -106,10 +127,12 @@ class VoiceChanger {
     this.soundTouch.rate = this.rate;
 
     this.isActive = true;
+    this.started = true;
   }
 
   stop() {
     this.isActive = false;
+    this.started = false;
     if (this.source) {
       this.source.disconnect();
       this.source = null;
@@ -198,24 +221,59 @@ class VoiceChanger {
   }
 
   // 获取变声后的音频流（用于推流/录制）
+  // 注意：processor 已在 init() 中连接到 outputGain，outputGain 连接到 destination。
+  // 这里复用 outputGain 的下游连接，不创建新的 dangling 连接。
+  // 调用方应使用返回的 stream 进行推流/录制。
   getProcessedStream() {
     if (!this.audioContext || !this.processor) return null;
-    // 创建 MediaStreamDestination 节点
-    const dest = this.audioContext.createMediaStreamDestination();
-    this.processor.connect(dest);
-    return dest.stream;
+    // processor -> outputGain 已在 init() 中建立
+    // outputGain -> destination 也在 init() 中建立
+    // 使用 outputGain 下游的 MediaStreamDestination 来获取处理后的流
+    if (!this._processedDest) {
+      this._processedDest = this.audioContext.createMediaStreamDestination();
+      this.outputGain.connect(this._processedDest);
+    }
+    return this._processedDest.stream;
   }
 
   destroy() {
     this.stop();
+
+    // 完全断开所有音频节点，防止内存泄漏和回声/反馈
+    if (this.source) {
+      try { this.source.disconnect(); } catch (e) {}
+      this.source = null;
+    }
+    if (this.inputGain) {
+      try { this.inputGain.disconnect(); } catch (e) {}
+      this.inputGain = null;
+    }
     if (this.processor) {
-      this.processor.disconnect();
+      try { this.processor.disconnect(); } catch (e) {}
+      this.processor.onaudioprocess = null;
       this.processor = null;
     }
+    if (this.outputGain) {
+      try { this.outputGain.disconnect(); } catch (e) {}
+      this.outputGain = null;
+    }
+    if (this.bypassGain) {
+      try { this.bypassGain.disconnect(); } catch (e) {}
+      this.bypassGain = null;
+    }
+    if (this._processedDest) {
+      try { this._processedDest.disconnect(); } catch (e) {}
+      this._processedDest = null;
+    }
+
     if (this.audioContext) {
       this.audioContext.close();
       this.audioContext = null;
     }
+
+    this.initialized = false;
+    this.started = false;
+    this.soundTouch = null;
   }
 }
 
