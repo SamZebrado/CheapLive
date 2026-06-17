@@ -34,7 +34,51 @@ function getLocalIp() {
   });
 }
 
-// ===================== WebRTC 信令（基于 BroadcastChannel + 轮询回退）=====================
+// 兼容移动端的复制到剪贴板
+function copyToClipboard(text, btnId) {
+  const btn = document.getElementById(btnId);
+
+  // 方案1: navigator.clipboard（现代浏览器）
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = '已复制';
+      setTimeout(() => btn.textContent = '复制', 1500);
+    }).catch(() => {
+      // 降级到方案2
+      fallbackCopy(text, btn);
+    });
+  } else {
+    fallbackCopy(text, btn);
+  }
+}
+
+function fallbackCopy(text, btn) {
+  // 方案2: 创建临时 textarea 并 execCommand
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  try {
+    const success = document.execCommand('copy');
+    if (success) {
+      btn.textContent = '已复制';
+    } else {
+      btn.textContent = '复制失败';
+    }
+  } catch (err) {
+    btn.textContent = '复制失败';
+  }
+
+  document.body.removeChild(textarea);
+  setTimeout(() => btn.textContent = '复制', 1500);
+}
+
+// ===================== WebRTC 信令（基于 BroadcastChannel + 轮询回退 + storage 事件跨标签）=====================
 
 class SignalingChannel {
   constructor(id) {
@@ -43,6 +87,7 @@ class SignalingChannel {
     this.bc = null;
     this.pollInterval = null;
     this.receivedIds = new Set();
+    this.storageHandler = null;
 
     // 优先使用 BroadcastChannel（同浏览器多标签）
     if (typeof BroadcastChannel !== 'undefined') {
@@ -58,8 +103,28 @@ class SignalingChannel {
       }
     }
 
+    // storage 事件跨标签页通信（兼容性更好）
+    this.setupStorageListener();
+
     // 轮询回退（localStorage 模拟）
     this.startPolling();
+  }
+
+  setupStorageListener() {
+    this.storageHandler = (e) => {
+      if (!e.key || !e.key.startsWith('cheaplive_signal_')) return;
+      const toId = e.key.replace('cheaplive_signal_', '');
+      if (toId !== this.id && toId !== 'all') return;
+      if (!e.newValue) return;
+      try {
+        const msg = JSON.parse(e.newValue);
+        if (!this.receivedIds.has(msg._id)) {
+          this.receivedIds.add(msg._id);
+          if (this.onmessage) this.onmessage(msg);
+        }
+      } catch (err) {}
+    };
+    window.addEventListener('storage', this.storageHandler);
   }
 
   startPolling() {
@@ -87,7 +152,7 @@ class SignalingChannel {
       try { this.bc.postMessage(msg); } catch (e) {}
     }
 
-    // localStorage 回退
+    // localStorage + storage 事件（跨标签页）
     try {
       localStorage.setItem('cheaplive_signal_' + to, JSON.stringify(msg));
     } catch (e) {}
@@ -98,11 +163,18 @@ class SignalingChannel {
     if (this.bc) {
       try { this.bc.postMessage({ ...msg, to: 'all' }); } catch (e) {}
     }
+    // 同时写入 localStorage 触发 storage 事件
+    try {
+      localStorage.setItem('cheaplive_signal_all', JSON.stringify(msg));
+    } catch (e) {}
   }
 
   close() {
     if (this.pollInterval) clearInterval(this.pollInterval);
     if (this.bc) this.bc.close();
+    if (this.storageHandler) {
+      window.removeEventListener('storage', this.storageHandler);
+    }
   }
 }
 
@@ -285,21 +357,13 @@ class Sender {
     document.getElementById('senderId').textContent = this.id;
 
     document.getElementById('copySenderId').addEventListener('click', () => {
-      navigator.clipboard.writeText(this.id).then(() => {
-        const btn = document.getElementById('copySenderId');
-        btn.textContent = '已复制';
-        setTimeout(() => btn.textContent = '复制', 1500);
-      });
+      copyToClipboard(this.id, 'copySenderId');
     });
 
     document.getElementById('copySenderIp').addEventListener('click', () => {
       if (!this.localIp) return;
       const url = `http://${this.localIp}:8765/src/multi-device/index.html`;
-      navigator.clipboard.writeText(url).then(() => {
-        const btn = document.getElementById('copySenderIp');
-        btn.textContent = '已复制';
-        setTimeout(() => btn.textContent = '复制', 1500);
-      });
+      copyToClipboard(url, 'copySenderIp');
     });
 
     document.getElementById('backFromSender').addEventListener('click', () => {
