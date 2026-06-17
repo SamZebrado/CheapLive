@@ -1,11 +1,14 @@
 /**
  * CheapLive Multi-Device - WebRTC P2P Face Data Sync
  * 局域网多端互动：发送端面捕 -> 接收端渲染
- * 无需服务器，纯浏览器 P2P
+ * 
+ * 信令服务：HTTP + SSE (signaling-server.js)
+ * 数据通道：WebRTC DataChannel (P2P)
  */
 
 import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm';
 import { DebugAvatar } from '../face-tracking/debug-avatar.js';
+import { SignalingClient } from './signaling-client.js';
 
 // ===================== 工具函数 =====================
 
@@ -37,148 +40,78 @@ function getLocalIp() {
 // 兼容移动端的复制到剪贴板
 function copyToClipboard(text, btnId) {
   const btn = document.getElementById(btnId);
+  if (!btn) return;
 
   // 方案1: navigator.clipboard（现代浏览器）
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(() => {
-      btn.textContent = '已复制';
-      setTimeout(() => btn.textContent = '复制', 1500);
+      showCopyResult(btn, true);
     }).catch(() => {
       // 降级到方案2
-      fallbackCopy(text, btn);
+      const success = fallbackCopy(text);
+      showCopyResult(btn, success);
     });
   } else {
-    fallbackCopy(text, btn);
+    // 直接降级
+    const success = fallbackCopy(text);
+    showCopyResult(btn, success);
   }
 }
 
-function fallbackCopy(text, btn) {
-  // 方案2: 创建临时 textarea 并 execCommand
+function fallbackCopy(text) {
   const textarea = document.createElement('textarea');
   textarea.value = text;
-  textarea.style.position = 'fixed';
-  textarea.style.left = '-9999px';
-  textarea.style.top = '0';
+  textarea.setAttribute('readonly', '');
+  textarea.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
   document.body.appendChild(textarea);
-  textarea.focus();
-  textarea.select();
 
+  const selection = document.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(textarea);
+  selection.removeAllRanges();
+  selection.addRange(range);
+
+  let success = false;
   try {
-    const success = document.execCommand('copy');
-    if (success) {
-      btn.textContent = '已复制';
-    } else {
-      btn.textContent = '复制失败';
-    }
+    success = document.execCommand('copy');
   } catch (err) {
-    btn.textContent = '复制失败';
+    success = false;
   }
 
+  selection.removeAllRanges();
   document.body.removeChild(textarea);
-  setTimeout(() => btn.textContent = '复制', 1500);
+  return success;
 }
 
-// ===================== WebRTC 信令（基于 BroadcastChannel + 轮询回退 + storage 事件跨标签）=====================
-
-class SignalingChannel {
-  constructor(id) {
-    this.id = id;
-    this.onmessage = null;
-    this.bc = null;
-    this.pollInterval = null;
-    this.receivedIds = new Set();
-    this.storageHandler = null;
-
-    // 优先使用 BroadcastChannel（同浏览器多标签）
-    if (typeof BroadcastChannel !== 'undefined') {
-      try {
-        this.bc = new BroadcastChannel('cheaplive_signaling');
-        this.bc.onmessage = (e) => {
-          if (e.data.to === this.id && this.onmessage) {
-            this.onmessage(e.data);
-          }
-        };
-      } catch (e) {
-        console.warn('BroadcastChannel 不可用，使用轮询回退');
-      }
-    }
-
-    // storage 事件跨标签页通信（兼容性更好）
-    this.setupStorageListener();
-
-    // 轮询回退（localStorage 模拟）
-    this.startPolling();
+function showCopyResult(btn, success) {
+  if (success) {
+    btn.textContent = '已复制';
+  } else {
+    btn.textContent = '复制失败';
+    // 显示手动复制提示
+    showManualCopyHint(btn);
   }
-
-  setupStorageListener() {
-    this.storageHandler = (e) => {
-      if (!e.key || !e.key.startsWith('cheaplive_signal_')) return;
-      const toId = e.key.replace('cheaplive_signal_', '');
-      if (toId !== this.id && toId !== 'all') return;
-      if (!e.newValue) return;
-      try {
-        const msg = JSON.parse(e.newValue);
-        if (!this.receivedIds.has(msg._id)) {
-          this.receivedIds.add(msg._id);
-          if (this.onmessage) this.onmessage(msg);
-        }
-      } catch (err) {}
-    };
-    window.addEventListener('storage', this.storageHandler);
-  }
-
-  startPolling() {
-    const key = 'cheaplive_signal_' + this.id;
-    this.pollInterval = setInterval(() => {
-      try {
-        const data = localStorage.getItem(key);
-        if (data) {
-          const msg = JSON.parse(data);
-          if (!this.receivedIds.has(msg._id)) {
-            this.receivedIds.add(msg._id);
-            if (this.onmessage) this.onmessage(msg);
-          }
-          localStorage.removeItem(key);
-        }
-      } catch (e) {}
-    }, 200);
-  }
-
-  send(to, data) {
-    const msg = { ...data, from: this.id, to, _id: generateId(), _t: Date.now() };
-
-    // BroadcastChannel
-    if (this.bc) {
-      try { this.bc.postMessage(msg); } catch (e) {}
-    }
-
-    // localStorage + storage 事件（跨标签页）
-    try {
-      localStorage.setItem('cheaplive_signal_' + to, JSON.stringify(msg));
-    } catch (e) {}
-  }
-
-  broadcast(data) {
-    const msg = { ...data, from: this.id, _id: generateId(), _t: Date.now() };
-    if (this.bc) {
-      try { this.bc.postMessage({ ...msg, to: 'all' }); } catch (e) {}
-    }
-    // 同时写入 localStorage 触发 storage 事件
-    try {
-      localStorage.setItem('cheaplive_signal_all', JSON.stringify(msg));
-    } catch (e) {}
-  }
-
-  close() {
-    if (this.pollInterval) clearInterval(this.pollInterval);
-    if (this.bc) this.bc.close();
-    if (this.storageHandler) {
-      window.removeEventListener('storage', this.storageHandler);
-    }
-  }
+  setTimeout(() => {
+    btn.textContent = '复制';
+  }, 2000);
 }
 
-// ===================== WebRTC 连接管理 =====================
+function showManualCopyHint(btn) {
+  // 查找或创建提示元素
+  let hint = btn.parentElement.querySelector('.copy-hint');
+  if (!hint) {
+    hint = document.createElement('div');
+    hint.className = 'copy-hint';
+    hint.style.cssText = 'margin-top:4px;font-size:12px;color:#ff6b4a;';
+    btn.parentElement.appendChild(hint);
+  }
+  hint.textContent = '浏览器禁止自动复制，请长按下方地址手动复制';
+  setTimeout(() => {
+    if (hint) hint.textContent = '';
+  }, 5000);
+}
+
+// ===================== WebRTC P2P 连接 =====================
 
 class P2PConnection {
   constructor(localId, isInitiator = false) {
@@ -189,26 +122,25 @@ class P2PConnection {
     this.ondata = null;
     this.onopen = null;
     this.onclose = null;
-    this.ontrack = null; // 音频轨道回调
+    this.ontrack = null;
     this.connected = false;
     this.remoteId = null;
-    this.signaling = new SignalingChannel(localId);
-    this.signaling.onmessage = (msg) => this.handleSignal(msg);
     this.latency = 0;
     this.lastPingTime = 0;
+    this.pendingCandidates = [];
   }
 
-  async createConnection() {
+  async init() {
     this.pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-      ],
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
     });
 
     this.pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        this.signaling.send(this.remoteId, { type: 'ice', candidate: e.candidate });
+      if (e.candidate && this.signalingClient) {
+        this.signalingClient.sendSignal(this.remoteId, {
+          type: 'ice',
+          candidate: e.candidate,
+        });
       }
     };
 
@@ -222,7 +154,6 @@ class P2PConnection {
       }
     };
 
-    // 监听远程音频轨道
     this.pc.ontrack = (e) => {
       if (e.streams && e.streams[0] && this.ontrack) {
         this.ontrack(e.streams[0]);
@@ -230,91 +161,75 @@ class P2PConnection {
     };
 
     if (this.isInitiator) {
-      this.dataChannel = this.pc.createDataChannel('facedata', {
+      this.dataChannel = this.pc.createDataChannel('faceData', {
         ordered: false,
         maxRetransmits: 0,
       });
-      this.setupDataChannel();
+      this.setupDataChannel(this.dataChannel);
     } else {
       this.pc.ondatachannel = (e) => {
         this.dataChannel = e.channel;
-        this.setupDataChannel();
+        this.setupDataChannel(this.dataChannel);
       };
     }
   }
 
-  setupDataChannel() {
-    this.dataChannel.onopen = () => {
+  setupDataChannel(channel) {
+    channel.onopen = () => {
       this.connected = true;
       if (this.onopen) this.onopen();
     };
-    this.dataChannel.onclose = () => {
+    channel.onclose = () => {
       this.connected = false;
       if (this.onclose) this.onclose();
     };
-    this.dataChannel.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.type === 'ping') {
-          this.sendRaw(JSON.stringify({ type: 'pong', t: data.t }));
-        } else if (data.type === 'pong') {
-          this.latency = Date.now() - data.t;
-        } else if (this.ondata) {
-          this.ondata(data);
-        }
-      } catch (err) {}
+    channel.onmessage = (e) => {
+      if (this.ondata) this.ondata(JSON.parse(e.data));
     };
   }
 
-  async connect(remoteId) {
-    this.remoteId = remoteId;
-    await this.createConnection();
+  async createOffer() {
+    const offer = await this.pc.createOffer();
+    await this.pc.setLocalDescription(offer);
+    return offer;
+  }
 
-    if (this.isInitiator) {
-      const offer = await this.pc.createOffer();
-      await this.pc.setLocalDescription(offer);
-      this.signaling.send(remoteId, { type: 'offer', sdp: offer });
+  async createAnswer(offer) {
+    await this.pc.setRemoteDescription(offer);
+    const answer = await this.pc.createAnswer();
+    await this.pc.setLocalDescription(answer);
+    return answer;
+  }
+
+  async setAnswer(answer) {
+    await this.pc.setRemoteDescription(answer);
+  }
+
+  addIceCandidate(candidate) {
+    if (this.pc.remoteDescription) {
+      this.pc.addIceCandidate(candidate);
+    } else {
+      this.pendingCandidates.push(candidate);
     }
   }
 
-  async handleSignal(msg) {
-    if (!this.pc) await this.createConnection();
-
-    if (msg.type === 'offer') {
-      this.remoteId = msg.from;
-      await this.pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-      const answer = await this.pc.createAnswer();
-      await this.pc.setLocalDescription(answer);
-      this.signaling.send(msg.from, { type: 'answer', sdp: answer });
-    } else if (msg.type === 'answer') {
-      await this.pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-    } else if (msg.type === 'ice' && msg.candidate) {
-      await this.pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+  setRemoteDescriptionSet() {
+    for (const c of this.pendingCandidates) {
+      this.pc.addIceCandidate(c);
     }
+    this.pendingCandidates = [];
   }
 
   send(data) {
-    if (this.connected && this.dataChannel && this.dataChannel.readyState === 'open') {
+    if (this.dataChannel && this.dataChannel.readyState === 'open') {
       this.dataChannel.send(JSON.stringify(data));
     }
   }
 
-  sendRaw(str) {
-    if (this.connected && this.dataChannel && this.dataChannel.readyState === 'open') {
-      this.dataChannel.send(str);
-    }
-  }
-
-  ping() {
-    this.lastPingTime = Date.now();
-    this.send({ type: 'ping', t: this.lastPingTime });
-  }
-
   close() {
-    this.connected = false;
     if (this.dataChannel) this.dataChannel.close();
     if (this.pc) this.pc.close();
-    this.signaling.close();
+    this.connected = false;
   }
 }
 
@@ -323,39 +238,111 @@ class P2PConnection {
 class Sender {
   constructor() {
     this.id = generateId();
-    this.localIp = null;
     this.faceLandmarker = null;
     this.webcam = document.getElementById('webcam');
     this.canvas = document.getElementById('output_canvas');
     this.ctx = this.canvas.getContext('2d');
-    this.avatar = new DebugAvatar('avatar_canvas');
-
+    this.avatar = new DebugAvatar('sender_avatar_canvas');
+    this.localIp = null;
     this.running = false;
     this.mirrorData = false;
     this.privacyMode = false;
     this.lastVideoTime = -1;
-    this.fps = 0;
-    this.lastFpsTime = 0;
-    this.frameCount = 0;
-
-    this.connections = new Map(); // remoteId -> P2PConnection
     this.sendRate = 0;
     this.sendCount = 0;
     this.lastRateTime = 0;
-
-    // 音频同步
+    this.connections = new Map();
     this.audioSyncEnabled = false;
     this.localAudioStream = null;
-    this.audioTrackSenders = new Map(); // remoteId -> RTCRtpSender
+    this.audioTrackSenders = new Map();
+    this.signalingClient = null;
+  }
+
+  async init() {
+    this.localIp = await getLocalIp();
+    document.getElementById('senderId').textContent = this.id;
+    document.getElementById('senderIp').textContent = this.localIp || 'unknown';
 
     this.initUI();
-    this.initNetwork();
-    this.loadModel();
+    await this.loadModel();
+    this.initSignaling();
+  }
+
+  initSignaling() {
+    this.signalingClient = new SignalingClient(this.id);
+    this.signalingClient.onDeviceList = (devices) => {
+      // 发送端不需要显示设备列表，但可用于调试
+      console.log('[Sender] Device list updated:', devices);
+    };
+    this.signalingClient.onSignal = (from, payload) => {
+      this.handleSignal(from, payload);
+    };
+    this.signalingClient.onError = (type, msg) => {
+      console.warn(`[Sender] Signaling error (${type}):`, msg);
+      document.getElementById('status').textContent = `信令错误: ${msg}`;
+    };
+
+    // 注册到信令服务
+    this.signalingClient.register('CheapLive Sender', this.localIp, 8765, 'sender');
+  }
+
+  async handleSignal(from, payload) {
+    if (!this.connections.has(from)) {
+      // 新的连接请求
+      await this.acceptConnection(from);
+    }
+
+    const conn = this.connections.get(from);
+    if (!conn) return;
+
+    if (payload.type === 'offer') {
+      await conn.createAnswer(payload.offer);
+      this.signalingClient.sendSignal(from, {
+        type: 'answer',
+        answer: conn.pc.localDescription,
+      });
+      conn.setRemoteDescriptionSet();
+    } else if (payload.type === 'answer') {
+      await conn.setAnswer(payload.answer);
+      conn.setRemoteDescriptionSet();
+    } else if (payload.type === 'ice') {
+      conn.addIceCandidate(payload.candidate);
+    }
+  }
+
+  async acceptConnection(remoteId) {
+    if (this.connections.has(remoteId)) return;
+
+    const conn = new P2PConnection(this.id, true);
+    conn.remoteId = remoteId;
+    conn.signalingClient = this.signalingClient;
+    await conn.init();
+
+    conn.onopen = () => {
+      this.updateConnectionStatus();
+      document.getElementById('status').textContent = `设备 ${remoteId.substring(0, 8)} 已连接`;
+      if (this.audioSyncEnabled) {
+        this.addAudioTrackToConnection(conn, remoteId);
+      }
+    };
+    conn.onclose = () => {
+      this.connections.delete(remoteId);
+      this.audioTrackSenders.delete(remoteId);
+      this.updateConnectionStatus();
+    };
+
+    // 创建 offer
+    const offer = await conn.createOffer();
+    this.signalingClient.sendSignal(remoteId, {
+      type: 'offer',
+      offer,
+    });
+
+    this.connections.set(remoteId, conn);
+    this.updateConnectionStatus();
   }
 
   initUI() {
-    document.getElementById('senderId').textContent = this.id;
-
     document.getElementById('copySenderId').addEventListener('click', () => {
       copyToClipboard(this.id, 'copySenderId');
     });
@@ -383,7 +370,6 @@ class Sender {
       document.querySelector('.video-wrapper').classList.toggle('privacy-active', this.privacyMode);
     });
 
-    // 音频同步开关
     document.getElementById('audioSyncToggle').addEventListener('change', (e) => {
       this.audioSyncEnabled = e.target.checked;
       if (this.audioSyncEnabled && this.running) {
@@ -394,34 +380,10 @@ class Sender {
     });
   }
 
-  async initNetwork() {
-    this.localIp = await getLocalIp();
-    document.getElementById('senderIp').textContent = this.localIp || '获取中...';
-
-    // 广播存在（用于局域网发现）
-    this.beacon = new SignalingChannel(this.id);
-    this.beaconInterval = setInterval(() => {
-      this.beacon.broadcast({
-        type: 'beacon',
-        id: this.id,
-        ip: this.localIp,
-        role: 'sender',
-      });
-    }, 2000);
-
-    // 监听连接请求
-    this.beacon.onmessage = (msg) => {
-      if (msg.type === 'connect_request') {
-        this.acceptConnection(msg.from);
-      }
-    };
-  }
-
   async startAudioSync() {
     if (this.localAudioStream) return;
     try {
       this.localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // 将音频轨道添加到所有现有连接
       for (const [remoteId, conn] of this.connections) {
         this.addAudioTrackToConnection(conn, remoteId);
       }
@@ -436,7 +398,6 @@ class Sender {
       this.localAudioStream.getTracks().forEach(t => t.stop());
       this.localAudioStream = null;
     }
-    // 从所有连接中移除音频轨道
     for (const [remoteId, sender] of this.audioTrackSenders) {
       try { sender.replaceTrack(null); } catch (e) {}
     }
@@ -447,83 +408,44 @@ class Sender {
     if (!this.localAudioStream || !conn.pc) return;
     const audioTrack = this.localAudioStream.getAudioTracks()[0];
     if (!audioTrack) return;
+
+    // 防止重复添加
+    if (this.audioTrackSenders.has(remoteId)) {
+      const sender = this.audioTrackSenders.get(remoteId);
+      sender.replaceTrack(audioTrack);
+      return;
+    }
+
     const sender = conn.pc.addTrack(audioTrack, this.localAudioStream);
     this.audioTrackSenders.set(remoteId, sender);
   }
 
-  async acceptConnection(remoteId) {
-    if (this.connections.has(remoteId)) return;
-
-    const conn = new P2PConnection(this.id, true);
-    conn.onopen = () => {
-      this.updateConnectionStatus();
-      document.getElementById('status').textContent = `设备 ${remoteId.substring(0, 8)} 已连接`;
-      // 连接成功后，如果音频同步已开启，添加音频轨道
-      if (this.audioSyncEnabled) {
-        this.addAudioTrackToConnection(conn, remoteId);
-      }
-    };
-    conn.onclose = () => {
-      this.connections.delete(remoteId);
-      this.audioTrackSenders.delete(remoteId);
-      this.updateConnectionStatus();
-    };
-    await conn.connect(remoteId);
-    this.connections.set(remoteId, conn);
-    this.updateConnectionStatus();
-  }
-
-  updateConnectionStatus() {
-    const count = this.connections.size;
-    document.getElementById('connectedCount').textContent = count;
-    const badge = document.getElementById('senderStatus');
-    if (count > 0) {
-      badge.textContent = `${count} 个设备已连接`;
-      badge.className = 'status-badge connected';
-    } else {
-      badge.textContent = '等待连接';
-      badge.className = 'status-badge';
-    }
-  }
-
   async loadModel() {
-    document.getElementById('status').textContent = '正在加载 MediaPipe 模型...';
-    try {
-      const filesetResolver = await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
-      );
-      this.faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
-        baseOptions: {
-          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-          delegate: 'GPU',
-        },
-        outputFaceBlendshapes: true,
-        outputFacialTransformationMatrixes: true,
-        runningMode: 'VIDEO',
-        numFaces: 1,
-      });
-      document.getElementById('loading').classList.add('hidden');
-      document.getElementById('status').textContent = '模型加载完成，点击"启动摄像头"开始';
-    } catch (err) {
-      document.getElementById('status').textContent = '模型加载失败: ' + err.message;
-    }
+    const vision = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+    );
+    this.faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        delegate: 'GPU',
+      },
+      outputFaceBlendshapes: true,
+      runningMode: 'VIDEO',
+      numFaces: 1,
+    });
+    document.getElementById('loading').style.display = 'none';
   }
 
   async start() {
-    if (!this.faceLandmarker) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
       this.webcam.srcObject = stream;
       await this.webcam.play();
-      this.canvas.width = this.webcam.videoWidth;
-      this.canvas.height = this.webcam.videoHeight;
       this.running = true;
+      this.predictWebcam();
       document.getElementById('startBtn').disabled = true;
       document.getElementById('stopBtn').disabled = false;
-      document.getElementById('status').textContent = '面捕运行中，等待接收端连接...';
-      this.predictWebcam();
+      document.getElementById('status').textContent = '运行中';
     } catch (err) {
       document.getElementById('status').textContent = '摄像头启动失败: ' + err.message;
     }
@@ -532,157 +454,115 @@ class Sender {
   stop() {
     this.running = false;
     const stream = this.webcam.srcObject;
-    if (stream) {
-      stream.getTracks().forEach(t => t.stop());
-      this.webcam.srcObject = null;
-    }
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    this.webcam.srcObject = null;
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     document.getElementById('startBtn').disabled = false;
     document.getElementById('stopBtn').disabled = true;
     document.getElementById('status').textContent = '已停止';
-    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
-  async predictWebcam() {
+  predictWebcam() {
     if (!this.running) return;
-
-    const now = performance.now();
-    this.frameCount++;
-    if (now - this.lastFpsTime >= 1000) {
-      this.fps = this.frameCount;
-      this.frameCount = 0;
-      this.lastFpsTime = now;
-      document.getElementById('fps').textContent = this.fps;
-    }
 
     if (this.webcam.currentTime !== this.lastVideoTime) {
       this.lastVideoTime = this.webcam.currentTime;
-      const results = this.faceLandmarker.detectForVideo(this.webcam, now);
-
-      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      const results = this.faceLandmarker.detectForVideo(this.webcam, performance.now());
 
       if (results.faceLandmarks && results.faceLandmarks.length > 0) {
-        const landmarks = results.faceLandmarks[0];
-        this.drawLandmarks(landmarks);
-
-        const params = this.extractParams(results, landmarks);
-        this.updateAvatar(params);
-        this.broadcastParams(params);
-        this.updateUI(params);
+        this.drawFace(results.faceLandmarks[0]);
+        const params = this.extractParams(results);
+        this.avatar.updateParams(params);
+        this.broadcast(params);
       }
     }
 
     requestAnimationFrame(() => this.predictWebcam());
   }
 
-  drawLandmarks(landmarks) {
-    this.ctx.fillStyle = '#4ECDC4';
+  drawFace(landmarks) {
+    const ctx = this.ctx;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    ctx.fillStyle = 'rgba(0, 255, 136, 0.15)';
     for (const p of landmarks) {
-      const x = p.x * this.canvas.width;
-      const y = p.y * this.canvas.height;
-      this.ctx.beginPath();
-      this.ctx.arc(x, y, 1.5, 0, Math.PI * 2);
-      this.ctx.fill();
+      ctx.beginPath();
+      ctx.arc(p.x * w, p.y * h, 1.5, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
-  extractParams(results, landmarks) {
-    const map = {};
-    if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
-      for (const cat of results.faceBlendshapes[0].categories) {
-        map[cat.categoryName] = cat.score;
-      }
-    }
+  extractParams(results) {
+    const bs = results.faceBlendshapes && results.faceBlendshapes.length > 0
+      ? results.faceBlendshapes[0].categories
+      : [];
+    const getB = (name) => {
+      const f = bs.find(b => b.categoryName === name);
+      return f ? f.score : 0;
+    };
 
-    let headYaw = 0.5, headPitch = 0.5, headRoll = 0.5;
-    if (results.facialTransformationMatrixes && results.facialTransformationMatrixes.length > 0) {
-      const m = results.facialTransformationMatrixes[0].data;
-      const sy = Math.sqrt(m[0] * m[0] + m[4] * m[4]);
-      if (sy > 0.001) {
-        const yaw = Math.atan2(m[8], m[10]);
-        const pitch = Math.atan2(-m[9], sy);
-        const roll = Math.atan2(m[1], m[0]);
-        headYaw = (yaw / Math.PI + 1) / 2;
-        headPitch = (pitch / Math.PI + 1) / 2;
-        headRoll = (roll / Math.PI + 1) / 2;
-      }
-    }
+    let eyeLeft = 1 - getB('eyeBlinkLeft');
+    let eyeRight = 1 - getB('eyeBlinkRight');
+    if (this.mirrorData) [eyeLeft, eyeRight] = [eyeRight, eyeLeft];
 
-    let headX = 0.5, headY = 0.5;
-    if (landmarks && landmarks.length > 0) {
-      headX = landmarks[1].x;
-      headY = landmarks[1].y;
-    }
-
-    const eyeLeftRaw = 1 - (map['eyeBlinkLeft'] || 0);
-    const eyeRightRaw = 1 - (map['eyeBlinkRight'] || 0);
-    const mouthOpenRaw = map['jawOpen'] || 0;
-    const smileLeft = map['mouthSmileLeft'] || 0;
-    const smileRight = map['mouthSmileRight'] || 0;
-    const mouthSmileRaw = (smileLeft + smileRight) / 2;
-    const browLeftRaw = map['browInnerUp'] || 0;
-    const browRightRaw = map['browOuterUpLeft'] || 0;
-
-    if (this.mirrorData) {
-      return {
-        eyeLeft: eyeRightRaw, eyeRight: eyeLeftRaw,
-        mouthOpen: mouthOpenRaw, mouthSmile: mouthSmileRaw,
-        browLeft: browRightRaw, browRight: browLeftRaw,
-        headYaw: 1 - headYaw, headPitch, headRoll: 1 - headRoll,
-        headX: 1 - headX, headY,
-      };
-    }
+    let headYaw = 0.5 + getB('headYaw') * 0.5;
+    if (this.mirrorData) headYaw = 1 - headYaw;
 
     return {
-      eyeLeft: eyeLeftRaw, eyeRight: eyeRightRaw,
-      mouthOpen: mouthOpenRaw, mouthSmile: mouthSmileRaw,
-      browLeft: browLeftRaw, browRight: browRightRaw,
-      headYaw, headPitch, headRoll,
-      headX, headY,
+      eyeLeft: Math.max(0, Math.min(1, eyeLeft)),
+      eyeRight: Math.max(0, Math.min(1, eyeRight)),
+      mouthOpen: getB('jawOpen'),
+      mouthSmile: (getB('mouthSmileLeft') + getB('mouthSmileRight')) / 2,
+      browLeft: getB('browInnerUp'),
+      browRight: getB('browInnerUp'),
+      headYaw: Math.max(0, Math.min(1, headYaw)),
+      headPitch: 0.5 + getB('headPitch') * 0.5,
+      headRoll: 0.5 + getB('headRoll') * 0.5,
+      headX: 0.5 + getB('headYaw') * 0.3,
+      headY: 0.5 + getB('headPitch') * 0.3,
     };
   }
 
-  updateAvatar(params) {
-    this.avatar.updateParams(params);
-  }
-
-  broadcastParams(params) {
-    const data = { type: 'facedata', params, t: Date.now() };
-    for (const conn of this.connections.values()) {
-      conn.send(data);
-    }
+  broadcast(params) {
     this.sendCount++;
-    const now = Date.now();
-    if (now - this.lastRateTime >= 1000) {
+    const now = performance.now();
+    if (now - this.lastRateTime > 1000) {
       this.sendRate = this.sendCount;
       this.sendCount = 0;
       this.lastRateTime = now;
       document.getElementById('sendRate').textContent = this.sendRate;
-      // 更新延迟显示（取第一个连接的延迟）
-      const firstConn = this.connections.values().next().value;
-      if (firstConn) {
-        document.getElementById('latency').textContent = firstConn.latency || '-';
-        firstConn.ping();
-      }
+    }
+
+    for (const [id, conn] of this.connections) {
+      conn.send({ type: 'face', params, t: now });
     }
   }
 
-  updateUI(params) {
-    const ids = ['eyeLeft', 'eyeRight', 'mouthOpen', 'mouthSmile', 'browLeft', 'browRight', 'headYaw', 'headPitch', 'headRoll'];
-    for (const id of ids) {
-      const val = params[id] || 0;
-      const fill = document.getElementById(id);
-      const valEl = document.getElementById(id + 'Val');
-      if (fill) fill.style.width = (Math.max(0, Math.min(1, val)) * 100) + '%';
-      if (valEl) valEl.textContent = val.toFixed(2);
+  updateConnectionStatus() {
+    const count = this.connections.size;
+    document.getElementById('connectedCount').textContent = count;
+    const status = document.getElementById('senderStatus');
+    if (count > 0) {
+      status.textContent = `${count} 个设备已连接`;
+      status.className = 'status-badge connected';
+    } else {
+      status.textContent = '等待连接';
+      status.className = 'status-badge';
     }
   }
 
   destroy() {
     this.stop();
-    if (this.beaconInterval) clearInterval(this.beaconInterval);
-    if (this.beacon) this.beacon.close();
-    for (const conn of this.connections.values()) conn.close();
+    this.stopAudioSync();
+    for (const [id, conn] of this.connections) {
+      conn.close();
+    }
     this.connections.clear();
+    if (this.signalingClient) {
+      this.signalingClient.unregister();
+    }
   }
 }
 
@@ -693,18 +573,82 @@ class Receiver {
     this.id = generateId();
     this.avatar = new DebugAvatar('receiver_avatar_canvas');
     this.conn = null;
+    this.signalingClient = null;
     this.recvRate = 0;
     this.recvCount = 0;
     this.lastRateTime = 0;
     this.lastParams = null;
     this.smoothed = {};
     this.smoothFactor = 0.3;
-
-    // 远程音频播放
     this.remoteAudio = null;
     this.audioElement = null;
+    this.discoveredDevices = [];
+  }
 
+  init() {
     this.initUI();
+    this.initSignaling();
+  }
+
+  initSignaling() {
+    this.signalingClient = new SignalingClient(this.id);
+    this.signalingClient.onDeviceList = (devices) => {
+      this.discoveredDevices = devices.filter(d => d.role === 'sender');
+      this.updateDeviceList();
+    };
+    this.signalingClient.onSignal = (from, payload) => {
+      this.handleSignal(from, payload);
+    };
+    this.signalingClient.onError = (type, msg) => {
+      console.warn(`[Receiver] Signaling error (${type}):`, msg);
+      document.getElementById('receiverStatus').textContent = '信令服务不可用';
+    };
+
+    // 注册为接收端
+    this.signalingClient.register('CheapLive Receiver', null, null, 'receiver');
+  }
+
+  updateDeviceList() {
+    const listEl = document.getElementById('deviceList');
+    if (!listEl) return;
+
+    if (this.discoveredDevices.length === 0) {
+      listEl.innerHTML = '<div class="device-empty">未发现在线设备</div>';
+      return;
+    }
+
+    listEl.innerHTML = this.discoveredDevices.map(d => `
+      <div class="device-item" data-id="${d.id}">
+        <span class="device-name">${d.name || '发送端'}</span>
+        <span class="device-ip">${d.ip}:${d.port}</span>
+        <button class="btn-connect" data-id="${d.id}">连接</button>
+      </div>
+    `).join('');
+
+    listEl.querySelectorAll('.btn-connect').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const targetId = btn.dataset.id;
+        this.connectToSender(targetId);
+      });
+    });
+  }
+
+  async handleSignal(from, payload) {
+    if (!this.conn || this.conn.remoteId !== from) return;
+
+    if (payload.type === 'offer') {
+      const answer = await this.conn.createAnswer(payload.offer);
+      this.signalingClient.sendSignal(from, {
+        type: 'answer',
+        answer,
+      });
+      this.conn.setRemoteDescriptionSet();
+    } else if (payload.type === 'answer') {
+      await this.conn.setAnswer(payload.answer);
+      this.conn.setRemoteDescriptionSet();
+    } else if (payload.type === 'ice') {
+      this.conn.addIceCandidate(payload.candidate);
+    }
   }
 
   initUI() {
@@ -713,74 +657,43 @@ class Receiver {
       showModeSelect();
     });
 
-    document.getElementById('connectBtn').addEventListener('click', () => this.connect());
-    document.getElementById('scanBtn').addEventListener('click', () => this.scan());
+    document.getElementById('connectBtn').addEventListener('click', () => {
+      const targetId = document.getElementById('targetId').value.trim();
+      const targetIp = document.getElementById('targetIp').value.trim();
+      if (targetId) {
+        this.connectToSender(targetId);
+      } else if (targetIp) {
+        // 通过 IP 直接连接（需要对方 ID）
+        document.getElementById('receiverStatus').textContent = '请同时输入发送端 ID';
+      }
+    });
+
     document.getElementById('disconnectBtn').addEventListener('click', () => this.disconnect());
 
-    document.getElementById('targetId').addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') this.connect();
-    });
+    document.getElementById('scanBtn').addEventListener('click', () => this.scanDevices());
   }
 
-  async scan() {
-    const resultsEl = document.getElementById('scanResults');
-    resultsEl.innerHTML = '<div style="color:var(--text-muted)">扫描中...</div>';
-
-    const found = new Map();
-    const scanner = new SignalingChannel(this.id);
-
-    scanner.onmessage = (msg) => {
-      if (msg.type === 'beacon' && msg.role === 'sender' && !found.has(msg.id)) {
-        found.set(msg.id, msg);
-        this.renderScanResults(found);
-      }
-    };
-
-    // 等待 3 秒收集 beacon
-    await new Promise(r => setTimeout(r, 3000));
-    scanner.close();
-
-    if (found.size === 0) {
-      resultsEl.innerHTML = '<div style="color:var(--text-muted)">未找到局域网设备，请手动输入 ID 连接</div>';
+  async scanDevices() {
+    document.getElementById('receiverStatus').textContent = '扫描中...';
+    try {
+      const devices = await this.signalingClient.fetchDeviceList();
+      this.discoveredDevices = devices.filter(d => d.role === 'sender');
+      this.updateDeviceList();
+      document.getElementById('receiverStatus').textContent =
+        this.discoveredDevices.length > 0 ? `发现 ${this.discoveredDevices.length} 个设备` : '未发现设备';
+    } catch (err) {
+      document.getElementById('receiverStatus').textContent = '扫描失败: ' + err.message;
     }
   }
 
-  renderScanResults(found) {
-    const resultsEl = document.getElementById('scanResults');
-    resultsEl.innerHTML = '';
-    for (const [id, info] of found) {
-      const item = document.createElement('div');
-      item.className = 'scan-result-item';
-      item.innerHTML = `
-        <div>
-          <div class="device-id">${id}</div>
-          <div class="device-ip">${info.ip || 'IP 未知'}</div>
-        </div>
-        <button class="btn-small">连接</button>
-      `;
-      item.querySelector('button').addEventListener('click', () => {
-        document.getElementById('targetId').value = id;
-        this.connect();
-      });
-      resultsEl.appendChild(item);
-    }
-  }
-
-  async connect() {
-    const targetId = document.getElementById('targetId').value.trim();
-    const targetIp = document.getElementById('targetIp').value.trim();
-
-    if (!targetId && !targetIp) {
-      alert('请输入发送端 ID 或 IP 地址');
-      return;
-    }
-
-    const remoteId = targetId || targetIp;
-
+  async connectToSender(remoteId) {
     document.getElementById('receiverStatus').textContent = '连接中...';
-    document.getElementById('receiverStatus').className = 'status-badge connecting';
 
     this.conn = new P2PConnection(this.id, false);
+    this.conn.remoteId = remoteId;
+    this.conn.signalingClient = this.signalingClient;
+    await this.conn.init();
+
     this.conn.onopen = () => {
       document.getElementById('receiverStatus').textContent = '已连接';
       document.getElementById('receiverStatus').className = 'status-badge connected';
@@ -797,12 +710,11 @@ class Receiver {
     this.conn.ondata = (data) => this.handleData(data);
     this.conn.ontrack = (stream) => this.playRemoteAudio(stream);
 
-    await this.conn.connect(remoteId);
-
-    // 发送连接请求
-    const req = new SignalingChannel(this.id);
-    req.send(remoteId, { type: 'connect_request', from: this.id });
-    setTimeout(() => req.close(), 1000);
+    // 发送连接请求（让对方创建 offer）
+    this.signalingClient.sendSignal(remoteId, {
+      type: 'connect_request',
+      from: this.id,
+    });
   }
 
   playRemoteAudio(stream) {
@@ -811,10 +723,38 @@ class Receiver {
     this.audioElement.srcObject = stream;
     this.audioElement.autoplay = true;
     this.audioElement.volume = 0.8;
+
+    // 移动浏览器自动播放限制处理
+    this.audioElement.play().catch(() => {
+      // 显示点击播放按钮
+      this.showAudioPlayButton();
+    });
+
     document.body.appendChild(this.audioElement);
   }
 
+  showAudioPlayButton() {
+    let btn = document.getElementById('audioPlayBtn');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'audioPlayBtn';
+      btn.className = 'btn-primary';
+      btn.textContent = '🔊 点击播放声音';
+      btn.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:1000;';
+      btn.addEventListener('click', () => {
+        if (this.audioElement) {
+          this.audioElement.play();
+          btn.remove();
+        }
+      });
+      document.body.appendChild(btn);
+    }
+  }
+
   stopRemoteAudio() {
+    const btn = document.getElementById('audioPlayBtn');
+    if (btn) btn.remove();
+
     if (this.audioElement) {
       this.audioElement.pause();
       this.audioElement.srcObject = null;
@@ -824,49 +764,38 @@ class Receiver {
   }
 
   handleData(data) {
-    if (data.type !== 'facedata' || !data.params) return;
+    if (data.type === 'face') {
+      this.recvCount++;
+      const now = performance.now();
+      if (now - this.lastRateTime > 1000) {
+        this.recvRate = this.recvCount;
+        this.recvCount = 0;
+        this.lastRateTime = now;
+        document.getElementById('recvRate').textContent = this.recvRate;
+      }
 
-    const params = data.params;
-    this.lastParams = params;
+      const params = data.params;
+      this.smoothed.mouthOpen = this.smoothed.mouthOpen || 0;
+      this.smoothed.mouthSmile = this.smoothed.mouthSmile || 0;
+      this.smoothed.mouthOpen += (params.mouthOpen - this.smoothed.mouthOpen) * (1 - this.smoothFactor);
+      this.smoothed.mouthSmile += (params.mouthSmile - this.smoothed.mouthSmile) * (1 - this.smoothFactor);
 
-    // 平滑处理
-    const smoothed = {};
-    for (const [key, val] of Object.entries(params)) {
-      const current = this.smoothed[key] || val;
-      smoothed[key] = current + (val - current) * (1 - this.smoothFactor);
-      this.smoothed[key] = smoothed[key];
-    }
-
-    this.avatar.updateParams(smoothed);
-    this.updateUI(smoothed);
-
-    this.recvCount++;
-    const now = Date.now();
-    if (now - this.lastRateTime >= 1000) {
-      this.recvRate = this.recvCount;
-      this.recvCount = 0;
-      this.lastRateTime = now;
-      document.getElementById('recvRate').textContent = this.recvRate;
-    }
-  }
-
-  updateUI(params) {
-    const ids = ['eyeLeft', 'eyeRight', 'mouthOpen', 'mouthSmile', 'headYaw', 'headPitch', 'headRoll'];
-    for (const id of ids) {
-      const val = params[id] || 0;
-      const fill = document.getElementById('r_' + id);
-      if (fill) fill.style.width = (Math.max(0, Math.min(1, val)) * 100) + '%';
+      this.avatar.updateParams({
+        ...params,
+        mouthOpen: this.smoothed.mouthOpen,
+        mouthSmile: this.smoothed.mouthSmile,
+      });
     }
   }
 
   resetDisplay() {
-    document.getElementById('connectionSetup').classList.remove('hidden');
-    document.getElementById('receiverInfo').classList.add('hidden');
     this.avatar.updateParams({
       eyeLeft: 1, eyeRight: 1, mouthOpen: 0, mouthSmile: 0,
-      browLeft: 0, browRight: 0, headYaw: 0.5, headPitch: 0.5, headRoll: 0.5,
+      browLeft: 0, browRight: 0,
+      headYaw: 0.5, headPitch: 0.5, headRoll: 0.5,
       headX: 0.5, headY: 0.5,
     });
+    document.getElementById('recvRate').textContent = '0';
   }
 
   disconnect() {
@@ -876,44 +805,50 @@ class Receiver {
       this.conn = null;
     }
     this.resetDisplay();
+    document.getElementById('connectionSetup').classList.remove('hidden');
+    document.getElementById('receiverInfo').classList.add('hidden');
+    document.getElementById('receiverStatus').textContent = '等待连接';
+    document.getElementById('receiverStatus').className = 'status-badge';
   }
 
   destroy() {
     this.disconnect();
+    if (this.signalingClient) {
+      this.signalingClient.unregister();
+    }
   }
 }
 
 // ===================== 页面路由 =====================
 
-let currentSender = null;
-let currentReceiver = null;
+let sender = null;
+let receiver = null;
 
 function showModeSelect() {
   document.getElementById('modeSelect').classList.remove('hidden');
   document.getElementById('senderPanel').classList.add('hidden');
   document.getElementById('receiverPanel').classList.add('hidden');
-
-  if (currentSender) { currentSender.destroy(); currentSender = null; }
-  if (currentReceiver) { currentReceiver.destroy(); currentReceiver = null; }
 }
 
 function showSender() {
   document.getElementById('modeSelect').classList.add('hidden');
   document.getElementById('senderPanel').classList.remove('hidden');
-  currentSender = new Sender();
+  sender = new Sender();
+  sender.init();
 }
 
 function showReceiver() {
   document.getElementById('modeSelect').classList.add('hidden');
   document.getElementById('receiverPanel').classList.remove('hidden');
-  currentReceiver = new Receiver();
+  receiver = new Receiver();
+  receiver.init();
 }
 
-// 模式选择事件
-document.querySelectorAll('.mode-card').forEach(card => {
-  card.addEventListener('click', () => {
-    const mode = card.dataset.mode;
-    if (mode === 'sender') showSender();
-    else showReceiver();
-  });
+document.getElementById('senderMode').addEventListener('click', showSender);
+document.getElementById('receiverMode').addEventListener('click', showReceiver);
+
+// 页面关闭时清理
+window.addEventListener('beforeunload', () => {
+  if (sender) sender.destroy();
+  if (receiver) receiver.destroy();
 });
