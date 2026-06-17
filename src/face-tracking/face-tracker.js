@@ -53,9 +53,17 @@ class FaceTracker {
     // 调试小人
     this.avatar = null;
     this.avatarVersion = 'saka';
+
+    // 按需加载的模块（懒加载）
+    this.voiceChanger = null;
+    this.liveSubtitle = null;
+    this.voiceChangerEnabled = false;
+    this.subtitleEnabled = false;
+
     this.setupAvatarControls();
     this.setupSensitivityControls();
     this.setupHelpModal();
+    this.setupFeatureToggles();
     this.loadSettings();
 
     this.init();
@@ -485,6 +493,54 @@ class FaceTracker {
     // 触发 avatar 重新调整大小
     if (this.avatar) {
       this.avatar.resize();
+    }
+  }
+
+  // 按需加载开关：变声 / 字幕
+  setupFeatureToggles() {
+    const vcToggle = document.getElementById('voiceChangerToggle');
+    const subToggle = document.getElementById('subtitleToggle');
+
+    if (vcToggle) {
+      vcToggle.addEventListener('change', async (e) => {
+        this.voiceChangerEnabled = e.target.checked;
+        if (this.voiceChangerEnabled && !this.voiceChanger) {
+          const { VoiceChanger } = await import('./voice-changer.js');
+          this.voiceChanger = new VoiceChanger();
+        }
+        this.status.textContent = this.voiceChangerEnabled ? '变声已开启' : '变声已关闭';
+      });
+    }
+
+    if (subToggle) {
+      subToggle.addEventListener('change', async (e) => {
+        this.subtitleEnabled = e.target.checked;
+        if (this.subtitleEnabled && !this.liveSubtitle) {
+          const { LiveSubtitle } = await import('./live-subtitle.js');
+          this.liveSubtitle = new LiveSubtitle();
+          this.liveSubtitle.onResult = (text) => this.updateSubtitle(text);
+        }
+        if (this.subtitleEnabled) {
+          try {
+            this.liveSubtitle.start();
+            this.status.textContent = '字幕已开启';
+          } catch (err) {
+            this.status.textContent = '字幕开启失败: ' + err.message;
+            subToggle.checked = false;
+            this.subtitleEnabled = false;
+          }
+        } else {
+          if (this.liveSubtitle) this.liveSubtitle.stop();
+          this.status.textContent = '字幕已关闭';
+        }
+      });
+    }
+  }
+
+  updateSubtitle(text) {
+    const subtitleDisplay = document.getElementById('subtitleDisplay');
+    if (subtitleDisplay) {
+      subtitleDisplay.textContent = text;
     }
   }
 

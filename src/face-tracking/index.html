@@ -2,8 +2,11 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>CheapLive - 面部捕捉原型</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -255,8 +258,31 @@
             </label>
           </div>
         </div>
+
+        <div class="param-group feature-group">
+          <h3>扩展功能</h3>
+          <div class="feature-toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="voiceChangerToggle">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">实时变声</span>
+            <span class="toggle-hint">Web Audio API 本地处理</span>
+          </div>
+          <div class="feature-toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="subtitleToggle">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">实时字幕</span>
+            <span class="toggle-hint">Web Speech API 本地识别</span>
+          </div>
+        </div>
       </div>
     </div>
+
+    <!-- 字幕显示区域 -->
+    <div id="subtitleDisplay" class="subtitle-display"></div>
   </div>
 
   <script type="module" src="face-tracker.js"></script>

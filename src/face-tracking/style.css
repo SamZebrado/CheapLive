@@ -13,10 +13,12 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  /* 移动端触控优化：防止误触发系统手势 */
+  touch-action: manipulation;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--bg);
   color: var(--ink);
   min-height: 100vh;
@@ -870,4 +872,83 @@ body.app-mode .avatar-version-select {
   font-size: 0.8rem;
   color: var(--accent);
   margin-top: 12px;
+}
+
+/* 扩展功能开关 */
+.feature-group {
+  margin-top: 1rem;
+}
+
+.feature-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.feature-toggle-row .toggle-hint {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+/* 字幕显示 */
+.subtitle-display {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 90%;
+  padding: 12px 24px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 12px;
+  color: #fff;
+  font-size: 1.2rem;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: none;
+  z-index: 100;
+  backdrop-filter: blur(8px);
+  line-height: 1.5;
+  display: none;
+}
+
+.subtitle-display.active {
+  display: block;
+}
+
+/* 移动端触控优化 */
+@media (max-width: 768px) {
+  .sensitivity-slider {
+    /* 增大触控区域 */
+    min-height: 36px;
+    padding: 8px 0;
+  }
+
+  .sensitivity-slider::-webkit-slider-thumb {
+    width: 24px;
+    height: 24px;
+  }
+
+  .sensitivity-slider::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+  }
+
+  /* 防止滑块与浏览器手势冲突 */
+  .sensitivity-group {
+    touch-action: pan-y;
+  }
+
+  /* 按钮增大触控区域 */
+  .btn-primary,
+  .btn-secondary,
+  .btn-small {
+    min-height: 44px;
+    padding: 10px 16px;
+  }
+
+  /* 防止页面滚动时误触 */
+  .toggle-switch {
+    touch-action: manipulation;
+  }
 }
