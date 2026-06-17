@@ -1,0 +1,28 @@
+{
+  "name": "cheaplive",
+  "version": "1.0.0",
+  "description": "> 一个面向移动端个人主播的零成本虚拟主播直播辅助工具。 > 无需电脑，纯浏览器端运行，让任何有手机的普通人都能成为虚拟主播。",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "node --test tests/unit/*.test.js",
+    "test:e2e": "node tests/e2e/smoke.test.js",
+    "test:all": "node --test tests/unit/*.test.js && node tests/e2e/smoke.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SamZebrado/CheapLive.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/SamZebrado/CheapLive/issues"
+  },
+  "homepage": "https://github.com/SamZebrado/CheapLive#readme",
+  "dependencies": {
+    "playwright": "^1.61.0"
+  }
+}

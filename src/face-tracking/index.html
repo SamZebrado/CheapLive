@@ -11,6 +11,7 @@
     <header>
       <h1>CheapLive 面部捕捉原型</h1>
       <p class="subtitle">基于 MediaPipe Face Landmarker - 纯浏览器端运行</p>
+      <a href="../multi-device/index.html" class="multi-device-link">🌐 进入多端互动模式</a>
     </header>
 
     <div class="main-layout">
@@ -51,6 +52,7 @@
           <button id="testOpen" class="btn-small">测试张嘴</button>
           <button id="testReset" class="btn-small">重置</button>
         </div>
+        <button id="exitAppMode" class="exit-app-btn">✕ 退出应用模式</button>
         <div class="mirror-toggle">
           <label class="toggle-switch">
             <input type="checkbox" id="mirrorMode">
@@ -66,17 +68,25 @@
           <span class="toggle-label">应用模式</span>
           <span class="toggle-hint">隐藏调试信息，全屏展示形象</span>
         </div>
-
         <div class="model-import">
           <h3>形象切换</h3>
           <div class="model-tabs">
             <button class="model-tab active" data-model="saka">萨卡班甲鱼</button>
             <button class="model-tab" data-model="live2d">Live2D</button>
           </div>
+          <div class="avatar-version-select">
+            <label for="avatarVersion">形象版本：</label>
+            <select id="avatarVersion">
+              <option value="saka">3D纺锤体（默认）</option>
+              <option value="saka-whale">鲸鱼尾巴</option>
+              <option value="sphere">球体基础</option>
+              <option value="saka-memorial">纪念版</option>
+            </select>
+          </div>
           <div class="live2d-import" id="live2dImport" style="display:none;">
-            <p class="import-hint">上传 Live2D 模型文件夹（.model3.json + 贴图）</p>
-            <input type="file" id="modelFolder" webkitdirectory directory multiple class="import-input">
-            <label for="modelFolder" class="import-btn">📁 选择模型文件夹</label>
+            <p class="import-hint">上传 Live2D 模型 ZIP 文件（包含 .model3.json + 贴图）</p>
+            <input type="file" id="modelFolder" accept=".zip" class="import-input">
+            <label for="modelFolder" class="import-btn">📁 选择 ZIP 文件</label>
             <div id="modelStatus" class="model-status"></div>
           </div>
         </div>

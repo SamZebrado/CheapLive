@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CheapLive - 多端互动</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>CheapLive 多端互动</h1>
+      <p class="subtitle">局域网 P2P 面捕数据同步 - 无需服务器，保护隐私</p>
+      <a href="../face-tracking/index.html" class="back-link">← 返回单机版</a>
+    </header>
+
+    <!-- 模式选择 -->
+    <div class="mode-select" id="modeSelect">
+      <h2>选择模式</h2>
+      <div class="mode-cards">
+        <div class="mode-card" data-mode="sender">
+          <div class="mode-icon">📤</div>
+          <h3>发送端</h3>
+          <p>本机进行面部捕捉</p>
+          <p>将面捕数据发送给其他设备</p>
+          <button class="btn-primary">选择</button>
+        </div>
+        <div class="mode-card" data-mode="receiver">
+          <div class="mode-icon">📥</div>
+          <h3>接收端</h3>
+          <p>接收其他设备的面捕数据</p>
+          <p>在本机渲染虚拟形象</p>
+          <button class="btn-primary">选择</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 发送端界面 -->
+    <div class="sender-panel hidden" id="senderPanel">
+      <div class="panel-header">
+        <h2>📤 发送端</h2>
+        <button class="btn-small" id="backFromSender">返回</button>
+      </div>
+
+      <div class="connection-info">
+        <div class="info-row">
+          <span class="info-label">本机 ID:</span>
+          <span class="info-value" id="senderId">-</span>
+          <button class="btn-copy" id="copySenderId">复制</button>
+        </div>
+        <div class="info-row">
+          <span class="info-label">连接状态:</span>
+          <span class="status-badge" id="senderStatus">等待连接</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">已连接设备:</span>
+          <span class="info-value" id="connectedCount">0</span>
+        </div>
+      </div>
+
+      <div class="main-layout">
+        <div class="video-section">
+          <div class="video-wrapper">
+            <video id="webcam" autoplay playsinline></video>
+            <canvas id="output_canvas"></canvas>
+            <div id="loading" class="loading-overlay">
+              <div class="spinner"></div>
+              <p>正在加载模型...</p>
+            </div>
+          </div>
+          <div class="controls">
+            <button id="startBtn" class="btn-primary">启动摄像头</button>
+            <button id="stopBtn" class="btn-secondary" disabled>停止</button>
+          </div>
+          <div id="status" class="status">点击"启动摄像头"开始面捕</div>
+        </div>
+
+        <div class="avatar-section">
+          <h2>本地预览</h2>
+          <div class="avatar-wrapper">
+            <canvas id="avatar_canvas"></canvas>
+          </div>
+          <div class="sender-controls">
+            <div class="mirror-toggle">
+              <label class="toggle-switch">
+                <input type="checkbox" id="mirrorMode">
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="toggle-label">镜像翻转</span>
+            </div>
+            <div class="privacy-toggle">
+              <label class="toggle-switch">
+                <input type="checkbox" id="privacyMode">
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="toggle-label">隐私模式</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="data-panel compact">
+          <h2>发送数据</h2>
+          <div class="param-group">
+            <div class="param-row">
+              <span class="param-label">左眼</span>
+              <div class="param-bar"><div id="eyeLeft" class="param-fill"></div></div>
+              <span id="eyeLeftVal" class="param-value">0.00</span>
+            </div>
+            <div class="param-row">
+              <span class="param-label">右眼</span>
+              <div class="param-bar"><div id="eyeRight" class="param-fill"></div></div>
+              <span id="eyeRightVal" class="param-value">0.00</span>
+            </div>
+            <div class="param-row">
+              <span class="param-label">嘴巴</span>
+              <div class="param-bar"><div id="mouthOpen" class="param-fill"></div></div>
+              <span id="mouthOpenVal" class="param-value">0.00</span>
+            </div>
+            <div class="param-row">
+              <span class="param-label">微笑</span>
+              <div class="param-bar"><div id="mouthSmile" class="param-fill"></div></div>
+              <span id="mouthSmileVal" class="param-value">0.00</span>
+            </div>
+            <div class="param-row">
+              <span class="param-label">左右</span>
+              <div class="param-bar"><div id="headYaw" class="param-fill"></div></div>
+              <span id="headYawVal" class="param-value">0.00</span>
+            </div>
+            <div class="param-row">
+              <span class="param-label">上下</span>
+              <div class="param-bar"><div id="headPitch" class="param-fill"></div></div>
+              <span id="headPitchVal" class="param-value">0.00</span>
+            </div>
+            <div class="param-row">
+              <span class="param-label">倾斜</span>
+              <div class="param-bar"><div id="headRoll" class="param-fill"></div></div>
+              <span id="headRollVal" class="param-value">0.00</span>
+            </div>
+          </div>
+          <div class="fps-counter">FPS: <span id="fps">0</span></div>
+          <div class="network-stats">
+            <div>发送速率: <span id="sendRate">0</span> msg/s</div>
+            <div>延迟: <span id="latency">-</span> ms</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 接收端界面 -->
+    <div class="receiver-panel hidden" id="receiverPanel">
+      <div class="panel-header">
+        <h2>📥 接收端</h2>
+        <button class="btn-small" id="backFromReceiver">返回</button>
+      </div>
+
+      <div class="connection-setup" id="connectionSetup">
+        <h3>连接到发送端</h3>
+        <div class="connect-form">
+          <div class="form-row">
+            <label>输入发送端 ID:</label>
+            <input type="text" id="targetId" placeholder="例如: abc-123-def" class="text-input">
+          </div>
+          <div class="form-row">
+            <label>或输入 IP 地址:</label>
+            <input type="text" id="targetIp" placeholder="例如: 192.168.1.100" class="text-input">
+            <input type="number" id="targetPort" placeholder="端口" value="9001" class="port-input">
+          </div>
+          <button id="connectBtn" class="btn-primary">连接</button>
+        </div>
+        <div class="or-divider">或</div>
+        <div class="scan-section">
+          <button id="scanBtn" class="btn-secondary">🔍 扫描局域网设备</button>
+          <div id="scanResults" class="scan-results"></div>
+        </div>
+      </div>
+
+      <div class="connection-info hidden" id="receiverInfo">
+        <div class="info-row">
+          <span class="info-label">连接状态:</span>
+          <span class="status-badge connected" id="receiverStatus">已连接</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">数据来源:</span>
+          <span class="info-value" id="sourceId">-</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">接收速率:</span>
+          <span class="info-value"><span id="recvRate">0</span> msg/s</span>
+        </div>
+        <button id="disconnectBtn" class="btn-warning">断开连接</button>
+      </div>
+
+      <div class="receiver-display" id="receiverDisplay">
+        <div class="avatar-wrapper large">
+          <canvas id="receiver_avatar_canvas"></canvas>
+        </div>
+        <div class="receiver-data compact" id="receiverData">
+          <div class="param-row">
+            <span class="param-label">左眼</span>
+            <div class="param-bar"><div id="r_eyeLeft" class="param-fill"></div></div>
+          </div>
+          <div class="param-row">
+            <span class="param-label">右眼</span>
+            <div class="param-bar"><div id="r_eyeRight" class="param-fill"></div></div>
+          </div>
+          <div class="param-row">
+            <span class="param-label">嘴巴</span>
+            <div class="param-bar"><div id="r_mouthOpen" class="param-fill"></div></div>
+          </div>
+          <div class="param-row">
+            <span class="param-label">微笑</span>
+            <div class="param-bar"><div id="r_mouthSmile" class="param-fill"></div></div>
+          </div>
+          <div class="param-row">
+            <span class="param-label">左右</span>
+            <div class="param-bar"><div id="r_headYaw" class="param-fill"></div></div>
+          </div>
+          <div class="param-row">
+            <span class="param-label">上下</span>
+            <div class="param-bar"><div id="r_headPitch" class="param-fill"></div></div>
+          </div>
+          <div class="param-row">
+            <span class="param-label">倾斜</span>
+            <div class="param-bar"><div id="r_headRoll" class="param-fill"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="multi-device.js"></script>
+</body>
+</html>

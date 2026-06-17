@@ -375,52 +375,39 @@
     .hero-cta {
       display: inline-flex;
       align-items: center;
-      gap: 0.9rem;
-      background: linear-gradient(135deg, #FF6B4A, #ff8f70);
-      color: #fff;
+      gap: 0.5rem;
+      background: var(--bg3);
+      color: var(--accent2);
       text-decoration: none;
-      padding: 0.9rem 1.6rem;
-      border-radius: 14px;
-      margin-top: 1.4rem;
-      box-shadow: 0 8px 28px rgba(255, 107, 74, 0.35), 0 2px 8px rgba(0,0,0,0.2);
-      transition: all 0.25s ease;
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      padding: 0.45rem 1rem;
+      border-radius: 999px;
+      margin-top: 1.2rem;
+      border: 1px solid var(--rule);
+      transition: all 0.2s ease;
+      font-size: 0.85rem;
+      font-weight: 600;
     }
     .hero-cta:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 12px 36px rgba(255, 107, 74, 0.45), 0 4px 12px rgba(0,0,0,0.25);
-    }
-    .hero-cta:active {
-      transform: translateY(0);
+      background: var(--accent2);
+      color: var(--bg);
+      border-color: var(--accent2);
     }
     .cta-icon {
-      font-size: 1.6rem;
+      font-size: 1.1rem;
       line-height: 1;
     }
     .cta-text {
       display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 0.15rem;
-    }
-    .cta-title {
-      font-size: 1.05rem;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-    }
-    .cta-desc {
-      font-size: 0.78rem;
-      opacity: 0.88;
-      font-weight: 400;
+      align-items: center;
+      gap: 0.3rem;
     }
     .cta-arrow {
-      font-size: 1.3rem;
-      margin-left: 0.4rem;
-      opacity: 0.9;
+      font-size: 1rem;
+      opacity: 0.7;
       transition: transform 0.2s;
     }
     .hero-cta:hover .cta-arrow {
-      transform: translateX(4px);
+      transform: translateX(3px);
     }
 
     .hero-links {
@@ -494,10 +481,7 @@
 
         <a class="hero-cta" href="src/face-tracking/index.html">
           <span class="cta-icon">🎭</span>
-          <span class="cta-text">
-            <span class="cta-title">试试面部捕捉演示</span>
-            <span class="cta-desc">浏览器直接运行 · 无需安装 · 萨卡班甲鱼实时驱动</span>
-          </span>
+          <span class="cta-text">试试面部捕捉演示</span>
           <span class="cta-arrow">→</span>
         </a>
 

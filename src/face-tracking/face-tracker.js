@@ -5,6 +5,7 @@
 
 import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm';
 import { DebugAvatar } from './debug-avatar.js';
+import { createAvatar, AVATAR_VERSIONS } from './avatar-versions.js';
 
 class FaceTracker {
   constructor() {
@@ -50,12 +51,17 @@ class FaceTracker {
     this.smoothFactor = 0.35; // 0=不平滑, 1=完全平滑（不更新）
 
     // 调试小人
-    this.avatar = new DebugAvatar('avatar_canvas');
+    this.avatar = null;
+    this.avatarVersion = 'saka';
     this.setupAvatarControls();
     this.setupSensitivityControls();
     this.loadSettings();
 
     this.init();
+  }
+
+  async initAvatar() {
+    this.avatar = await createAvatar(this.avatarVersion);
   }
 
   // 灵敏度控制
@@ -204,6 +210,17 @@ class FaceTracker {
       });
     }
 
+    // 应用模式退出按钮
+    const exitAppMode = document.getElementById('exitAppMode');
+    if (exitAppMode) {
+      exitAppMode.addEventListener('click', () => {
+        this.avatar.setAppMode(false);
+        this.toggleAppModeUI(false);
+        if (appModeToggle) appModeToggle.checked = false;
+        this.saveSettings();
+      });
+    }
+
     // 性能模式开关
     const perfRadios = document.querySelectorAll('input[name="perfMode"]');
     perfRadios.forEach(radio => {
@@ -223,6 +240,15 @@ class FaceTracker {
     const live2dImport = document.getElementById('live2dImport');
     const modelFolder = document.getElementById('modelFolder');
     const modelStatus = document.getElementById('modelStatus');
+    const avatarVersionSelect = document.getElementById('avatarVersion');
+
+    // 萨卡班甲鱼版本选择
+    if (avatarVersionSelect) {
+      avatarVersionSelect.addEventListener('change', async (e) => {
+        const version = e.target.value;
+        await this.switchAvatarVersion(version);
+      });
+    }
 
     tabs.forEach(tab => {
       tab.addEventListener('click', () => {
@@ -236,84 +262,122 @@ class FaceTracker {
         } else {
           live2dImport.style.display = 'none';
           modelStatus.textContent = '';
-          // 切换回萨卡班甲鱼
-          this.switchToSaka();
+          // 切换回萨卡班甲鱼（当前选择的版本）
+          const version = avatarVersionSelect ? avatarVersionSelect.value : 'saka';
+          this.switchAvatarVersion(version);
         }
       });
     });
 
-    // Live2D 模型文件夹上传
+    // Live2D 模型 ZIP 上传
     if (modelFolder) {
       modelFolder.addEventListener('change', (e) => {
-        this.handleLive2DUpload(e.target.files, modelStatus);
+        const file = e.target.files[0];
+        if (file) {
+          this.handleLive2DZipUpload(file, modelStatus);
+        }
       });
     }
   }
 
-  switchToSaka() {
-    // 切换回萨卡班甲鱼模式
-    this.avatarMode = 'saka';
-    // 重新创建 avatar
-    this.avatar = new DebugAvatar('avatar_canvas');
-    this.avatar.updateParams({
-      eyeLeft: 1, eyeRight: 1, mouthOpen: 0, mouthSmile: 0,
-      browLeft: 0, browRight: 0, headYaw: 0.5, headPitch: 0.5, headRoll: 0.5,
-      headX: 0.5, headY: 0.5,
-    });
+  async switchAvatarVersion(version) {
+    this.avatarVersion = version;
+    // 保存当前参数
+    const currentParams = this.avatar ? { ...this.avatar.params } : null;
+    // 销毁旧 avatar
+    if (this.avatar) {
+      // 清理事件监听
+      window.removeEventListener('resize', this.avatar._resizeHandler);
+    }
+    // 创建新 avatar
+    this.avatar = await createAvatar(version);
+    // 恢复参数
+    if (currentParams) {
+      this.avatar.updateParams(currentParams);
+    }
+    // 恢复应用模式状态
+    const appModeToggle = document.getElementById('appMode');
+    if (appModeToggle && appModeToggle.checked) {
+      this.avatar.setAppMode(true);
+    }
+    this.saveSettings();
   }
 
-  async handleLive2DUpload(files, statusEl) {
-    if (!files || files.length === 0) {
-      statusEl.textContent = '未选择文件';
+  async handleLive2DZipUpload(file, statusEl) {
+    if (!file || !file.name.endsWith('.zip')) {
+      statusEl.textContent = '请选择 .zip 格式的模型压缩包';
       return;
     }
 
-    statusEl.textContent = `已选择 ${files.length} 个文件，正在解析...`;
-
-    // 查找 .model3.json 文件
-    const modelJsonFile = Array.from(files).find(f => f.name.endsWith('.model3.json'));
-    if (!modelJsonFile) {
-      statusEl.textContent = '错误：未找到 .model3.json 文件';
-      return;
-    }
+    statusEl.textContent = '正在解压 ZIP 文件...';
 
     try {
-      const jsonText = await modelJsonFile.text();
-      const modelJson = JSON.parse(jsonText);
-      statusEl.textContent = `模型解析成功: ${modelJsonFile.name}`;
+      // 动态加载 JSZip
+      const JSZip = await this.loadJSZip();
+      const zip = await JSZip.loadAsync(file);
 
-      // 创建文件映射（用于后续加载贴图等资源）
-      this.live2dFiles = {};
-      for (const file of files) {
-        this.live2dFiles[file.name] = file;
+      // 查找 .model3.json
+      let modelJsonFile = null;
+      let modelJsonName = '';
+      zip.forEach((path, zipEntry) => {
+        if (path.endsWith('.model3.json') && !modelJsonFile) {
+          modelJsonFile = zipEntry;
+          modelJsonName = path;
+        }
+      });
+
+      if (!modelJsonFile) {
+        statusEl.textContent = '错误：ZIP 中未找到 .model3.json 文件';
+        return;
       }
 
-      // 切换到 Live2D 模式
+      const jsonText = await modelJsonFile.async('text');
+      const modelJson = JSON.parse(jsonText);
+      statusEl.textContent = `模型解析成功: ${modelJsonName}`;
+
+      // 创建文件映射
+      this.live2dFiles = {};
+      const filePromises = [];
+      zip.forEach((path, zipEntry) => {
+        if (!zipEntry.dir) {
+          filePromises.push(
+            zipEntry.async('blob').then(blob => {
+              this.live2dFiles[path] = new File([blob], path.split('/').pop(), { type: blob.type || 'application/octet-stream' });
+            })
+          );
+        }
+      });
+      await Promise.all(filePromises);
+
       this.avatarMode = 'live2d';
       this.live2dModelJson = modelJson;
 
-      // 尝试加载 Live2D SDK（如果可用）
+      // 尝试加载 Live2D SDK
       await this.loadLive2DModel(modelJson, statusEl);
 
     } catch (err) {
-      statusEl.textContent = '解析失败: ' + err.message;
+      statusEl.textContent = '解压失败: ' + err.message;
       console.error(err);
     }
+  }
+
+  async loadJSZip() {
+    if (window.JSZip) return window.JSZip;
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+      script.onload = () => resolve(window.JSZip);
+      script.onerror = () => reject(new Error('JSZip 加载失败'));
+      document.head.appendChild(script);
+    });
   }
 
   async loadLive2DModel(modelJson, statusEl) {
     // 检查 Live2D Cubism SDK 是否可用
     if (typeof Live2DCubismCore === 'undefined') {
-      statusEl.textContent = 'Live2D SDK 未加载，请先引入 Cubism SDK';
+      statusEl.textContent = 'Live2D SDK 未加载。请下载 Cubism SDK 并放置到项目目录中';
       return;
     }
-
-    // TODO: 使用 Live2D Cubism SDK 加载模型
-    // 这需要完整的 SDK 集成，包括：
-    // 1. 加载 moc3 文件
-    // 2. 加载贴图
-    // 3. 设置参数映射
-    // 4. 渲染循环
 
     statusEl.textContent = 'Live2D 模型已就绪（SDK 集成待完善）';
   }
@@ -332,6 +396,13 @@ class FaceTracker {
     this.startBtn.addEventListener('click', () => this.start());
     this.stopBtn.addEventListener('click', () => this.stop());
     this.privacyToggle.addEventListener('change', (e) => this.togglePrivacy(e.target.checked));
+
+    // 初始化 avatar（异步懒加载）
+    try {
+      await this.initAvatar();
+    } catch (err) {
+      console.warn('Avatar 初始化失败:', err);
+    }
 
     try {
       await this.loadModel();

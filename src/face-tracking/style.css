@@ -44,6 +44,25 @@ header h1 {
   font-size: 0.95rem;
 }
 
+.multi-device-link {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 8px 18px;
+  background: var(--bg3);
+  color: var(--accent2);
+  text-decoration: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  border: 1px solid var(--rule);
+  transition: all 0.2s;
+}
+
+.multi-device-link:hover {
+  background: var(--accent2);
+  color: var(--bg);
+  border-color: var(--accent2);
+}
+
 .main-layout {
   display: grid;
   grid-template-columns: 1fr 280px 380px;
@@ -448,8 +467,35 @@ body.app-mode .avatar-section {
 body.app-mode .avatar-section h2,
 body.app-mode .avatar-controls,
 body.app-mode .mirror-toggle,
-body.app-mode .app-mode-toggle {
+body.app-mode .app-mode-toggle,
+body.app-mode .model-import {
   display: none;
+}
+
+/* 应用模式退出按钮 */
+.exit-app-btn {
+  display: none;
+}
+
+body.app-mode .exit-app-btn {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  background: rgba(255, 107, 74, 0.85);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s;
+  margin-top: 8px;
+}
+
+body.app-mode .exit-app-btn:hover {
+  background: rgba(255, 107, 74, 1);
+  transform: scale(1.02);
 }
 
 body.app-mode .avatar-wrapper {
@@ -653,6 +699,41 @@ body.app-mode .avatar-wrapper {
   font-size: 0.75rem;
   color: var(--accent);
   min-height: 1.2rem;
+}
+
+/* 形象版本选择 */
+.avatar-version-select {
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.avatar-version-select label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.avatar-version-select select {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.avatar-version-select select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+body.app-mode .avatar-version-select {
+  display: none;
 }
 
 @keyframes fadeIn {

@@ -38,11 +38,13 @@ export class DebugAvatar {
     };
 
     // 纺锤形身体控制点（3D 坐标，用于 rotate3D 旋转）
+    // z 坐标赋予不同深度，使旋转时产生真正的3D体积感
     this.spindle = {
       headR: 75,
       bodyLength: 140,
       bodyWidth: 55,
       tailLength: 60,
+      bodyDepth: 40, // 身体深度（z方向半径）
     };
 
     this.resize();
@@ -122,25 +124,28 @@ export class DebugAvatar {
     // 收集所有可旋转的元素（身体 + 特征点）
     const renderList = [];
 
-    // === 身体轮廓点（旋转后绘制纺锤形） ===
+    // === 身体轮廓点（3D 坐标，有真实 z 深度） ===
     const s = this.spindle;
+    const d = s.bodyDepth;
     const bodyPoints = [
-      { x: -s.headR * 0.3, y: -s.headR, z: 0, type: 'body' },
-      { x: s.headR * 0.5, y: -s.bodyWidth, z: 0, type: 'body' },
-      { x: s.bodyLength * 0.6, y: -s.bodyWidth * 0.85, z: 0, type: 'body' },
-      { x: s.bodyLength, y: -s.bodyWidth * 0.3, z: 0, type: 'body' },
-      { x: s.bodyLength + 15, y: -s.bodyWidth * 0.15, z: 0, type: 'body' },
-      { x: s.bodyLength + 25, y: -5, z: 0, type: 'body' },
+      // 背部轮廓（z > 0，朝向观察者）
+      { x: -s.headR * 0.3, y: -s.headR, z: d * 0.3, type: 'body' },
+      { x: s.headR * 0.5, y: -s.bodyWidth, z: d * 0.7, type: 'body' },
+      { x: s.bodyLength * 0.6, y: -s.bodyWidth * 0.85, z: d * 0.9, type: 'body' },
+      { x: s.bodyLength, y: -s.bodyWidth * 0.3, z: d * 0.6, type: 'body' },
+      { x: s.bodyLength + 15, y: -s.bodyWidth * 0.15, z: d * 0.3, type: 'body' },
+      { x: s.bodyLength + 25, y: -5, z: d * 0.15, type: 'body' },
       { x: s.bodyLength + s.tailLength * 0.5, y: 0, z: 0, type: 'body' },
-      { x: s.bodyLength + 25, y: 8, z: 0, type: 'body' },
-      { x: s.bodyLength + 20, y: 15, z: 0, type: 'body' },
-      { x: s.bodyLength + s.tailLength * 0.3, y: 18, z: 0, type: 'body' },
-      { x: s.bodyLength + 10, y: 22, z: 0, type: 'body' },
-      { x: s.bodyLength + 5, y: 18, z: 0, type: 'body' },
-      { x: s.bodyLength, y: 12, z: 0, type: 'body' },
-      { x: s.bodyLength * 0.6, y: s.bodyWidth * 0.7, z: 0, type: 'body' },
-      { x: s.headR * 0.5, y: s.bodyWidth * 0.9, z: 0, type: 'body' },
-      { x: -s.headR * 0.3, y: s.headR, z: 0, type: 'body' },
+      // 腹部轮廓（z < 0，远离观察者）
+      { x: s.bodyLength + 25, y: 8, z: -d * 0.15, type: 'body' },
+      { x: s.bodyLength + 20, y: 15, z: -d * 0.3, type: 'body' },
+      { x: s.bodyLength + s.tailLength * 0.3, y: 18, z: -d * 0.2, type: 'body' },
+      { x: s.bodyLength + 10, y: 22, z: -d * 0.4, type: 'body' },
+      { x: s.bodyLength + 5, y: 18, z: -d * 0.5, type: 'body' },
+      { x: s.bodyLength, y: 12, z: -d * 0.6, type: 'body' },
+      { x: s.bodyLength * 0.6, y: s.bodyWidth * 0.7, z: -d * 0.9, type: 'body' },
+      { x: s.headR * 0.5, y: s.bodyWidth * 0.9, z: -d * 0.7, type: 'body' },
+      { x: -s.headR * 0.3, y: s.headR, z: -d * 0.3, type: 'body' },
     ];
 
     // 旋转身体点并计算平均 z 值
