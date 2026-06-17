@@ -62,10 +62,10 @@ npx playwright test tests/e2e/ --project=chromium --timeout=60000
 | multi-device.test.js | 7 | 7 | 0 | 0 | 0 |
 | voice-changer.test.js | 16 | 14 | 0 | 2 | 0 |
 | mesh-visual.test.js | 2 | 2 | 0 | 0 | 0 |
-| webrtc-connected.test.js | 8 | 7 | 0 | 0 | 0 |
+| webrtc-connected.test.js | 8 | 7 | 0 | 0 | 1 |
 | audio-track.test.js | 6 | 5 | 0 | 0 | 1 |
 | procedural-demo.test.js | 2 | 2 | 0 | 0 | 0 |
-| **总计** | **68** | **64** | **0** | **2** | **1** |
+| **总计** | **68** | **65** | **0** | **2** | **1** |
 
 **Skip 测试：**
 - voice-changer: "start with fake media stream" — fake media device 不可用
