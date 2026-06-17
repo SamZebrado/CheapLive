@@ -66,6 +66,20 @@
           <span class="toggle-label">应用模式</span>
           <span class="toggle-hint">隐藏调试信息，全屏展示形象</span>
         </div>
+
+        <div class="model-import">
+          <h3>形象切换</h3>
+          <div class="model-tabs">
+            <button class="model-tab active" data-model="saka">萨卡班甲鱼</button>
+            <button class="model-tab" data-model="live2d">Live2D</button>
+          </div>
+          <div class="live2d-import" id="live2dImport" style="display:none;">
+            <p class="import-hint">上传 Live2D 模型文件夹（.model3.json + 贴图）</p>
+            <input type="file" id="modelFolder" webkitdirectory directory multiple class="import-input">
+            <label for="modelFolder" class="import-btn">📁 选择模型文件夹</label>
+            <div id="modelStatus" class="model-status"></div>
+          </div>
+        </div>
       </div>
 
       <!-- 右侧：数据面板 -->

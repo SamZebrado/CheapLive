@@ -213,6 +213,109 @@ class FaceTracker {
         this.saveSettings();
       });
     });
+
+    // 模型切换
+    this.setupModelSwitch();
+  }
+
+  setupModelSwitch() {
+    const tabs = document.querySelectorAll('.model-tab');
+    const live2dImport = document.getElementById('live2dImport');
+    const modelFolder = document.getElementById('modelFolder');
+    const modelStatus = document.getElementById('modelStatus');
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        const model = tab.dataset.model;
+        if (model === 'live2d') {
+          live2dImport.style.display = 'block';
+          modelStatus.textContent = '';
+        } else {
+          live2dImport.style.display = 'none';
+          modelStatus.textContent = '';
+          // 切换回萨卡班甲鱼
+          this.switchToSaka();
+        }
+      });
+    });
+
+    // Live2D 模型文件夹上传
+    if (modelFolder) {
+      modelFolder.addEventListener('change', (e) => {
+        this.handleLive2DUpload(e.target.files, modelStatus);
+      });
+    }
+  }
+
+  switchToSaka() {
+    // 切换回萨卡班甲鱼模式
+    this.avatarMode = 'saka';
+    // 重新创建 avatar
+    this.avatar = new DebugAvatar('avatar_canvas');
+    this.avatar.updateParams({
+      eyeLeft: 1, eyeRight: 1, mouthOpen: 0, mouthSmile: 0,
+      browLeft: 0, browRight: 0, headYaw: 0.5, headPitch: 0.5, headRoll: 0.5,
+      headX: 0.5, headY: 0.5,
+    });
+  }
+
+  async handleLive2DUpload(files, statusEl) {
+    if (!files || files.length === 0) {
+      statusEl.textContent = '未选择文件';
+      return;
+    }
+
+    statusEl.textContent = `已选择 ${files.length} 个文件，正在解析...`;
+
+    // 查找 .model3.json 文件
+    const modelJsonFile = Array.from(files).find(f => f.name.endsWith('.model3.json'));
+    if (!modelJsonFile) {
+      statusEl.textContent = '错误：未找到 .model3.json 文件';
+      return;
+    }
+
+    try {
+      const jsonText = await modelJsonFile.text();
+      const modelJson = JSON.parse(jsonText);
+      statusEl.textContent = `模型解析成功: ${modelJsonFile.name}`;
+
+      // 创建文件映射（用于后续加载贴图等资源）
+      this.live2dFiles = {};
+      for (const file of files) {
+        this.live2dFiles[file.name] = file;
+      }
+
+      // 切换到 Live2D 模式
+      this.avatarMode = 'live2d';
+      this.live2dModelJson = modelJson;
+
+      // 尝试加载 Live2D SDK（如果可用）
+      await this.loadLive2DModel(modelJson, statusEl);
+
+    } catch (err) {
+      statusEl.textContent = '解析失败: ' + err.message;
+      console.error(err);
+    }
+  }
+
+  async loadLive2DModel(modelJson, statusEl) {
+    // 检查 Live2D Cubism SDK 是否可用
+    if (typeof Live2DCubismCore === 'undefined') {
+      statusEl.textContent = 'Live2D SDK 未加载，请先引入 Cubism SDK';
+      return;
+    }
+
+    // TODO: 使用 Live2D Cubism SDK 加载模型
+    // 这需要完整的 SDK 集成，包括：
+    // 1. 加载 moc3 文件
+    // 2. 加载贴图
+    // 3. 设置参数映射
+    // 4. 渲染循环
+
+    statusEl.textContent = 'Live2D 模型已就绪（SDK 集成待完善）';
   }
 
   toggleAppModeUI(enabled) {
