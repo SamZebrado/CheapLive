@@ -834,6 +834,12 @@ const AVATAR_REGISTRY = {
   'saka-memorial': () => Promise.resolve(new MemorialAvatar('avatar_canvas')),
   sphere: () => Promise.resolve(new SphereAvatar('avatar_canvas')),
   'saka-whale': () => Promise.resolve(new WhaleTailAvatar('avatar_canvas')),
+  'mesh-sphere': () => {
+    return import('./live2d-mesh-renderer.js').then(m => new m.SphereMeshAvatar('avatar_canvas'));
+  },
+  'mesh-spindle-whale': () => {
+    return import('./live2d-mesh-renderer.js').then(m => new m.SpindleWhaleMeshAvatar('avatar_canvas'));
+  },
 };
 
 export async function createAvatar(version) {
@@ -850,4 +856,6 @@ export const AVATAR_VERSIONS = [
   { id: 'saka-whale', name: '鲸鱼尾巴', desc: '3D纺锤体+灰色鲸尾' },
   { id: 'sphere', name: '球体基础', desc: '纯球体无身体' },
   { id: 'saka-memorial', name: '纪念版', desc: '原始平面纺锤体' },
+  { id: 'mesh-sphere', name: '网格球体', desc: 'Live2D风格2.5D球体网格' },
+  { id: 'mesh-spindle-whale', name: '网格鲸鱼', desc: 'Live2D风格2.5D纺锤体+鲸尾' },
 ];
