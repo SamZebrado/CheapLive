@@ -117,6 +117,7 @@ class P2PConnection {
     this.ondata = null;
     this.onopen = null;
     this.onclose = null;
+    this.ontrack = null; // 音频轨道回调
     this.connected = false;
     this.remoteId = null;
     this.signaling = new SignalingChannel(localId);
@@ -146,6 +147,13 @@ class P2PConnection {
       } else if (['disconnected', 'failed', 'closed'].includes(this.pc.connectionState)) {
         this.connected = false;
         if (this.onclose) this.onclose();
+      }
+    };
+
+    // 监听远程音频轨道
+    this.pc.ontrack = (e) => {
+      if (e.streams && e.streams[0] && this.ontrack) {
+        this.ontrack(e.streams[0]);
       }
     };
 
@@ -263,6 +271,11 @@ class Sender {
     this.sendCount = 0;
     this.lastRateTime = 0;
 
+    // 音频同步
+    this.audioSyncEnabled = false;
+    this.localAudioStream = null;
+    this.audioTrackSenders = new Map(); // remoteId -> RTCRtpSender
+
     this.initUI();
     this.initNetwork();
     this.loadModel();
@@ -274,6 +287,16 @@ class Sender {
     document.getElementById('copySenderId').addEventListener('click', () => {
       navigator.clipboard.writeText(this.id).then(() => {
         const btn = document.getElementById('copySenderId');
+        btn.textContent = '已复制';
+        setTimeout(() => btn.textContent = '复制', 1500);
+      });
+    });
+
+    document.getElementById('copySenderIp').addEventListener('click', () => {
+      if (!this.localIp) return;
+      const url = `http://${this.localIp}:8765/src/multi-device/index.html`;
+      navigator.clipboard.writeText(url).then(() => {
+        const btn = document.getElementById('copySenderIp');
         btn.textContent = '已复制';
         setTimeout(() => btn.textContent = '复制', 1500);
       });
@@ -295,10 +318,21 @@ class Sender {
       this.privacyMode = e.target.checked;
       document.querySelector('.video-wrapper').classList.toggle('privacy-active', this.privacyMode);
     });
+
+    // 音频同步开关
+    document.getElementById('audioSyncToggle').addEventListener('change', (e) => {
+      this.audioSyncEnabled = e.target.checked;
+      if (this.audioSyncEnabled && this.running) {
+        this.startAudioSync();
+      } else {
+        this.stopAudioSync();
+      }
+    });
   }
 
   async initNetwork() {
     this.localIp = await getLocalIp();
+    document.getElementById('senderIp').textContent = this.localIp || '获取中...';
 
     // 广播存在（用于局域网发现）
     this.beacon = new SignalingChannel(this.id);
@@ -319,6 +353,40 @@ class Sender {
     };
   }
 
+  async startAudioSync() {
+    if (this.localAudioStream) return;
+    try {
+      this.localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 将音频轨道添加到所有现有连接
+      for (const [remoteId, conn] of this.connections) {
+        this.addAudioTrackToConnection(conn, remoteId);
+      }
+    } catch (err) {
+      console.warn('麦克风获取失败:', err);
+      document.getElementById('status').textContent = '麦克风获取失败: ' + err.message;
+    }
+  }
+
+  stopAudioSync() {
+    if (this.localAudioStream) {
+      this.localAudioStream.getTracks().forEach(t => t.stop());
+      this.localAudioStream = null;
+    }
+    // 从所有连接中移除音频轨道
+    for (const [remoteId, sender] of this.audioTrackSenders) {
+      try { sender.replaceTrack(null); } catch (e) {}
+    }
+    this.audioTrackSenders.clear();
+  }
+
+  addAudioTrackToConnection(conn, remoteId) {
+    if (!this.localAudioStream || !conn.pc) return;
+    const audioTrack = this.localAudioStream.getAudioTracks()[0];
+    if (!audioTrack) return;
+    const sender = conn.pc.addTrack(audioTrack, this.localAudioStream);
+    this.audioTrackSenders.set(remoteId, sender);
+  }
+
   async acceptConnection(remoteId) {
     if (this.connections.has(remoteId)) return;
 
@@ -326,9 +394,14 @@ class Sender {
     conn.onopen = () => {
       this.updateConnectionStatus();
       document.getElementById('status').textContent = `设备 ${remoteId.substring(0, 8)} 已连接`;
+      // 连接成功后，如果音频同步已开启，添加音频轨道
+      if (this.audioSyncEnabled) {
+        this.addAudioTrackToConnection(conn, remoteId);
+      }
     };
     conn.onclose = () => {
       this.connections.delete(remoteId);
+      this.audioTrackSenders.delete(remoteId);
       this.updateConnectionStatus();
     };
     await conn.connect(remoteId);
@@ -563,6 +636,10 @@ class Receiver {
     this.smoothed = {};
     this.smoothFactor = 0.3;
 
+    // 远程音频播放
+    this.remoteAudio = null;
+    this.audioElement = null;
+
     this.initUI();
   }
 
@@ -650,9 +727,11 @@ class Receiver {
     this.conn.onclose = () => {
       document.getElementById('receiverStatus').textContent = '已断开';
       document.getElementById('receiverStatus').className = 'status-badge';
+      this.stopRemoteAudio();
       this.resetDisplay();
     };
     this.conn.ondata = (data) => this.handleData(data);
+    this.conn.ontrack = (stream) => this.playRemoteAudio(stream);
 
     await this.conn.connect(remoteId);
 
@@ -660,6 +739,24 @@ class Receiver {
     const req = new SignalingChannel(this.id);
     req.send(remoteId, { type: 'connect_request', from: this.id });
     setTimeout(() => req.close(), 1000);
+  }
+
+  playRemoteAudio(stream) {
+    this.stopRemoteAudio();
+    this.audioElement = document.createElement('audio');
+    this.audioElement.srcObject = stream;
+    this.audioElement.autoplay = true;
+    this.audioElement.volume = 0.8;
+    document.body.appendChild(this.audioElement);
+  }
+
+  stopRemoteAudio() {
+    if (this.audioElement) {
+      this.audioElement.pause();
+      this.audioElement.srcObject = null;
+      this.audioElement.remove();
+      this.audioElement = null;
+    }
   }
 
   handleData(data) {
@@ -709,6 +806,7 @@ class Receiver {
   }
 
   disconnect() {
+    this.stopRemoteAudio();
     if (this.conn) {
       this.conn.close();
       this.conn = null;

@@ -49,12 +49,25 @@
           <button class="btn-copy" id="copySenderId">复制</button>
         </div>
         <div class="info-row">
+          <span class="info-label">局域网地址:</span>
+          <span class="info-value" id="senderIp">-</span>
+          <button class="btn-copy" id="copySenderIp">复制</button>
+        </div>
+        <div class="info-row">
           <span class="info-label">连接状态:</span>
           <span class="status-badge" id="senderStatus">等待连接</span>
         </div>
         <div class="info-row">
           <span class="info-label">已连接设备:</span>
           <span class="info-value" id="connectedCount">0</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">同步麦克风:</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="audioSyncToggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-hint">将麦克风音频同步推送给接收端</span>
         </div>
       </div>
 
@@ -163,7 +176,12 @@
           <div class="form-row">
             <label>或输入 IP 地址:</label>
             <input type="text" id="targetIp" placeholder="例如: 192.168.1.100" class="text-input">
-            <input type="number" id="targetPort" placeholder="端口" value="9001" class="port-input">
+            <input type="number" id="targetPort" placeholder="端口" value="8765" class="port-input">
+          </div>
+          <div class="form-row">
+            <label>自定义端口（可选）:</label>
+            <input type="number" id="customPort" placeholder="默认 8765" class="port-input">
+            <span class="toggle-hint">发送端可自定义端口后在此填入</span>
           </div>
           <button id="connectBtn" class="btn-primary">连接</button>
         </div>

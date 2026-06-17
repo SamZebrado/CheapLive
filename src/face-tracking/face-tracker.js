@@ -500,6 +500,8 @@ class FaceTracker {
   setupFeatureToggles() {
     const vcToggle = document.getElementById('voiceChangerToggle');
     const subToggle = document.getElementById('subtitleToggle');
+    const vcPreset = document.getElementById('voiceChangerPreset');
+    const vcMonitor = document.getElementById('voiceChangerMonitor');
 
     if (vcToggle) {
       vcToggle.addEventListener('change', async (e) => {
@@ -508,7 +510,29 @@ class FaceTracker {
           const { VoiceChanger } = await import('./voice-changer.js');
           this.voiceChanger = new VoiceChanger();
         }
+        // 显示/隐藏变声控制面板
+        const panel = document.getElementById('voiceChangerPanel');
+        if (panel) panel.classList.toggle('hidden', !this.voiceChangerEnabled);
         this.status.textContent = this.voiceChangerEnabled ? '变声已开启' : '变声已关闭';
+      });
+    }
+
+    if (vcPreset) {
+      vcPreset.addEventListener('change', (e) => {
+        if (this.voiceChanger) {
+          this.voiceChanger.applyPreset(e.target.value);
+          this.status.textContent = `变声预设: ${e.target.options[e.target.selectedIndex].text}`;
+        }
+      });
+    }
+
+    if (vcMonitor) {
+      vcMonitor.addEventListener('change', (e) => {
+        if (this.voiceChanger) {
+          this.voiceChanger.setMonitorMode(e.target.value);
+          const labels = { original: '原声监听', changed: '变声监听', mute: '静音监听' };
+          this.status.textContent = `监听模式: ${labels[e.target.value]}`;
+        }
       });
     }
 

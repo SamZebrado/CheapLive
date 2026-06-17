@@ -269,6 +269,26 @@
             <span class="toggle-label">实时变声</span>
             <span class="toggle-hint">Web Audio API 本地处理</span>
           </div>
+          <div id="voiceChangerPanel" class="voice-changer-panel hidden">
+            <div class="vc-control-row">
+              <label for="voiceChangerPreset">预设:</label>
+              <select id="voiceChangerPreset">
+                <option value="normal">原声</option>
+                <option value="loli">萝莉</option>
+                <option value="uncle">大叔</option>
+                <option value="robot">机器人</option>
+                <option value="monster">怪兽</option>
+              </select>
+            </div>
+            <div class="vc-control-row">
+              <label for="voiceChangerMonitor">监听:</label>
+              <select id="voiceChangerMonitor">
+                <option value="changed">听变声</option>
+                <option value="original">听原声</option>
+                <option value="mute">静音</option>
+              </select>
+            </div>
+          </div>
           <div class="feature-toggle-row">
             <label class="toggle-switch">
               <input type="checkbox" id="subtitleToggle">

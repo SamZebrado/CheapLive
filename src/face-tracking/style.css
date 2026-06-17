@@ -916,6 +916,46 @@ body.app-mode .avatar-version-select {
   display: block;
 }
 
+/* 变声控制面板 */
+.voice-changer-panel {
+  padding: 0.75rem;
+  background: var(--bg3);
+  border-radius: 8px;
+  margin: 0.5rem 0 0.75rem 0;
+}
+
+.voice-changer-panel.hidden {
+  display: none;
+}
+
+.vc-control-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.vc-control-row:last-child {
+  margin-bottom: 0;
+}
+
+.vc-control-row label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.vc-control-row select {
+  flex: 1;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-family: inherit;
+}
+
 /* 移动端触控优化 */
 @media (max-width: 768px) {
   .sensitivity-slider {

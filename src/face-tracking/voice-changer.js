@@ -24,6 +24,15 @@ class VoiceChanger {
     this.outputGain = null;
     this.inputGain = null;
 
+    // 监听模式: 'original' | 'changed' | 'mute'
+    // original: 听原声（变声仅推流）
+    // changed: 听变声（主播自己听到变声效果）
+    // mute: 静音监听（不本地播放，仅推流）
+    this.monitorMode = 'changed';
+
+    // 原始音频旁路（用于原声监听模式）
+    this.bypassGain = null;
+
     // 预设模式
     this.presets = {
       normal: { pitch: 1.0, tempo: 1.0, name: '原声' },
@@ -47,14 +56,25 @@ class VoiceChanger {
     this.outputGain = this.audioContext.createGain();
     this.outputGain.gain.value = 0.8;
 
+    // 原始音频旁路节点
+    this.bypassGain = this.audioContext.createGain();
+    this.bypassGain.gain.value = 0;
+
     // 创建 ScriptProcessor 用于实时处理
     this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
     this.processor.onaudioprocess = (e) => this.processAudio(e);
 
-    // 连接：input -> inputGain -> processor -> outputGain -> destination
+    // 连接变声链路：input -> inputGain -> processor -> outputGain -> destination
     this.inputGain.connect(this.processor);
     this.processor.connect(this.outputGain);
     this.outputGain.connect(this.audioContext.destination);
+
+    // 连接旁路链路（原声监听）：input -> bypassGain -> destination
+    this.inputGain.connect(this.bypassGain);
+    this.bypassGain.connect(this.audioContext.destination);
+
+    // 根据监听模式设置增益
+    this.applyMonitorMode();
   }
 
   async loadSoundTouch() {
@@ -148,6 +168,42 @@ class VoiceChanger {
 
   setVolume(value) {
     if (this.outputGain) this.outputGain.gain.value = value;
+  }
+
+  // 设置监听模式
+  setMonitorMode(mode) {
+    this.monitorMode = mode;
+    this.applyMonitorMode();
+  }
+
+  applyMonitorMode() {
+    if (!this.outputGain || !this.bypassGain) return;
+    switch (this.monitorMode) {
+      case 'original':
+        // 听原声：旁路开启，变声链路静音
+        this.bypassGain.gain.value = 0.8;
+        this.outputGain.gain.value = 0;
+        break;
+      case 'changed':
+        // 听变声：旁路静音，变声链路开启
+        this.bypassGain.gain.value = 0;
+        this.outputGain.gain.value = 0.8;
+        break;
+      case 'mute':
+        // 静音监听：两边都静音
+        this.bypassGain.gain.value = 0;
+        this.outputGain.gain.value = 0;
+        break;
+    }
+  }
+
+  // 获取变声后的音频流（用于推流/录制）
+  getProcessedStream() {
+    if (!this.audioContext || !this.processor) return null;
+    // 创建 MediaStreamDestination 节点
+    const dest = this.audioContext.createMediaStreamDestination();
+    this.processor.connect(dest);
+    return dest.stream;
   }
 
   destroy() {
