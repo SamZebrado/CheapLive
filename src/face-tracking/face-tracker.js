@@ -55,6 +55,7 @@ class FaceTracker {
     this.avatarVersion = 'saka';
     this.setupAvatarControls();
     this.setupSensitivityControls();
+    this.setupHelpModal();
     this.loadSettings();
 
     this.init();
@@ -270,11 +271,22 @@ class FaceTracker {
     });
 
     // Live2D 模型 ZIP 上传
-    if (modelFolder) {
-      modelFolder.addEventListener('change', (e) => {
+    const modelZip = document.getElementById('modelZip');
+    if (modelZip) {
+      modelZip.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (file) {
           this.handleLive2DZipUpload(file, modelStatus);
+        }
+      });
+    }
+
+    // Live2D 模型文件夹上传（兼容方案）
+    if (modelFolder) {
+      modelFolder.addEventListener('change', (e) => {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+          this.handleLive2DFolderUpload(files, modelStatus);
         }
       });
     }
@@ -380,6 +392,90 @@ class FaceTracker {
     }
 
     statusEl.textContent = 'Live2D 模型已就绪（SDK 集成待完善）';
+  }
+
+  async handleLive2DFolderUpload(files, statusEl) {
+    if (!files || files.length === 0) {
+      statusEl.textContent = '未选择文件';
+      return;
+    }
+
+    statusEl.textContent = `已选择 ${files.length} 个文件，正在解析...`;
+
+    // 查找 .model3.json 文件
+    const modelJsonFile = Array.from(files).find(f => f.name.endsWith('.model3.json'));
+    if (!modelJsonFile) {
+      statusEl.textContent = '错误：未找到 .model3.json 文件';
+      return;
+    }
+
+    try {
+      const jsonText = await modelJsonFile.text();
+      const modelJson = JSON.parse(jsonText);
+      statusEl.textContent = `模型解析成功: ${modelJsonFile.name}`;
+
+      // 创建文件映射
+      this.live2dFiles = {};
+      for (const file of files) {
+        this.live2dFiles[file.name] = file;
+      }
+
+      this.avatarMode = 'live2d';
+      this.live2dModelJson = modelJson;
+      await this.loadLive2DModel(modelJson, statusEl);
+    } catch (err) {
+      statusEl.textContent = '解析失败: ' + err.message;
+      console.error(err);
+    }
+  }
+
+  setupHelpModal() {
+    const modal = document.getElementById('helpModal');
+    const body = document.getElementById('helpModalBody');
+    const closeBtn = modal.querySelector('.help-modal-close');
+    const overlay = modal.querySelector('.help-modal-overlay');
+
+    const helpContents = {
+      camera: {
+        title: '摄像头与隐私',
+        body: `
+          <p>你的摄像头画面<strong>仅在本地浏览器中处理</strong>，不会上传到任何服务器。</p>
+          <p>面部特征数据由 MediaPipe 模型在本地实时计算，所有数据都留在你的设备上。</p>
+          <p>开启"隐私保护模式"后，摄像头画面将被隐藏，仅显示虚拟形象，进一步保护隐私。</p>
+          <p>关闭页面或停止摄像头后，所有数据会自动清除。</p>
+          <div class="privacy-badge">🔒 纯本地处理 · 无数据上传</div>
+        `,
+      },
+      upload: {
+        title: '模型上传与隐私',
+        body: `
+          <p>你上传的 Live2D 模型文件<strong>仅在本地浏览器中解压和使用</strong>，不会上传到任何服务器。</p>
+          <p>模型文件会被缓存在浏览器内存中，刷新页面后会自动清除。</p>
+          <p>支持两种上传方式：</p>
+          <p><strong>ZIP 文件</strong>：将模型文件夹打包为 .zip 后上传（推荐）</p>
+          <p><strong>文件夹</strong>：直接选择模型文件夹（部分浏览器支持）</p>
+          <div class="privacy-badge">🔒 模型不离开你的设备</div>
+        `,
+      },
+    };
+
+    document.querySelectorAll('.help-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.help;
+        const content = helpContents[key];
+        if (content) {
+          body.innerHTML = `<h3>${content.title}</h3>${content.body}`;
+          modal.classList.remove('hidden');
+        }
+      });
+    });
+
+    const closeModal = () => modal.classList.add('hidden');
+    closeBtn.addEventListener('click', closeModal);
+    overlay.addEventListener('click', closeModal);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeModal();
+    });
   }
 
   toggleAppModeUI(enabled) {

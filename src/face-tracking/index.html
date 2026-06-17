@@ -28,6 +28,7 @@
         <div class="controls">
           <button id="startBtn" class="btn-primary">启动摄像头</button>
           <button id="stopBtn" class="btn-secondary" disabled>停止</button>
+          <button class="help-btn" data-help="camera">?</button>
         </div>
         <div class="privacy-toggle">
           <label class="toggle-switch">
@@ -85,8 +86,16 @@
           </div>
           <div class="live2d-import" id="live2dImport" style="display:none;">
             <p class="import-hint">上传 Live2D 模型 ZIP 文件（包含 .model3.json + 贴图）</p>
-            <input type="file" id="modelFolder" accept=".zip" class="import-input">
-            <label for="modelFolder" class="import-btn">📁 选择 ZIP 文件</label>
+            <div class="upload-row">
+              <input type="file" id="modelZip" accept=".zip" class="import-input">
+              <label for="modelZip" class="import-btn">📁 选择 ZIP 文件</label>
+              <button class="help-btn" data-help="upload">?</button>
+            </div>
+            <div class="folder-upload-row">
+              <span class="folder-or">或</span>
+              <input type="file" id="modelFolder" webkitdirectory directory class="import-input">
+              <label for="modelFolder" class="import-btn import-btn-secondary">📂 选择文件夹</label>
+            </div>
             <div id="modelStatus" class="model-status"></div>
           </div>
         </div>
@@ -251,5 +260,14 @@
   </div>
 
   <script type="module" src="face-tracker.js"></script>
-</body>
+
+    <!-- 隐私帮助弹窗 -->
+    <div id="helpModal" class="help-modal hidden">
+      <div class="help-modal-overlay"></div>
+      <div class="help-modal-content">
+        <button class="help-modal-close">&times;</button>
+        <div id="helpModalBody"></div>
+      </div>
+    </div>
+  </body>
 </html>

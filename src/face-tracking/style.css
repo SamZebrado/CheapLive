@@ -740,3 +740,134 @@ body.app-mode .avatar-version-select {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* 帮助按钮 */
+.help-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--muted);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.help-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(78, 205, 196, 0.1);
+}
+
+/* 上传行 */
+.upload-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.folder-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.folder-or {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.import-btn-secondary {
+  background: var(--bg2);
+  border-color: var(--rule);
+  color: var(--ink);
+}
+
+.import-btn-secondary:hover {
+  background: var(--bg3);
+  border-color: var(--accent);
+}
+
+/* 帮助弹窗 */
+.help-modal.hidden {
+  display: none;
+}
+
+.help-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.help-modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.help-modal-content {
+  position: relative;
+  background: var(--bg2);
+  border: 1px solid var(--rule);
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 420px;
+  width: 90%;
+  color: var(--ink);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+}
+
+.help-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px;
+}
+
+.help-modal-close:hover {
+  color: var(--ink);
+}
+
+.help-modal-content h3 {
+  font-size: 1rem;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+.help-modal-content p {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.help-modal-content .privacy-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(78, 205, 196, 0.15);
+  border: 1px solid rgba(78, 205, 196, 0.3);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: var(--accent);
+  margin-top: 12px;
+}
