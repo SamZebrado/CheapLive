@@ -835,10 +835,10 @@ const AVATAR_REGISTRY = {
   sphere: () => Promise.resolve(new SphereAvatar('avatar_canvas')),
   'saka-whale': () => Promise.resolve(new WhaleTailAvatar('avatar_canvas')),
   'mesh-sphere': () => {
-    return import('./live2d-mesh-renderer.js').then(m => new m.SphereMeshAvatar('avatar_canvas'));
+    return import('./procedural-mesh-renderer.js').then(m => new m.ProceduralSphereAvatar('avatar_canvas'));
   },
   'mesh-spindle-whale': () => {
-    return import('./live2d-mesh-renderer.js').then(m => new m.SpindleWhaleMeshAvatar('avatar_canvas'));
+    return import('./procedural-mesh-renderer.js').then(m => new m.ProceduralSpindleWhaleAvatar('avatar_canvas'));
   },
 };
 
@@ -856,6 +856,6 @@ export const AVATAR_VERSIONS = [
   { id: 'saka-whale', name: '鲸鱼尾巴', desc: '3D纺锤体+灰色鲸尾' },
   { id: 'sphere', name: '球体基础', desc: '纯球体无身体' },
   { id: 'saka-memorial', name: '纪念版', desc: '原始平面纺锤体' },
-  { id: 'mesh-sphere', name: '网格球体', desc: 'Live2D风格2.5D球体网格' },
-  { id: 'mesh-spindle-whale', name: '网格鲸鱼', desc: 'Live2D风格2.5D纺锤体+鲸尾' },
+  { id: 'mesh-sphere', name: '程序化 2.5D 球体（实验）', desc: '程序化 Canvas 网格球体，非 Live2D' },
+  { id: 'mesh-spindle-whale', name: '程序化 2.5D 纺锤鲸鱼（实验）', desc: '程序化 Canvas 网格纺锤体+鲸尾，非 Live2D' },
 ];

@@ -1,12 +1,16 @@
 /**
- * Live2D Mesh Renderer - 2.5D 网格变形渲染器
+ * Procedural Mesh Renderer - 实验性程序化 Canvas 2.5D 网格 Avatar
  *
- * 使用 Canvas 2D 模拟 Live2D 的 2.5D 体积效果：
+ * 使用 Canvas 2D 实现类似 2.5D 体积效果的网格变形渲染：
  * - 参数化网格顶点变形
  * - 透视投影
  * - 基于法向量的光照
  * - Painter's 算法深度排序
  * - 支持球体和纺锤体+鲸鱼尾巴两种形象
+ *
+ * 注意：这不是 Live2D Cubism 模型，不使用 .moc3 或 .model3.json。
+ * 这是完全由 JavaScript 程序化生成的 Canvas 2D 网格，
+ * 与 Live2D SDK 无关。
  */
 
 import {
@@ -24,7 +28,7 @@ import {
   computeWhaleTailFaceColor,
 } from './mesh-spindle-whale.js';
 
-export class Live2DMeshRenderer {
+export class ProceduralMeshRenderer {
   /**
    * @param {string} canvasId - Canvas 元素 ID
    * @param {string} avatarType - 形象类型: 'sphere' | 'spindle-whale'
@@ -37,7 +41,7 @@ export class Live2DMeshRenderer {
     this.ctx = this.canvas.getContext('2d');
     this.avatarType = avatarType;
 
-    // 渲染参数 (对应 Live2D 参数)
+    // 渲染参数 (类似 Live2D 参数体系，但由程序化生成)
     this.params = {
       angleX: 0,    // ParamAngleX: -30 ~ 30 度
       angleY: 0,    // ParamAngleY: -30 ~ 30 度
@@ -394,11 +398,11 @@ export class Live2DMeshRenderer {
 // ===================== 兼容旧版 Avatar 接口的包装类 =====================
 
 /**
- * 球体网格头像 (兼容 Avatar 接口)
+ * 程序化球体网格头像 (兼容 Avatar 接口)
  */
-export class SphereMeshAvatar {
+export class ProceduralSphereAvatar {
   constructor(canvasId) {
-    this.renderer = new Live2DMeshRenderer(canvasId, 'sphere');
+    this.renderer = new ProceduralMeshRenderer(canvasId, 'sphere');
     this.params = {
       eyeLeft: 1, eyeRight: 1, mouthOpen: 0, mouthSmile: 0,
       browLeft: 0, browRight: 0,
@@ -428,11 +432,11 @@ export class SphereMeshAvatar {
 }
 
 /**
- * 纺锤体+鲸鱼尾巴网格头像 (兼容 Avatar 接口)
+ * 程序化纺锤体+鲸鱼尾巴网格头像 (兼容 Avatar 接口)
  */
-export class SpindleWhaleMeshAvatar {
+export class ProceduralSpindleWhaleAvatar {
   constructor(canvasId) {
-    this.renderer = new Live2DMeshRenderer(canvasId, 'spindle-whale');
+    this.renderer = new ProceduralMeshRenderer(canvasId, 'spindle-whale');
     this.params = {
       eyeLeft: 1, eyeRight: 1, mouthOpen: 0, mouthSmile: 0,
       browLeft: 0, browRight: 0,

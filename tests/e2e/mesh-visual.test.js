@@ -1,6 +1,6 @@
 /**
- * Mesh Visual Verification Tests
- * 为 Live2D 风格 2.5D 网格模型生成视觉验收截图
+ * Procedural Mesh Visual Verification Tests
+ * 为程序化 Canvas 2.5D 网格 Avatar 生成视觉验收截图
  */
 
 const { test } = require('playwright/test');
@@ -12,13 +12,13 @@ async function renderMeshAvatar(page, type) {
     document.body.innerHTML = '<canvas id="avatar_canvas" width="400" height="400" style="background:#1A1A2E;"></canvas>';
 
     // 动态导入 mesh renderer
-    const { SphereMeshAvatar, SpindleWhaleMeshAvatar } = await import('/src/face-tracking/live2d-mesh-renderer.js');
+    const { ProceduralSphereAvatar, ProceduralSpindleWhaleAvatar } = await import('/src/face-tracking/procedural-mesh-renderer.js');
 
     let avatar;
     if (avatarType === 'mesh-sphere') {
-      avatar = new SphereMeshAvatar('avatar_canvas');
+      avatar = new ProceduralSphereAvatar('avatar_canvas');
     } else {
-      avatar = new SpindleWhaleMeshAvatar('avatar_canvas');
+      avatar = new ProceduralSpindleWhaleAvatar('avatar_canvas');
     }
 
     window._testAvatar = avatar;
@@ -65,7 +65,7 @@ test.describe('Sphere Mesh Visual', () => {
     for (const s of shots) {
       await setAngles(page, s.yaw, s.pitch, s.roll);
       await page.screenshot({
-        path: `artifacts/3d-sphere/sphere-${s.name}.png`,
+        path: `artifacts/procedural-sphere/sphere-${s.name}.png`,
       });
     }
 
@@ -96,7 +96,7 @@ test.describe('Spindle Whale Mesh Visual', () => {
     for (const s of shots) {
       await setAngles(page, s.yaw, s.pitch, s.roll);
       await page.screenshot({
-        path: `artifacts/3d-spindle-whale/spindle-${s.name}.png`,
+        path: `artifacts/procedural-spindle-whale/spindle-${s.name}.png`,
       });
     }
 
