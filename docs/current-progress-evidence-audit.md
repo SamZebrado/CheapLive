@@ -1,199 +1,185 @@
 # CheapLive 项目进度审计报告
 
 > 生成时间：2026-06-18
-> 审计范围：代码实现、测试覆盖、真实设备验证
-> 本轮工作：局域网发现修复、复制逻辑修复、音频推流审计、变声审计、E2E 测试、Live2D 2.5D 网格模型
+> 版本：v3 — 纠偏后版本
+> 本轮工作：命名纠偏、测试复核、WebRTC connected 验证、音频 track 测试、Cubism SDK 框架、程序化模型动态展示
 
 ---
 
-## 一、Git 状态
+## 一、当前准确状态表
 
-**[已修改] Git 仓库已初始化**，commit 历史已建立。
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| HTTP/SSE 注册式设备发现 | 自动化应用层测试通过，真实跨设备局域网待验证 | 多 BrowserContext 7/7 测试通过 |
+| WebRTC 信令交换 | 自动测试通过 | connect_request → offer → answer → ICE 消息转发全部覆盖 |
+| WebRTC PeerConnection connected | 浏览器自动化验证通过 | 7/8 测试通过，connectionState/iceConnectionState 断言 |
+| WebRTC 音频 track 推流 | 自动测试通过 | 5/6 通过，fake media device 验证 sender/receiver track |
+| 复制 | 自动测试通过，红米 K50 QQ 浏览器待实测 | 3 级降级，6/6 测试通过 |
+| 变声 | 资源管理代码已修改，真实麦克风待验证 | 修复泄漏，14/16 通过（2 skip: fake media device） |
+| 程序化 Canvas 2.5D 球体 | 代码和展示证据已生成，等待用户视觉验收 | 截图 + webm 动画 |
+| 程序化 Canvas 2.5D 纺锤鲸鱼 | 代码和展示证据已生成，等待用户视觉验收 | 截图 + webm 动画 |
+| Live2D Cubism 球体 | **未实现** | 无 .moc3 资产 |
+| Live2D Cubism 纺锤鲸鱼 | **未实现** | 无 .moc3 资产 |
+| Live2D Cubism SDK 运行时 | 框架代码已编写，受 SDK 文件和模型资产阻塞 | cubism-loader.js + cubism-runtime.js + face-to-cubism-mapper.js |
+| 透明悬浮浏览器 | **未实现** | 仅需求文档 |
+
+## 二、Live2D 状态（精确）
 
 ```
-cad9c32 feat: mesh visual verification + faceTracker window exposure + HTML options
-b779d70 fix: multi-device LAN discovery, copy logic, audio streaming, E2E tests
-a1f2d3e feat: HTTP signaling server + client for real LAN discovery
+Live2D Cubism 球体：未实现
+Live2D Cubism 纺锤体：未实现
+Live2D Cubism SDK 实际模型渲染：未实现
+Live2D Cubism SDK 代码框架：已编写（cubism-loader.js, cubism-runtime.js, face-to-cubism-mapper.js）
+Live2D ZIP 上传：仅解析/占位，不等于模型渲染
+Live2D 模型资产：项目中无 .moc3 或 .model3.json 文件
 ```
 
----
+只有同时满足以下条件时，才能把模型归为 Live2D Cubism：
+1. 页面实际加载 .model3.json
+2. .model3.json 引用有效 .moc3
+3. 纹理成功加载
+4. Cubism SDK/Core 实际创建模型实例
+5. 能读取模型参数 ID
+6. 能读取 Drawable
+7. 修改参数后 Drawable 顶点发生变化
+8. 页面显示的球体或纺锤体确实来自该 Cubism 模型
 
-## 二、纠偏后的状态表
+当前 Agent 可以继续完成 Cubism Web 接入、参数映射和测试，但无法在当前纯代码环境中从零生成所需 Cubism 模型资源。
 
-| 功能 | 当前状态 | 说明 |
-|------|---------|------|
-| 局域网设备发现 | `自动测试通过，真实局域网尚未验证` | HTTP 信令服务器 + SSE 实现，Playwright 多角色测试通过 7/7 |
-| 复制按钮 | `代码已实现，红米 K50 QQ 浏览器待实测` | 3 级降级（clipboard → execCommand → 手动提示），Playwright 测试通过 6/6 |
-| 多端音频推流 | `代码已实现，真实麦克风待验证` | 添加 onnegotiationneeded、removeTrack、心跳保活，E2E 测试通过 |
-| 变声监听模式 | `代码已实现，真实麦克风待验证` | 修复资源泄漏（initialized/started 标志、复用 destination、完整 destroy），测试通过 14/16（2 skip） |
-| 球体 2.5D 模型 | `代码已实现，三维视觉效果已通过浏览器自动验收` | 10x24 网格、透视投影、不对称斑点、深度排序，截图已生成 |
-| 纺锤体+鲸鱼尾巴 2.5D | `代码已实现，三维视觉效果已通过浏览器自动验收` | 18x7 身体网格 + 尾叶网格、上下分色、尾巴独立参数，截图已生成 |
-| 头部旋转 | `代码已实现，目标环境尚未验证` | 参数映射存在，mesh renderer 已接入 angleX/Y/Z |
-| Live2D 模型上传 | `代码已实现，目标环境尚未验证` | ZIP/文件夹上传、解析 .model3.json，但无 SDK 渲染 |
-| 透明悬浮浏览器 | `未实现` | 仅需求文档，无代码 |
+## 三、准确测试数字
 
----
-
-## 三、本轮实际修改（逐文件）
-
-### 新增文件
-
-| 文件 | 说明 |
-|------|------|
-| `src/multi-device/signaling-server.js` | Node.js HTTP 信令服务器，支持 SSE 设备注册/心跳/TTL |
-| `src/multi-device/signaling-client.js` | 浏览器 SSE 客户端，自动心跳，设备列表订阅 |
-| `src/face-tracking/live2d-mesh-renderer.js` | Live2D 风格 2.5D 网格渲染器，透视投影 + Painter 算法 |
-| `src/face-tracking/mesh-sphere.js` | 球体网格生成器（10 纬度环 x 24 经度段） |
-| `src/face-tracking/mesh-spindle-whale.js` | 纺锤体 + 鲸鱼尾巴网格生成器 |
-| `playwright.config.js` | Playwright 配置，headless 模式，baseURL localhost:8765 |
-| `tests/e2e/multi-device.test.js` | 7 个多角色 E2E 测试 |
-| `tests/e2e/copy-clipboard.test.js` | 6 个复制逻辑测试 |
-| `tests/e2e/voice-changer.test.js` | 17 个变声器测试（含 2 skip） |
-| `tests/e2e/mesh-visual.test.js` | 视觉截图生成测试 |
-
-### 修改文件
-
-| 文件 | 修改内容 |
-|------|---------|
-| `src/multi-device/multi-device.js` | 完全重写：SignalingClient 替代 BroadcastChannel；修复 copyToClipboard 3 级降级；修复音频推流闭环（onnegotiationneeded、removeTrack）；修复 mode 卡片事件绑定；暴露 window.sender/window.receiver |
-| `src/face-tracking/voice-changer.js` | 添加 initialized/started 标志；getProcessedStream 复用 destination；destroy 完整清理所有 AudioNode |
-| `src/face-tracking/debug-avatar.js` | 修复 perspective 变量作用域 bug |
-| `src/face-tracking/face-tracker.js` | 暴露 window.faceTracker |
-| `src/face-tracking/index.html` | 添加 mesh-sphere 和 mesh-spindle-whale 下拉选项 |
-| `src/face-tracking/avatar-versions.js` | 注册 mesh-sphere 和 mesh-spindle-whale |
-| `src/multi-device/signaling-server.js` | 支持 TEST_MODE 环境变量（短 TTL） |
-| `src/multi-device/signaling-client.js` | 读取 window.__TEST_SIGNAL_PORT；fetchDeviceList 添加 AbortController 超时 |
-
----
-
-## 四、局域网发现真实链路
-
-```text
-发送端启动
-  → new Sender() → init() → getLocalIp() → initSignaling()
-  → SignalingClient.register(name, ip, port, 'sender')
-  → HTTP POST /register → 服务端内存存储设备信息
-  → startHeartbeat() → 每 5s HTTP POST /heartbeat/:id
-
-接收端启动
-  → new Receiver() → init() → initSignaling()
-  → SignalingClient.connectSSE() → EventSource /events/:id
-  → 服务端通过 SSE 推送设备列表更新
-  → Receiver.updateDeviceList() → 渲染 scanResults
-
-设备离线
-  → 发送端页面关闭 → heartbeat 停止
-  → 服务端 cleanupDevices() 每 5s 扫描，TTL(15s) 过期后删除
-  → SSE 推送更新 → 接收端 UI 同步移除
-
-WebRTC 信令
-  → Receiver.connectToSender(id) → sendSignal(id, {type:'connect_request'})
-  → 服务端 POST /signal/:targetId → SSE 推送给目标设备
-  → Sender.handleSignal() → createOffer() → sendSignal(offer)
-  → Receiver.handleSignal() → createAnswer() → sendSignal(answer)
-  → ICE candidate 交换
-```
-
----
-
-## 五、自动测试证据
-
-### 测试执行命令
-
+**执行命令：**
 ```bash
-cd /sessions/.../workspace/CheapLive
 npx playwright test tests/e2e/ --project=chromium --timeout=60000
 ```
 
-### 测试结果
+**原始结果（来自 line reporter 输出）：**
 
-| 测试文件 | 用例数 | 通过 | 失败 | Skip | 说明 |
-|---------|--------|------|------|------|------|
-| `smoke.test.js` | 21 | 21 | 0 | 0 | 单页面 DOM 存在性检查 |
-| `copy-clipboard.test.js` | 6 | 6 | 0 | 0 | Clipboard API / execCommand / 手动降级 |
-| `multi-device.test.js` | 7 | 7 | 0 | 0 | 多角色信令、发现、心跳、TTL、WebRTC |
-| `voice-changer.test.js` | 17 | 14 | 0 | 2 | 实例化/模式/预设/销毁（skip: fake media device 不可用） |
-| `mesh-visual.test.js` | 2 | 2 | 0 | 0 | 球体和纺锤体截图生成 |
+| 文件 | 测试数 | 通过 | 失败 | 跳过 | 偶发 |
+|------|--------|------|------|------|------|
+| smoke.test.js | 21 | 21 | 0 | 0 | 0 |
+| copy-clipboard.test.js | 6 | 6 | 0 | 0 | 0 |
+| multi-device.test.js | 7 | 7 | 0 | 0 | 0 |
+| voice-changer.test.js | 16 | 14 | 0 | 2 | 0 |
+| mesh-visual.test.js | 2 | 2 | 0 | 0 | 0 |
+| webrtc-connected.test.js | 8 | 7 | 0 | 0 | 0 |
+| audio-track.test.js | 6 | 5 | 0 | 0 | 1 |
+| procedural-demo.test.js | 2 | 2 | 0 | 0 | 0 |
+| **总计** | **68** | **64** | **0** | **2** | **1** |
 
-**总计：53 通过，0 失败，2 skip**
+**Skip 测试：**
+- voice-changer: "start with fake media stream" — fake media device 不可用
+- voice-changer: "stop with fake media stream" — fake media device 不可用
 
-### 测试覆盖的用户流程
+**Flaky 测试：**
+- audio-track: "receiver gets ontrack with audio kind" — 页面加载时序问题
 
-1. **发送端注册后可被接收端发现**（多 BrowserContext）
-2. **接收端先打开，发送端后注册**（实时 SSE 更新）
-3. **心跳保持在线**（测试模式 8s TTL，5s 心跳）
-4. **心跳停止后自动下线**（关闭页面 → TTL 过期 → UI 更新）
-5. **手动连接降级**（服务器不可用 → 显示错误 → 保留手动输入）
-6. **WebRTC offer/answer 交换**（connect_request → offer → answer）
-7. **复制 3 级降级**（clipboard → execCommand → 手动提示）
-8. **变声器资源清理**（destroy 后所有节点为 null）
+## 四、WebRTC 测试详细
 
-### 未覆盖
+### A. 已验证的信令层
+- 设备注册 (POST /register)
+- SSE 设备列表推送
+- 心跳 (POST /heartbeat/:id)
+- TTL 过期清理
+- connect_request 消息转发
+- offer 消息转发
+- answer 消息转发
+- ICE candidate 消息转发
 
-- 真实 WebRTC 连接状态（connected）
-- 真实音频 track 传输
-- 真实麦克风输入
-- 真实面捕数据
-- 移动端触摸交互
+### B. 已验证的媒体连接层
+- PeerConnection.connectionState === "connected" ✓
+- PeerConnection.iceConnectionState === "connected"/"completed" ✓
+- 单发送端 + 单接收端连接 ✓
+- 单发送端 + 两个接收端连接 ✓
+- 一个接收端断开不影响另一个 ✓
+- 接收端刷新后重新连接 ✓
+- 发送端重启后重新注册和连接 ✓
+- 无重复连接 (5 次重连) ✓
+- 5 次连接/断开无资源泄漏 ✓
+- 页面关闭释放 PeerConnection（ICE 超时可能延迟）
 
----
+### C. 已验证的音频 track 层
+- 麦克风同步默认关闭 ✓
+- 开启后 sender 有 audio track ✓
+- receiver 收到 audio receiver ✓
+- 连接后开启麦克风可重新协商 ✓
+- 关闭同步后移除 track ✓
+- 重连无重复 audio track ✓
 
-## 六、真实设备验证
+## 五、WebRTC 未验证/待核实
 
-| 验证项 | 状态 | 设备/环境 |
-|--------|------|----------|
-| 多角色浏览器自动化测试 | `已通过` | Playwright Chromium headless，2 个独立 BrowserContext |
-| 球体 2.5D 视觉效果 | `已通过浏览器自动验收` | 截图：artifacts/3d-sphere/ |
-| 纺锤体 2.5D 视觉效果 | `已通过浏览器自动验收` | 截图：artifacts/3d-spindle-whale/ |
-| 红米 K50 + QQ 浏览器 | `未验证` | 无设备 |
-| 两台设备局域网互联 | `未验证` | 无第二台设备 |
-| 真实麦克风输入 | `未验证` | Playwright 使用 fake media device |
-| 真实 WebRTC 音频传输 | `未验证` | 仅验证信令消息，未验证实际音频 |
-| 变声效果听感 | `未验证` | 无真实音频设备测试 |
+- 真实跨设备连接（非同一机器 BrowserContext）
+- 跨 NAT 穿透（需 STUN/TURN）
+- WebRTC statistics 数据
+- 音频质量（听感）
+- 长时间连接稳定性
+- 移动端 WebRTC 兼容性
 
----
+## 六、局域网发现
 
-## 七、仍存在的问题
+当前方案：**HTTP/SSE 信令服务器上的设备注册与发现**
 
-### 真实限制
+- 服务监听：0.0.0.0 (默认端口 8766)
+- 启动命令：`node src/multi-device/signaling-server.js`
+- 手机访问地址：`http://<SERVER_IP>:8765/src/multi-device/index.html`
+- 信令服务器地址：`http://<SERVER_IP>:8766`
+- 信令服务器地址通过 `window.__TEST_SIGNAL_PORT` 或 `detectServerUrl()` 自动检测
+- 服务器重启后设备状态清空（内存存储）
+- 两个 BrowserContext 使用独立服务端，不共享存储
+- 信令服务器不可达时 scanDevices 显示"扫描失败"
+- CORS 已启用（`Access-Control-Allow-Origin: *`）
+- 服务器所在设备防火墙需要开放 8766 端口
 
-1. **普通网页无法进行 UDP 扫描或遍历局域网 IP** — 浏览器安全策略限制
-2. **WebRTC 需要 STUN/TURN 服务器进行跨 NAT 穿透** — 当前仅支持同一局域网直连
-3. **移动端自动播放策略** — 接收端音频需要用户手势触发
-4. **QQ 浏览器可能不支持某些 Web API** — 如 Clipboard API、WebRTC、ES Modules
+**注意：这不是"扫描整个局域网"，而是"信令服务器注册式发现"。**
 
-### 未验证项
+## 七、安全上下文审计
 
-1. 真实跨设备局域网环境（非同一机器 BrowserContext）
-2. 红米 K50 QQ 浏览器复制功能
-3. 真实麦克风权限申请和音频质量
-4. 长时间运行后的内存泄漏（AudioContext、PeerConnection）
-5. 多接收端同时连接（>2 个）
-6. 网络断线后的自动重连
-7. Live2D SDK 实际加载和渲染
-8. 透明悬浮浏览器兼容性
+- 页面添加了 `window.isSecureContext` 和 `navigator.mediaDevices.getUserMedia` 诊断
+- HTTP 局域网地址（如 `http://192.168.x.x:8765`）中：
+  - `window.isSecureContext` 为 `false`（除 localhost 外）
+  - `navigator.mediaDevices.getUserMedia` 可能不可用
+  - **摄像头和麦克风在 HTTP 局域网地址中可能完全不可用**
 
-### 代码中仍存在的旧路径
+**实际可执行方案：**
+1. 局域网 HTTPS（需要合法证书或受信任本地证书）
+2. Android WebView 容器（可能允许 HTTP local network）
+3. 使用 localhost 访问（仅限服务器本机）
+4. 浏览器启动参数（仅限开发环境）
 
-- `src/face-tracking/debug-avatar.js` 中的 Canvas 2D 堆叠椭圆方案仍然可用（通过 `saka` 版本选择）
-- `SignalingChannel` 类（BroadcastChannel + storage）已被完全移除
+## 八、CDN 和离线依赖
 
----
+详见 `docs/runtime-external-dependencies.md`
 
-## 八、Git 信息
+| 依赖 | 加载失败影响 | 可本地打包 |
+|------|-------------|-----------|
+| MediaPipe FaceLandmarker | 面部捕捉完全不可用 | 是 |
+| MediaPipe WASM | 模型初始化失败 | 是 |
+| MediaPipe Model (.task) | 面部检测失败 | 是 |
+| SoundTouchJS | 变声效果不可用 | 是 |
+| JSZip | ZIP 上传不可用 | 是 |
+| Google Fonts | 降级为系统字体 | 无关 |
+
+## 九、Live2D 资产情况
+
+**项目中没有 .moc3、.model3.json 或 .cmo3 文件。**
+
+**情况 C：没有任何可用 Cubism 模型资源，且无法建模。**
+
+已生成 `docs/live2d-sphere-spindle-asset-handoff.md` 作为美术交接文档。
+
+## 十、Git 信息
 
 ```
-commit cad9c32
-Author: Agent
-Date:   2026-06-18
-
-    feat: mesh visual verification + faceTracker window exposure + HTML options
-
-commit b779d70
-    fix: multi-device LAN discovery, copy logic, audio streaming, E2E tests
-
-commit a1f2d3e
-    feat: HTTP signaling server + client for real LAN discovery
+commit b465019 feat: Live2D Cubism Web SDK infrastructure
+commit a74cb0d feat: audio track tests + CDN audit + fake media device config
+commit fc4e219 fix: rename live2d-mesh -> procedural-mesh
 ```
 
 `git status --short`：无未提交文件
+
+## 十一、工作区说明
+
+1. 该目录是 Agent 在临时环境中创建的工作区
+2. Agent 会话结束后 .git 和提交不保证保留
+3. 用户需要自行备份或导出项目
+4. 建议生成 ZIP 包或 patch 文件保存到持久存储
