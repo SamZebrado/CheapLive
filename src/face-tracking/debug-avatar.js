@@ -108,9 +108,11 @@ export class DebugAvatar {
     const posX = (this.params.headX - 0.5) * 120;
     const posY = (this.params.headY - 0.5) * 80;
 
-    const yaw = (this.params.headYaw - 0.5) * Math.PI * 0.66;
-    const pitch = (this.params.headPitch - 0.5) * Math.PI * 0.44;
-    const roll = (this.params.headRoll - 0.5) * Math.PI * 0.5;
+    // 头部旋转角度：从 0-1 归一化值映射到实际弧度
+    // yaw 范围增大到 ±80°，pitch ±60°，roll ±60°，确保旋转响应明显
+    const yaw = (this.params.headYaw - 0.5) * Math.PI * 0.88;
+    const pitch = (this.params.headPitch - 0.5) * Math.PI * 0.66;
+    const roll = (this.params.headRoll - 0.5) * Math.PI * 0.66;
 
     const cx = w / 2 + posX;
     const cy = h / 2 + posY;
@@ -121,97 +123,78 @@ export class DebugAvatar {
     ctx.translate(cx, cy);
     ctx.scale(scale, scale);
 
-    // 收集所有可旋转的元素（身体 + 特征点）
-    const renderList = [];
-
-    // === 身体轮廓点（3D 坐标，有真实 z 深度） ===
     const s = this.spindle;
-    const d = s.bodyDepth;
-    const bodyPoints = [
-      // 背部轮廓（z > 0，朝向观察者）
-      { x: -s.headR * 0.3, y: -s.headR, z: d * 0.3, type: 'body' },
-      { x: s.headR * 0.5, y: -s.bodyWidth, z: d * 0.7, type: 'body' },
-      { x: s.bodyLength * 0.6, y: -s.bodyWidth * 0.85, z: d * 0.9, type: 'body' },
-      { x: s.bodyLength, y: -s.bodyWidth * 0.3, z: d * 0.6, type: 'body' },
-      { x: s.bodyLength + 15, y: -s.bodyWidth * 0.15, z: d * 0.3, type: 'body' },
-      { x: s.bodyLength + 25, y: -5, z: d * 0.15, type: 'body' },
-      { x: s.bodyLength + s.tailLength * 0.5, y: 0, z: 0, type: 'body' },
-      // 腹部轮廓（z < 0，远离观察者）
-      { x: s.bodyLength + 25, y: 8, z: -d * 0.15, type: 'body' },
-      { x: s.bodyLength + 20, y: 15, z: -d * 0.3, type: 'body' },
-      { x: s.bodyLength + s.tailLength * 0.3, y: 18, z: -d * 0.2, type: 'body' },
-      { x: s.bodyLength + 10, y: 22, z: -d * 0.4, type: 'body' },
-      { x: s.bodyLength + 5, y: 18, z: -d * 0.5, type: 'body' },
-      { x: s.bodyLength, y: 12, z: -d * 0.6, type: 'body' },
-      { x: s.bodyLength * 0.6, y: s.bodyWidth * 0.7, z: -d * 0.9, type: 'body' },
-      { x: s.headR * 0.5, y: s.bodyWidth * 0.9, z: -d * 0.7, type: 'body' },
-      { x: -s.headR * 0.3, y: s.headR, z: -d * 0.3, type: 'body' },
+
+    // === 构建3D纺锤体：多层椭圆截面堆叠 ===
+    // 沿身体长轴方向采样截面，每个截面是一个椭圆
+    const sections = [];
+    const numSections = 28;
+    for (let i = 0; i <= numSections; i++) {
+      const t = i / numSections;
+      // 身体轮廓：头部圆钝 → 中部最宽 → 尾部渐细
+      const sx = this.spineX(t);
+      const sy = 0; // 脊柱中线
+      const sz = 0;
+      // 截面宽度（身体轮廓）
+      const sw = this.bodyWidthAt(t);
+      // 截面高度（z 方向深度，体现3D体积）
+      const sh = this.bodyDepthAt(t);
+
+      const rotated = this.rotate3D(sx, sy, sz, yaw, pitch, roll);
+      sections.push({
+        x: rotated.x,
+        y: rotated.y,
+        z: rotated.z,
+        rx: sw,
+        ry: sh,
+        t: t,
+      });
+    }
+
+    // 按 z 深度排序（远的先画，实现画家算法遮挡）
+    sections.sort((a, b) => a.z - b.z);
+
+    // 收集特征点
+    const featureList = [];
+    const addFeature = (feat, type, extra) => {
+      const r = this.rotate3D(feat.x, feat.y, feat.z, yaw, pitch, roll);
+      featureList.push({ type, ...r, ...extra });
+    };
+    addFeature(this.features.eyeLeft, 'eye', { r: this.features.eyeLeft.r, openness: this.params.eyeLeft });
+    addFeature(this.features.eyeRight, 'eye', { r: this.features.eyeRight.r, openness: this.params.eyeRight });
+    addFeature(this.features.nostrilLeft, 'nostril', { rx: this.features.nostrilLeft.rx, ry: this.features.nostrilLeft.ry });
+    addFeature(this.features.nostrilRight, 'nostril', { rx: this.features.nostrilRight.rx, ry: this.features.nostrilRight.ry });
+    addFeature(this.features.mouth, 'mouth', { w: this.features.mouth.w, openness: this.params.mouthOpen, smile: this.params.mouthSmile });
+
+    featureList.sort((a, b) => a.z - b.z);
+
+    // 合并截面和特征点，统一按 z 排序
+    const allItems = [
+      ...sections.map(sec => ({ type: 'section', ...sec })),
+      ...featureList,
     ];
+    allItems.sort((a, b) => a.z - b.z);
 
-    // 旋转身体点并计算平均 z 值
-    const rotatedBody = bodyPoints.map(p => ({
-      ...this.rotate3D(p.x, p.y, p.z, yaw, pitch, roll),
-      type: 'body'
-    }));
-    const bodyZ = rotatedBody.reduce((sum, p) => sum + p.z, 0) / rotatedBody.length;
+    // 绘制所有元素
+    const tailEnd = this.rotate3D(s.bodyLength, 0, 0, yaw, pitch, roll);
 
-    renderList.push({
-      type: 'spindleBody',
-      z: bodyZ,
-      points: rotatedBody,
-      tailEnd: this.rotate3D(s.bodyLength, 0, 0, yaw, pitch, roll),
-      tailLen: s.tailLength,
-    });
+    for (const item of allItems) {
+      const perspective = Math.max(0.3, (item.z + 80) / 140);
+      const opacity = item.z < -20 ? 0.2 : 1;
 
-    // === 特征点 ===
-    const leftEye3D = this.rotate3D(
-      this.features.eyeLeft.x, this.features.eyeLeft.y, this.features.eyeLeft.z,
-      yaw, pitch, roll
-    );
-    renderList.push({ type: 'eye', ...leftEye3D, r: this.features.eyeLeft.r, openness: this.params.eyeLeft, side: 'left' });
-
-    const rightEye3D = this.rotate3D(
-      this.features.eyeRight.x, this.features.eyeRight.y, this.features.eyeRight.z,
-      yaw, pitch, roll
-    );
-    renderList.push({ type: 'eye', ...rightEye3D, r: this.features.eyeRight.r, openness: this.params.eyeRight, side: 'right' });
-
-    const leftNostril3D = this.rotate3D(
-      this.features.nostrilLeft.x, this.features.nostrilLeft.y, this.features.nostrilLeft.z,
-      yaw, pitch, roll
-    );
-    renderList.push({ type: 'nostril', ...leftNostril3D, rx: this.features.nostrilLeft.rx, ry: this.features.nostrilLeft.ry });
-
-    const rightNostril3D = this.rotate3D(
-      this.features.nostrilRight.x, this.features.nostrilRight.y, this.features.nostrilRight.z,
-      yaw, pitch, roll
-    );
-    renderList.push({ type: 'nostril', ...rightNostril3D, rx: this.features.nostrilRight.rx, ry: this.features.nostrilRight.ry });
-
-    const mouth3D = this.rotate3D(
-      this.features.mouth.x, this.features.mouth.y, this.features.mouth.z,
-      yaw, pitch, roll
-    );
-    renderList.push({ type: 'mouth', ...mouth3D, w: this.features.mouth.w, openness: this.params.mouthOpen, smile: this.params.mouthSmile });
-
-    // 按 z 值排序（z 小的先画）
-    renderList.sort((a, b) => a.z - b.z);
-
-    // 绘制
-    for (const f of renderList) {
-      const perspective = Math.max(0.3, (f.z + 80) / 140);
-      const opacity = f.z < -20 ? 0.15 : 1;
-
-      if (f.type === 'spindleBody') {
-        this.drawRotatedSpindle(ctx, f.points, f.tailEnd, f.tailLen, yaw, pitch, perspective, opacity);
-      } else if (f.type === 'eye') {
-        this.draw3DEye(ctx, f.x, f.y, f.r * perspective, f.openness, opacity);
-      } else if (f.type === 'nostril') {
-        this.draw3DNostril(ctx, f.x, f.y, f.rx * perspective, f.ry * perspective, opacity);
-      } else if (f.type === 'mouth') {
-        this.draw3DMouth(ctx, f.x, f.y, f.w * perspective, f.openness, f.smile, opacity);
+      if (item.type === 'section') {
+        this.drawSection(ctx, item.x, item.y, item.rx * perspective, item.ry * perspective, roll, opacity, item.t);
+      } else if (item.type === 'eye') {
+        this.draw3DEye(ctx, item.x, item.y, item.r * perspective, item.openness, opacity);
+      } else if (item.type === 'nostril') {
+        this.draw3DNostril(ctx, item.x, item.y, item.rx * perspective, item.ry * perspective, opacity);
+      } else if (item.type === 'mouth') {
+        this.draw3DMouth(ctx, item.x, item.y, item.w * perspective, item.openness, item.smile, opacity);
       }
     }
+
+    // 最后画尾巴（在所有截面之后）
+    this.draw3DTail(ctx, tailEnd, s.tailLength, yaw, pitch, perspective);
 
     ctx.restore();
 
@@ -220,57 +203,102 @@ export class DebugAvatar {
     }
   }
 
-  drawRotatedSpindle(ctx, points, tailEnd, tailLen, yaw, pitch, perspective, opacity) {
+  // 身体脊柱 X 坐标（从头部到尾部）
+  spineX(t) {
+    const s = this.spindle;
+    // 使用贝塞尔曲线模拟纺锤体轮廓
+    // 头部在 x=0 附近，身体延伸到 x=s.bodyLength
+    const p0 = -s.headR * 0.3;  // 头部前端
+    const p3 = s.bodyLength + s.tailLength * 0.5; // 尾端
+    // 贝塞尔曲线：头部圆钝，中部平直，尾部渐细
+    const cp1 = s.headR * 0.5;
+    const cp2 = s.bodyLength * 0.7;
+    return this.cubicBezier(p0, cp1, cp2, p3, t);
+  }
+
+  // 身体截面宽度（轮廓）
+  bodyWidthAt(t) {
+    const s = this.spindle;
+    // 头部最宽，中部略窄，尾部急剧变细
+    if (t < 0.15) {
+      // 头部圆钝区域
+      return s.headR * Math.sin(t / 0.15 * Math.PI * 0.5);
+    } else if (t < 0.6) {
+      // 身体中部，保持宽度
+      return s.bodyWidth * (1 - (t - 0.15) * 0.2);
+    } else {
+      // 尾部渐细
+      const tailT = (t - 0.6) / 0.4;
+      return s.bodyWidth * (1 - tailT) * (1 - tailT * 0.5);
+    }
+  }
+
+  // 身体截面深度（z 方向，体现3D体积）
+  bodyDepthAt(t) {
+    const d = this.spindle.bodyDepth;
+    if (t < 0.15) {
+      return d * 0.8 * Math.sin(t / 0.15 * Math.PI * 0.5);
+    } else if (t < 0.6) {
+      return d * 0.8 * (1 - (t - 0.15) * 0.15);
+    } else {
+      const tailT = (t - 0.6) / 0.4;
+      return d * 0.8 * (1 - tailT) * (1 - tailT);
+    }
+  }
+
+  cubicBezier(p0, p1, p2, p3, t) {
+    const mt = 1 - t;
+    return mt * mt * mt * p0 + 3 * mt * mt * t * p1 + 3 * mt * t * t * p2 + t * t * t * p3;
+  }
+
+  // 绘制单个身体截面（半椭圆：上半灰色，下半白色）
+  drawSection(ctx, cx, cy, rx, ry, roll, opacity, t) {
     ctx.save();
     ctx.globalAlpha = opacity;
 
-    // 纺锤形身体路径
+    // 上半身（灰色/棕色）
     ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-
-    // 背部弧线
-    ctx.bezierCurveTo(points[1].x, points[1].y, points[2].x, points[2].y, points[3].x, points[3].y);
-
-    // 尾柄
-    ctx.bezierCurveTo(points[4].x, points[4].y, points[5].x, points[5].y, points[6].x, points[6].y);
-
-    // 尾巴下分叉
-    ctx.bezierCurveTo(points[7].x, points[7].y, points[8].x, points[8].y, points[9].x, points[9].y);
-    ctx.bezierCurveTo(points[10].x, points[10].y, points[11].x, points[11].y, points[12].x, points[12].y);
-
-    // 腹部弧线
-    ctx.bezierCurveTo(points[13].x, points[13].y, points[14].x, points[14].y, points[15].x, points[15].y);
-
+    ctx.ellipse(cx, cy, rx, ry, roll, Math.PI, 0, false);
     ctx.closePath();
-
-    // 填充：上半灰褐，下半米白
-    const bodyGrad = ctx.createLinearGradient(0, -60 * perspective, 0, 60 * perspective);
-    bodyGrad.addColorStop(0, '#bdb8aa');
-    bodyGrad.addColorStop(0.50, '#bdb8aa');
-    bodyGrad.addColorStop(0.50, '#f2f1ea');
-    bodyGrad.addColorStop(1, '#f2f1ea');
-    ctx.fillStyle = bodyGrad;
+    // 使用径向渐变模拟3D光照
+    const gradTop = ctx.createRadialGradient(cx - rx * 0.2, cy - ry * 0.3, rx * 0.1, cx, cy, rx);
+    gradTop.addColorStop(0, '#d4cec0'); // 亮部（高光）
+    gradTop.addColorStop(0.5, '#bdb8aa'); // 中间色
+    gradTop.addColorStop(1, '#9a9588'); // 暗部（边缘）
+    ctx.fillStyle = gradTop;
     ctx.fill();
 
-    // 轮廓
-    ctx.strokeStyle = '#7c7a72';
-    ctx.lineWidth = 3.5;
-    ctx.lineJoin = 'round';
-    ctx.stroke();
+    // 下半身（白色/米色）
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, roll, 0, Math.PI, false);
+    ctx.closePath();
+    const gradBottom = ctx.createRadialGradient(cx + rx * 0.1, cy + ry * 0.2, rx * 0.1, cx, cy, rx);
+    gradBottom.addColorStop(0, '#ffffff'); // 亮部
+    gradBottom.addColorStop(0.6, '#f2f1ea'); // 中间色
+    gradBottom.addColorStop(1, '#d5d2c8'); // 暗部（边缘）
+    ctx.fillStyle = gradBottom;
+    ctx.fill();
 
-    // 尾巴
-    this.drawRotatedTail(ctx, tailEnd, tailLen, yaw, pitch, perspective);
+    // 轮廓线（只在首尾截面画完整轮廓，中间截面省去减少杂乱）
+    if (t < 0.05 || t > 0.9 || Math.abs(t - 0.5) < 0.05) {
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, roll, 0, Math.PI * 2);
+      ctx.strokeStyle = '#9a9588';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
 
     ctx.restore();
   }
 
-  drawRotatedTail(ctx, tailEnd, tailLen, yaw, pitch, perspective) {
+  // 3D尾巴
+  draw3DTail(ctx, tailEnd, tailLen, yaw, pitch, perspective) {
     const t = tailLen * perspective;
     const x = tailEnd.x;
     const y = tailEnd.y;
-
-    // 根据 yaw 调整尾巴展开角度
     const tailAngle = Math.sin(yaw) * 0.3;
+
+    ctx.save();
 
     // 上尾叶
     ctx.beginPath();
@@ -284,7 +312,10 @@ export class DebugAvatar {
       x + t * 0.3, y
     );
     ctx.closePath();
-    ctx.fillStyle = '#a8a49c';
+    const gradTop = ctx.createLinearGradient(x, y - t * 0.3, x + t * 0.5, y);
+    gradTop.addColorStop(0, '#c5bfb0');
+    gradTop.addColorStop(1, '#a8a49c');
+    ctx.fillStyle = gradTop;
     ctx.fill();
     ctx.strokeStyle = '#7c7a72';
     ctx.lineWidth = 2.5;
@@ -302,11 +333,16 @@ export class DebugAvatar {
       x + t * 0.3, y
     );
     ctx.closePath();
-    ctx.fillStyle = '#a8a49c';
+    const gradBottom = ctx.createLinearGradient(x, y, x + t * 0.5, y + t * 0.3);
+    gradBottom.addColorStop(0, '#f2f1ea');
+    gradBottom.addColorStop(1, '#d5d2c8');
+    ctx.fillStyle = gradBottom;
     ctx.fill();
     ctx.strokeStyle = '#7c7a72';
     ctx.lineWidth = 2.5;
     ctx.stroke();
+
+    ctx.restore();
   }
 
   draw3DEye(ctx, x, y, radius, openness, opacity) {
