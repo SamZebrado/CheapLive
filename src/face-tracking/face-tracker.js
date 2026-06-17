@@ -894,5 +894,8 @@ class FaceTracker {
   }
 }
 
-// 初始化
-new FaceTracker();
+// 初始化并暴露到 window
+const faceTracker = new FaceTracker();
+if (typeof window !== 'undefined') {
+  window.faceTracker = faceTracker;
+}
