@@ -992,3 +992,72 @@ body.app-mode .avatar-version-select {
     touch-action: manipulation;
   }
 }
+
+/* ==================== Live2D Cubism 诊断面板 ==================== */
+
+.cubism-diag {
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--bg3);
+  border-radius: 8px;
+  border: 1px solid var(--rule);
+}
+
+.cubism-diag h3 {
+  font-size: 0.85rem;
+  color: var(--accent2);
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+
+.cubism-diag-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cubism-diag-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(46, 46, 74, 0.5);
+}
+
+.cubism-diag-row:last-child {
+  border-bottom: none;
+}
+
+.cubism-diag-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.cubism-diag-value {
+  font-size: 0.75rem;
+  color: var(--ink);
+  text-align: right;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  word-break: break-all;
+}
+
+.cubism-diag-error .cubism-diag-value {
+  color: #e74c3c;
+}
+
+@media (max-width: 768px) {
+  .cubism-diag {
+    padding: 8px;
+  }
+
+  .cubism-diag-label {
+    min-width: 60px;
+    font-size: 0.65rem;
+  }
+
+  .cubism-diag-value {
+    font-size: 0.7rem;
+  }
+}

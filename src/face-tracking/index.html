@@ -106,6 +106,7 @@
               <option value="saka-memorial">纪念版</option>
               <option value="mesh-sphere">程序化 2.5D 球体（实验）</option>
               <option value="mesh-spindle-whale">程序化 2.5D 纺锤鲸鱼（实验）</option>
+              <option value="live2d-cubism">Live2D Cubism（实验）</option>
             </select>
           </div>
           <div class="live2d-import" id="live2dImport" style="display:none;">
@@ -121,6 +122,56 @@
               <label for="modelFolder" class="import-btn import-btn-secondary">📂 选择文件夹</label>
             </div>
             <div id="modelStatus" class="model-status"></div>
+          </div>
+          <!-- Live2D Cubism 运行时诊断面板 -->
+          <div class="cubism-diag" id="cubismDiag" style="display:none;">
+            <h3>Live2D Cubism 诊断</h3>
+            <div class="cubism-diag-grid">
+              <div class="cubism-diag-row">
+                <span class="cubism-diag-label">SDK 状态</span>
+                <span class="cubism-diag-value" id="cdiagSdkStatus">-</span>
+              </div>
+              <div class="cubism-diag-row">
+                <span class="cubism-diag-label">Core 版本</span>
+                <span class="cubism-diag-value" id="cdiagCoreVersion">-</span>
+              </div>
+              <div class="cubism-diag-row">
+                <span class="cubism-diag-label">Framework</span>
+                <span class="cubism-diag-value" id="cdiagFramework">-</span>
+              </div>
+              <div class="cubism-diag-row">
+                <span class="cubism-diag-label">模型路径</span>
+                <span class="cubism-diag-value" id="cdiagModelPath" style="font-size:10px;word-break:break-all;">-</span>
+              </div>
+              <div class="cubism-diag-row">
+                <span class="cubism-diag-label">.moc3 路径</span>
+                <span class="cubism-diag-value" id="cdiagMocPath" style="font-size:10px;word-break:break-all;">-</span>
+              </div>
+              <div class="cubism-diag-row">
+                <span class="cubism-diag-label">纹理数量</span>
+                <span class="cubism-diag-value" id="cdiagTexCount">-</span>
+              </div>
+              <div class="cubism-diag-row">
+                <span class="cubism-diag-label">参数数量</span>
+                <span class="cubism-diag-value" id="cdiagParamCount">-</span>
+              </div>
+              <div class="cubism-diag-row">
+                <span class="cubism-diag-label">参数 ID 列表</span>
+                <span class="cubism-diag-value" id="cdiagParamIds" style="font-size:9px;max-height:60px;overflow-y:auto;">-</span>
+              </div>
+              <div class="cubism-diag-row">
+                <span class="cubism-diag-label">Drawable 数量</span>
+                <span class="cubism-diag-value" id="cdiagDrawableCount">-</span>
+              </div>
+              <div class="cubism-diag-row">
+                <span class="cubism-diag-label">当前 FPS</span>
+                <span class="cubism-diag-value" id="cdiagFps">-</span>
+              </div>
+              <div class="cubism-diag-row cubism-diag-error" id="cdiagErrorRow" style="display:none;">
+                <span class="cubism-diag-label">加载错误</span>
+                <span class="cubism-diag-value" id="cdiagErrors" style="color:#e74c3c;font-size:10px;">-</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

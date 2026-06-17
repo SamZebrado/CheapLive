@@ -840,6 +840,90 @@ const AVATAR_REGISTRY = {
   'mesh-spindle-whale': () => {
     return import('./procedural-mesh-renderer.js').then(m => new m.ProceduralSpindleWhaleAvatar('avatar_canvas'));
   },
+  'live2d-cubism': () => {
+    return import('./cubism-runtime.js').then(m => {
+      const runtime = new m.CubismRuntime('avatar_canvas');
+      // 返回一个兼容旧版 Avatar 接口的包装对象
+      return {
+        _runtime: runtime,
+        _mapper: null,
+        params: {
+          eyeLeft: 1, eyeRight: 1, mouthOpen: 0, mouthSmile: 0,
+          browLeft: 0, browRight: 0,
+          headYaw: 0.5, headPitch: 0.5, headRoll: 0.5,
+          headX: 0.5, headY: 0.5,
+        },
+        appMode: false,
+
+        async init(modelPathOrFileMap) {
+          // 初始化 SDK 并加载模型
+          const sdkResult = await runtime.initSDK();
+          if (!sdkResult.success) {
+            console.warn('[live2d-cubism] SDK 初始化失败:', sdkResult.error);
+            return sdkResult;
+          }
+
+          if (modelPathOrFileMap) {
+            let modelPath;
+            let fileMap = null;
+            if (typeof modelPathOrFileMap === 'string') {
+              modelPath = modelPathOrFileMap;
+            } else {
+              // 传入的是 fileMap
+              modelPath = 'model.model3.json';
+              fileMap = modelPathOrFileMap;
+            }
+            const modelResult = await runtime.loadModel(modelPath, fileMap);
+            if (!modelResult.success) {
+              console.warn('[live2d-cubism] 模型加载失败:', modelResult.error);
+            }
+            return modelResult;
+          }
+          return sdkResult;
+        },
+
+        resize() {
+          runtime._resizeCanvas();
+        },
+
+        updateParams(newParams) {
+          Object.assign(this.params, newParams);
+          // 如果 mapper 已创建，则映射参数到 Cubism
+          if (this._mapper) {
+            const cubismParams = this._mapper.map(this.params);
+            runtime.setParameters(cubismParams);
+          }
+          // 触发重绘（如果不是自动渲染循环）
+          if (!runtime._running) {
+            runtime.draw();
+          }
+        },
+
+        setAppMode(enabled) {
+          this.appMode = enabled;
+        },
+
+        // 获取 CubismRuntime 实例（用于高级操作）
+        getRuntime() {
+          return runtime;
+        },
+
+        // 获取诊断信息
+        getDiagnostics() {
+          return {
+            ...runtime.diagnostics,
+            mapper: this._mapper ? this._mapper.getDiagnostics() : null,
+            params: { ...this.params },
+          };
+        },
+
+        // 销毁
+        destroy() {
+          runtime.destroy();
+        },
+      };
+    });
+  },
 };
 
 export async function createAvatar(version) {
@@ -858,4 +942,5 @@ export const AVATAR_VERSIONS = [
   { id: 'saka-memorial', name: '纪念版', desc: '原始平面纺锤体' },
   { id: 'mesh-sphere', name: '程序化 2.5D 球体（实验）', desc: '程序化 Canvas 网格球体，非 Live2D' },
   { id: 'mesh-spindle-whale', name: '程序化 2.5D 纺锤鲸鱼（实验）', desc: '程序化 Canvas 网格纺锤体+鲸尾，非 Live2D' },
+  { id: 'live2d-cubism', name: 'Live2D Cubism（实验）', desc: '使用真实 Cubism SDK 加载 .moc3 模型，需要 SDK 文件' },
 ];
