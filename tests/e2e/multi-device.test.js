@@ -17,7 +17,7 @@ const path = require('path');
 function startSignalingServer(port) {
   return new Promise((resolve, reject) => {
     const serverPath = path.resolve(__dirname, '../../src/multi-device/signaling-server.js');
-    const child = spawn('node', [serverPath], {
+    const child = spawn(process.execPath, [serverPath], {
       env: { ...process.env, SIGNAL_PORT: String(port), TEST_MODE: '1' },
       stdio: 'pipe',
     });

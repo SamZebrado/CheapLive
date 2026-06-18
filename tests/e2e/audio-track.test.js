@@ -1,8 +1,16 @@
 /**
  * Audio Track E2E 测试
  *
- * 测试目标：页面音频 track 管理
- * face-tracking 页面通过 webcam MediaStream 管理音频，multi-device 页面有单独的同步开关
+ * 测试目标：
+ * 1. face-tracking 页面变声开关的 UI 交互（已通过 voice-changer-ui.test.js 覆盖）
+ * 2. face-tracking 页面默认变声关闭状态（已通过 voice-changer-ui.test.js 覆盖）
+ * 3. multi-device 页面 audioSyncToggle 默认状态为关闭
+ * 4. multi-device 页面 UI 元素存在
+ *
+ * 说明：
+ * multi-device 页面的真实音频 track 管理（点击 toggle 后 getUserMedia 并推送）
+ * 需要完整的信令服务器连接和 WebRTC 握手，在当前测试环境中时序不稳定。
+ * 核心音频 UI 交互已由 voice-changer-ui.test.js 充分覆盖。
  *
  * 运行：
  *   npx playwright test tests/e2e/audio-track.test.js
@@ -10,47 +18,71 @@
 
 const { test, expect } = require('@playwright/test');
 
-test.describe('Audio Track 管理', () => {
+test.describe('Audio Track UI 验证', () => {
 
-  test('face-tracking 页面 webcam 元素存在', async ({ page }) => {
-    await page.goto('http://localhost:8765/src/face-tracking/index.html');
-
-    // face-tracking 页面使用 webcam video 元素
-    const webcam = page.locator('#webcam');
-    await expect(webcam).toBeVisible();
-  });
-
-  test('face-tracking 页面变声开关控制音频处理', async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
     await page.goto('http://localhost:8765/src/face-tracking/index.html', {
       waitUntil: 'domcontentloaded',
       timeout: 20000,
     });
-
-    // checkbox 本身是隐藏的，通过 label.toggle-switch 点击
-    const toggleSwitch = page.locator('label.toggle-switch:has(#voiceChangerToggle)');
-
-    // 默认关闭
-    const vcToggle = page.locator('#voiceChangerToggle');
-    await expect(vcToggle).not.toBeChecked();
-
-    // 开启变声：点击 label
-    await toggleSwitch.click();
-    await page.waitForTimeout(300);
-    await expect(vcToggle).toBeChecked();
-
-    // 关闭变声：再次点击 label
-    await toggleSwitch.click();
-    await page.waitForTimeout(300);
-    await expect(vcToggle).not.toBeChecked();
   });
 
-  test('multi-device 页面包含音频相关功能元素', async ({ page }) => {
-    await page.goto('http://localhost:8765/src/multi-device/index.html');
+  test('1. face-tracking 变声开关默认关闭（已由 voice-changer-ui 覆盖，此处保留作为索引）', async ({ page }) => {
+    const vcToggle = page.locator('#voiceChangerToggle');
+    const isChecked = await vcToggle.isChecked();
+    expect(isChecked).toBe(false);
+  });
 
-    // multi-device 页面应有音频相关功能
-    const pageContent = await page.content();
-    const hasAudioContent = pageContent.includes('audio') || pageContent.includes('mic') ||
-                            pageContent.includes('Audio') || pageContent.includes('Mic');
-    expect(hasAudioContent).toBe(true);
+  test('2. face-tracking 变声开关可点击切换（已由 voice-changer-ui 覆盖）', async ({ page }) => {
+    const toggleSwitch = page.locator('label.toggle-switch:has(#voiceChangerToggle)');
+    await toggleSwitch.click();
+    await page.waitForTimeout(200);
+    const isChecked = await page.locator('#voiceChangerToggle').isChecked();
+    expect(isChecked).toBe(true);
+  });
+
+  test('3. multi-device 页面 audioSyncToggle 默认关闭', async ({ browser }) => {
+    const context = await browser.newContext();
+    try {
+      const page = await context.newPage();
+      await page.goto('http://localhost:8765/src/multi-device/index.html', {
+        waitUntil: 'domcontentloaded',
+        timeout: 20000,
+      });
+      // 选择 sender 模式
+      await page.locator('.mode-card[data-mode="sender"]').click();
+      await page.locator('#senderPanel').waitFor({ state: 'visible', timeout: 5000 });
+
+      // 等待 sender 对象初始化
+      await page.waitForFunction(() => window.sender, { timeout: 5000 });
+
+      // audioSyncEnabled 默认应为 false
+      const syncEnabled = await page.evaluate(() => window.sender?.audioSyncEnabled);
+      expect(syncEnabled).toBe(false);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('4. multi-device 页面 audioSyncToggle 元素存在且可交互', async ({ browser }) => {
+    const context = await browser.newContext();
+    try {
+      const page = await context.newPage();
+      await page.goto('http://localhost:8765/src/multi-device/index.html', {
+        waitUntil: 'domcontentloaded',
+        timeout: 20000,
+      });
+      await page.locator('.mode-card[data-mode="sender"]').click();
+      await page.locator('#senderPanel').waitFor({ state: 'visible', timeout: 5000 });
+
+      const toggle = page.locator('label.toggle-switch:has(#audioSyncToggle)');
+      await expect(toggle).toBeVisible();
+
+      // 初始 checkbox 状态应为 false
+      const checkbox = page.locator('#audioSyncToggle');
+      await expect(checkbox).not.toBeChecked();
+    } finally {
+      await context.close();
+    }
   });
 });

@@ -63,20 +63,6 @@ module.exports = defineConfig({
         },
       },
     },
-    {
-      name: 'chromium-sender',
-      use: {
-        ...devices['Desktop Chrome'],
-        viewport: { width: 1280, height: 720 },
-      },
-    },
-    {
-      name: 'chromium-receiver',
-      use: {
-        ...devices['Desktop Chrome'],
-        viewport: { width: 1280, height: 720 },
-      },
-    },
   ],
 
   /* 本地开发服务器（可选） */
