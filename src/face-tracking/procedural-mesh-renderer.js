@@ -464,13 +464,13 @@ export class ProceduralMeshRenderer {
   }
 
   _drawMouth(ctx, x, y, persp, openness, smile) {
-    const w = 22 * persp;
+    const w = 30 * persp;
     const oh = 14 * openness * persp;
-    const so = smile * 5 * persp;
+    const so = smile * 6 * persp;
 
     ctx.save();
 
-    if (openness > 0.15) {
+    if (openness > 0.1) {
       // 张嘴
       ctx.beginPath();
       ctx.moveTo(x - w / 2, y - so);
@@ -479,18 +479,18 @@ export class ProceduralMeshRenderer {
       ctx.quadraticCurveTo(x + w * 0.3, y + oh * 0.7, x, y + oh);
       ctx.quadraticCurveTo(x - w * 0.3, y + oh * 0.7, x - w / 2, y - so);
       ctx.closePath();
-      ctx.fillStyle = '#6a2525';
+      ctx.fillStyle = '#3a1515';
       ctx.fill();
-      ctx.strokeStyle = '#4a1a1a';
-      ctx.lineWidth = Math.max(1, 1.5 * persp);
+      ctx.strokeStyle = '#2a0a0a';
+      ctx.lineWidth = Math.max(1.5, 2 * persp);
       ctx.stroke();
     } else {
-      // 闭嘴弧线
+      // 闭嘴弧线（更明显）
       ctx.beginPath();
-      ctx.moveTo(x - w / 2, y + so * 0.2);
-      ctx.quadraticCurveTo(x, y - 3 * persp - so, x + w / 2, y + so * 0.2);
-      ctx.strokeStyle = '#5a5850';
-      ctx.lineWidth = Math.max(1.5, 2.5 * persp);
+      ctx.moveTo(x - w / 2, y + so * 0.3);
+      ctx.quadraticCurveTo(x, y - 3 * persp - so, x + w / 2, y + so * 0.3);
+      ctx.strokeStyle = '#3a3830';
+      ctx.lineWidth = Math.max(2, 3.5 * persp);
       ctx.lineCap = 'round';
       ctx.stroke();
     }

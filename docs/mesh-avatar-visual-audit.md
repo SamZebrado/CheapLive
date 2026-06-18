@@ -1,51 +1,87 @@
 # 网格 Avatar 视觉审计
 
 > 时间：2026-06-18
+> 状态：修复完成，等待用户视觉验收
 
-## 一、接缝来源
+## 一、接缝来源根因（已修复）
 
-| 来源 | 文件 | 行号 | 说明 |
-|------|------|------|------|
-| **显式描边** | `procedural-mesh-renderer.js` | 321-323 | `ctx.stroke()` + `strokeStyle` + `lineWidth=0.5` 对每个面绘制深色轮廓线 |
-| **颜色突变** | `mesh-sphere.js` | 214-274 | `computeSphereFaceColor` 对每个面独立计算 flat-shading，相邻面法向量差异导致颜色跳变 |
-| **颜色突变** | `mesh-spindle-whale.js` | 511-552 | 同上，`computeSpindleFaceColor` 每面独立计算 |
-| **伪背面剔除** | `mesh-sphere.js` | 272 | `alpha: face.vertices[0].tz > -mesh.radius*0.8 ? 1 : 0.4` 用 alpha 淡化背面，而非真正剔除 |
-| **伪背面剔除** | `mesh-spindle-whale.js` | 550, 591 | 同上，`alpha: face.vertices[0].tz > -50 ? 1 : 0.35` |
-| **抗锯齿裂缝** | `procedural-mesh-renderer.js` | 198-199 | 每个面独立 `beginPath()/fill()`，无顶点外扩，相邻面在 Canvas 抗锯齿下产生 1px 细缝 |
-| **深度排序** | `procedural-mesh-renderer.js` | 191 | Painter's algorithm 按 `avgZ` 排序，但背面未被剔除，导致背面穿透 |
+| 来源 | 修复方式 |
+|------|---------|
+| **显式描边** | 删除 `ctx.stroke()` (旧 321-323 行)，仅保留 `debugShowMesh` 模式 |
+| **颜色突变** | 改为顶点级平滑光照，每面取顶点颜色均值 |
+| **伪背面剔除** | 改为真正的背面剔除 (`cross <= 0 → skip`)，不再用 alpha 淡化 |
+| **抗锯齿裂缝** | 已删除描边，相邻面共享顶点，无独立 path 间隙 |
+| **深度排序** | Painter's algorithm 在 culling 后执行，背面不穿透 |
 
-## 二、五官缺失来源
+## 二、五官驱动（已实现）
 
-| 参数 | 传入 | 渲染 | 说明 |
-|------|------|------|------|
-| `eyeLeft` | ✓ (Avatar 包装类存储) | ✗ | `ProceduralMeshRenderer.draw()` 从未绘制眼睛 |
-| `eyeRight` | ✓ | ✗ | 同上 |
-| `mouthOpen` | ✓ | ✗ | 同上 |
-| `mouthSmile` | ✓ | ✗ | 同上 |
-| `browLeft` | ✓ | ✗ | 同上 |
-| `browRight` | ✓ | ✗ | 同上 |
-| `headYaw/Pitch/Roll` | ✓ | ✓ | 映射到 `angleX/Y/Z`，但仅用于网格旋转 |
-| `headX/headY` | ✓ | ✓ | 映射到 `offsetX/offsetY` |
+| 参数 | 效果 |
+|------|------|
+| `eyeLeft/eyeRight` | 1.0=睁开, 0.0=闭合, 中间值连续插值, 闭眼时绘制上眼睑 |
+| `mouthOpen` | 控制开口高度, >0.15 时绘制深色口腔 |
+| `mouthSmile` | 控制嘴角上扬, 影响闭嘴弧线 |
+| `browLeft/browRight` | 眉毛上扬, 跟随眼睛锚点 |
+| `headYaw/Pitch/Roll` | 五官跟随头部旋转, 远侧压缩, 近侧放大, 背面淡出 |
 
-**根因：`ProceduralMeshRenderer` 只包含网格绘制逻辑，没有五官绘制。`ProceduralSphereAvatar` 和 `ProceduralSpindleWhaleAvatar` 包装类存储了五官参数但从未传递给渲染器绘制。**
+五官在模型局部坐标锚点中计算，经过与主体相同的 yaw/pitch/roll + 透视投影。
 
-## 三、构图和裁切
+## 三、构图和取景（已修复）
 
-| 问题 | 位置 | 说明 |
-|------|------|------|
-| 固定 scale=1 | `procedural-mesh-renderer.js:196` | 无自动 bounding box 计算 |
-| 固定 fov=800, zOffset=200 | `procedural-mesh-renderer.js:57-58` | 无自动调整 |
-| 无 devicePixelRatio 处理 | 全局 | Canvas 尺寸 = CSS 尺寸，无高 DPI |
-| 无安全边距 | 全局 | 模型可能裁切到边缘 |
+- 自动 bounding box 计算 (`_computeBBox`)
+- 自动 scale (`_calcAutoScale`) — 90% 安全边距
+- 高 DPI backing store (`devicePixelRatio`)
+- 光线增强：ambient 0.6, diffuse 0.35, 柔和阴影
 
-## 四、旧版本依赖
+## 四、旧版本清理（已完成）
 
-| ID | 类 | 文件中 | 保留？ |
-|------|------|------|------|
-| `saka` | `DebugAvatar` | `debug-avatar.js` | 删除 |
-| `saka-whale` | `WhaleTailAvatar` | `avatar-versions.js` | 删除 |
-| `sphere` | `SphereAvatar` | `avatar-versions.js` | 删除 |
-| `saka-memorial` | `MemorialAvatar` | `avatar-versions.js` | 保留 |
-| `mesh-sphere` | `ProceduralSphereAvatar` | `procedural-mesh-renderer.js` | 保留，改为默认 |
-| `mesh-spindle-whale` | `ProceduralSpindleWhaleAvatar` | `procedural-mesh-renderer.js` | 保留，改为默认 |
-| `live2d-cubism` | 包装对象 | `avatar-versions.js` | 保留 |
+| 删除项 | 操作 |
+|--------|------|
+| `saka` (3D纺锤体) | 从 HTML select 移除, 从 AVATAR_REGISTRY 移除 |
+| `saka-whale` (鲸鱼尾巴) | 同上 |
+| `sphere` (球体基础) | 同上 |
+| 旧 localStorage 迁移 | `saka/saka-whale` → `mesh-spindle-whale`, `sphere` → `mesh-sphere` |
+| 默认值 | `mesh-spindle-whale` (纺锤鲸鱼) |
+
+## 五、调试信息
+
+- `debugShowMesh = false` (默认关闭网格线)
+- `debugShowLabels = false` (默认关闭参数标签)
+- 仅通过 `window._a.renderer.debugShowMesh = true` 可手动开启
+
+## 六、视觉证据
+
+### Before
+```
+artifacts/mesh-avatar-before/sphere-front.png       (angleY:0, angleX:0)
+artifacts/mesh-avatar-before/sphere-yaw-left.png     (angleY:-40)
+artifacts/mesh-avatar-before/sphere-yaw-right.png    (angleY:40)
+artifacts/mesh-avatar-before/spindle-front.png       (angleY:0, angleX:0)
+artifacts/mesh-avatar-before/spindle-three-quarter.png (angleY:30, angleX:10)
+artifacts/mesh-avatar-before/spindle-side.png        (angleY:-60)
+```
+
+### After
+```
+artifacts/mesh-avatar-after/sphere-front.png          (正面, 睁眼)
+artifacts/mesh-avatar-after/sphere-blink.png          (闭眼)
+artifacts/mesh-avatar-after/sphere-mouth-open.png     (张嘴)
+artifacts/mesh-avatar-after/sphere-yaw-left.png       (yaw:-40)
+artifacts/mesh-avatar-after/sphere-yaw-right.png      (yaw:40)
+artifacts/mesh-avatar-after/sphere-both-closed.png    (闭眼+张嘴)
+artifacts/mesh-avatar-after/sphere-smile.png          (微笑)
+
+artifacts/mesh-avatar-after/spindle-front.png         (正面)
+artifacts/mesh-avatar-after/spindle-blink.png         (闭眼)
+artifacts/mesh-avatar-after/spindle-mouth-open.png    (张嘴)
+artifacts/mesh-avatar-after/spindle-three-quarter.png (斜侧面)
+artifacts/mesh-avatar-after/spindle-side.png          (侧面)
+artifacts/mesh-avatar-after/spindle-tail-visible.png  (尾巴可见)
+artifacts/mesh-avatar-after/spindle-smile.png         (微笑)
+
+artifacts/mesh-avatar-after/sphere-expression-demo.webm
+artifacts/mesh-avatar-after/spindle-expression-demo.webm
+```
+
+## 七、状态
+
+代码已实现，自动测试通过，视觉材料已生成，等待用户视觉确认。
