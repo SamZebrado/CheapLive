@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CheapLive Capture · Avatar 离线演示</title>
+    <style>
+        html, body {
+            margin: 0; padding: 0;
+            background: #0b0b1a;
+            color: #eaeaf0;
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+            height: 100%;
+        }
+        #container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        canvas {
+            background: radial-gradient(circle at 50% 40%, #1a1a35, #0a0a17 70%);
+            display: block;
+        }
+        #hud {
+            position: absolute;
+            left: 8px;
+            top: 8px;
+            font-size: 11px;
+            color: #8888a0;
+            background: rgba(15, 15, 30, 0.55);
+            padding: 6px 8px;
+            border-radius: 6px;
+            border: 1px solid #2e2e4a;
+            max-width: 40%;
+            pointer-events: none;
+        }
+        #hud b { color: #ff6b4a; }
+        #avatarSwitch {
+            position: absolute;
+            right: 8px;
+            top: 8px;
+            font-size: 12px;
+            background: rgba(15, 15, 30, 0.55);
+            color: #eaeaf0;
+            padding: 6px 8px;
+            border-radius: 6px;
+            border: 1px solid #2e2e4a;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <canvas id="cv" width="360" height="480"></canvas>
+        <div id="hud">等待参数注入...</div>
+        <div id="avatarSwitch">球形头像</div>
+    </div>
+    <script>
+        (function () {
+            var canvas = document.getElementById('cv');
+            var ctx = canvas.getContext('2d');
+            var hud = document.getElementById('hud');
+            var avatarSwitch = document.getElementById('avatarSwitch');
+
+            // 根据 URL 参数选择默认头像
+            var qs = window.location.search || '';
+            var m = qs.match(/avatar=([^&]+)/);
+            var avatar = (m && (m[1] === 'sphere' || m[1] === 'whale')) ? m[1] : 'sphere';
+            avatarSwitch.textContent = avatar === 'whale' ? '纺锤鲸鱼' : '球形头像';
+
+            function drawSphere(params) {
+                var w = canvas.width, h = canvas.height;
+                var cx = w / 2 + (params.positionX || 0) * w * 0.1;
+                var cy = h / 2 + (params.positionY || 0) * h * 0.05;
+                var baseR = Math.min(w, h) * 0.32 * (params.scale || 1);
+                var yaw = params.headYaw || 0;   // -1..1
+                var pitch = params.headPitch || 0;
+                var roll = params.headRoll || 0;
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(roll * 0.4);
+                var rx = baseR * (1 + yaw * 0.15);
+                var ry = baseR * (1 - pitch * 0.15);
+                var grd = ctx.createRadialGradient(-rx * 0.25, -ry * 0.3, rx * 0.1, 0, 0, rx);
+                grd.addColorStop(0, '#ffd6b5');
+                grd.addColorStop(1, '#ff7a5a');
+                ctx.fillStyle = grd;
+                ctx.beginPath();
+                ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 眼睛：根据 eyeLeft/eyeRight 控制眼睁大小
+                var eyeY = -ry * 0.1;
+                var eyeDx = rx * 0.35;
+                var eyeOpenL = Math.max(0.1, Math.min(1.0, params.eyeLeft));
+                var eyeOpenR = Math.max(0.1, Math.min(1.0, params.eyeRight));
+                drawEye(-eyeDx + yaw * rx * 0.05, eyeY + pitch * ry * 0.1, rx * 0.12, eyeOpenL);
+                drawEye( eyeDx + yaw * rx * 0.05, eyeY + pitch * ry * 0.1, rx * 0.12, eyeOpenR);
+
+                // 眉毛
+                var browY = eyeY - ry * 0.35;
+                drawBrow(-eyeDx, browY, rx * 0.2, params.browLeft);
+                drawBrow( eyeDx, browY, rx * 0.2, params.browRight);
+
+                // 嘴巴：根据 mouthOpen 和 mouthSmile
+                var mouthY = ry * 0.35;
+                var mW = rx * 0.5;
+                var mH = rx * 0.2 * (params.mouthOpen || 0);
+                var smile = params.mouthSmile || 0;
+                ctx.strokeStyle = '#a03030';
+                ctx.lineWidth = Math.max(1.5, rx * 0.06);
+                ctx.beginPath();
+                if (smile > 0.2) {
+                    ctx.moveTo(-mW * 0.5, mouthY);
+                    ctx.quadraticCurveTo(0, mouthY + mH + smile * 10, mW * 0.5, mouthY);
+                } else {
+                    ctx.moveTo(-mW * 0.5, mouthY);
+                    ctx.lineTo(mW * 0.5, mouthY + mH);
+                }
+                ctx.stroke();
+                if (mH > 2) {
+                    ctx.fillStyle = '#7a1818';
+                    ctx.beginPath();
+                    ctx.ellipse(0, mouthY + mH * 0.4, mW * 0.4, mH * 0.8, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+
+            function drawEye(ex, ey, size, open) {
+                ctx.save();
+                ctx.strokeStyle = '#1a1a2e';
+                ctx.lineWidth = Math.max(1.0, size * 0.25);
+                ctx.beginPath();
+                var h = size * (0.3 + open * 0.7);
+                ctx.ellipse(ex, ey, size, h, 0, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.ellipse(ex, ey, size * 0.95, h * 0.95, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#1a1a2e';
+                ctx.beginPath();
+                ctx.arc(ex, ey, size * 0.55, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            function drawBrow(bx, by, bw, val) {
+                if (val === null || val === undefined || isNaN(val)) return;
+                ctx.save();
+                ctx.strokeStyle = '#5a2e1a';
+                ctx.lineWidth = bw * 0.15;
+                ctx.beginPath();
+                ctx.moveTo(bx - bw * 0.5, by + val * bw * 0.3);
+                ctx.lineTo(bx + bw * 0.5, by + val * bw * 0.3);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            function drawWhale(params) {
+                var w = canvas.width, h = canvas.height;
+                var cx = w / 2, cy = h / 2;
+                var bodyR = Math.min(w, h) * 0.3 * (params.scale || 1);
+                var yaw = params.headYaw || 0;
+                var pitch = params.headPitch || 0;
+                var tailPitch = params.tailPitch || 0;
+                var tailYaw = params.tailYaw || 0;
+                var tailWave = params.tailWave || 0;
+
+                ctx.save();
+                ctx.translate(cx, cy);
+                // 主体：椭圆形（纺锤形）
+                var rx = bodyR * (1.3 + yaw * 0.05);
+                var ry = bodyR * (0.6 - pitch * 0.1);
+                var grd = ctx.createLinearGradient(0, -ry, 0, ry);
+                grd.addColorStop(0, '#4ecdc4');
+                grd.addColorStop(1, '#1e7a72');
+                ctx.fillStyle = grd;
+                ctx.beginPath();
+                ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#0b3a36';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                // 眼睛
+                var eyeOpen = Math.max(0.15, params.eyeLeft || 0.9);
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.ellipse(-rx * 0.55, -ry * 0.2, ry * 0.18, ry * 0.18 * eyeOpen, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#0b1a1a';
+                ctx.beginPath();
+                ctx.arc(-rx * 0.55, -ry * 0.2, ry * 0.08, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 嘴 / 笑
+                var mOpen = params.mouthOpen || 0;
+                var mSmile = params.mouthSmile || 0;
+                ctx.strokeStyle = '#0b3a36';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(-rx * 0.85, ry * 0.15);
+                if (mSmile > 0.3) {
+                    ctx.quadraticCurveTo(-rx * 0.6, ry * 0.15 + ry * 0.2 * mOpen, -rx * 0.35, ry * 0.15);
+                } else {
+                    ctx.lineTo(-rx * 0.35, ry * 0.15 + ry * 0.1 * mOpen);
+                }
+                ctx.stroke();
+
+                // 尾巴：位于主体右端，根据 tailWave / tailPitch 摆动
+                var tailBaseX = rx;
+                var tailBaseY = 0;
+                var tailLen = bodyR * 0.8;
+                var dx = tailLen;
+                var dy = tailWave * bodyR * 0.35;
+                var tailWidth = bodyR * 0.55;
+                ctx.fillStyle = '#4ecdc4';
+                ctx.strokeStyle = '#0b3a36';
+                ctx.beginPath();
+                ctx.moveTo(tailBaseX, tailBaseY);
+                ctx.quadraticCurveTo(tailBaseX + dx * 0.5, tailBaseY + dy - tailWidth * 0.4, tailBaseX + dx, tailBaseY + dy);
+                ctx.quadraticCurveTo(tailBaseX + dx * 0.5, tailBaseY + dy + tailWidth * 0.4, tailBaseX, tailBaseY);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // 上尾鳍
+                ctx.beginPath();
+                ctx.moveTo(tailBaseX, tailBaseY);
+                ctx.quadraticCurveTo(tailBaseX + dx * 0.6 + tailPitch * 30, tailBaseY + dy - tailWidth * 0.5, tailBaseX + dx * 1.1, tailBaseY + dy - tailWidth * 0.8);
+                ctx.lineTo(tailBaseX + dx, tailBaseY + dy);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // 下尾鳍
+                ctx.beginPath();
+                ctx.moveTo(tailBaseX, tailBaseY);
+                ctx.quadraticCurveTo(tailBaseX + dx * 0.6 - tailPitch * 30, tailBaseY + dy + tailWidth * 0.5, tailBaseX + dx * 1.1, tailBaseY + dy + tailWidth * 0.8);
+                ctx.lineTo(tailBaseX + dx, tailBaseY + dy);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // 胸部鳍
+                ctx.beginPath();
+                ctx.ellipse(0, ry * 0.5, rx * 0.2, ry * 0.4, -0.3 + tailYaw * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.restore();
+            }
+
+            var lastParams = {
+                eyeLeft: 1.0, eyeRight: 1.0,
+                mouthOpen: 0.0, mouthSmile: 0.0,
+                browLeft: 0.0, browRight: 0.0,
+                headYaw: 0.0, headPitch: 0.0, headRoll: 0.0,
+                positionX: 0.0, positionY: 0.0, scale: 1.0,
+                tailPitch: 0.0, tailYaw: 0.0, tailWave: 0.0,
+                tick: 0
+            };
+
+            function draw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                if (avatar === 'whale') {
+                    drawWhale(lastParams);
+                } else {
+                    drawSphere(lastParams);
+                }
+            }
+
+            function hudText(p) {
+                var which = (avatar === 'whale') ? '纺锤鲸鱼' : '球形头像';
+                return '<b>' + which + '</b>' +
+                    '<br>tick: ' + (p.tick || 0) +
+                    '<br>yaw: ' + f(p.headYaw) + '  pitch: ' + f(p.headPitch) +
+                    '<br>eyes: ' + f(p.eyeLeft) + '/' + f(p.eyeRight) +
+                    '<br>mouth: ' + f(p.mouthOpen) + '  smile: ' + f(p.mouthSmile) +
+                    '<br>tail: ' + f(p.tailWave);
+            }
+
+            function f(v) {
+                if (typeof v !== 'number' || isNaN(v)) return '—';
+                return v.toFixed(2);
+            }
+
+            function applyPayload(p) {
+                if (!p || !p.params) return;
+                var s = p.params;
+                for (var k in s) {
+                    if (s.hasOwnProperty(k)) {
+                        lastParams[k] = Number(s[k]);
+                    }
+                }
+                if (typeof p.tick === 'number') lastParams.tick = p.tick;
+                hud.innerHTML = hudText(lastParams);
+            }
+
+            // 暴露在 window 上，供 Android JavaScript Bridge 调用
+            window.CheapLiveDemo = {
+                onFrame: function (payload) {
+                    try {
+                        applyPayload(payload);
+                        draw();
+                    } catch (e) {
+                        hud.innerHTML = '错误: ' + e.message;
+                    }
+                },
+                getAvatar: function () { return avatar; }
+            };
+
+            // 初始渲染一次，给用户反馈
+            draw();
+            hud.innerHTML = hudText(lastParams) + '<br><b style="color:#4ecdc4;">等待参数注入...</b>';
+
+            // 若在纯浏览器环境 (没有 Android Bridge)，做轻量 JS 侧的参数模拟。
+            // 这确保仅在 web 浏览器中也能看到演示。真机 APK 中 Android 会直接调用 onFrame 覆盖。
+            var fallbackTimer = window.setTimeout(function () {
+                var simT = 0;
+                function sim() {
+                    simT += 0.08;
+                    var p = {
+                        ok: true,
+                        tick: Math.floor(simT * 12),
+                        avatar: avatar,
+                        params: {
+                            eyeLeft: 0.8 + 0.2 * Math.sin(simT * 4),
+                            eyeRight: 0.8 + 0.2 * Math.sin(simT * 4),
+                            mouthOpen: 0.5 + 0.5 * Math.sin(simT * 2),
+                            mouthSmile: 0.6,
+                            browLeft: 0.3 * Math.sin(simT / 3),
+                            browRight: 0.3 * Math.sin(simT / 3),
+                            headYaw: Math.sin(simT / 2),
+                            headPitch: 0.5 * Math.sin(simT / 3),
+                            headRoll: 0.3 * Math.sin(simT / 5),
+                            positionX: 0.1 * Math.sin(simT / 4),
+                            positionY: 0.0,
+                            scale: 1.0,
+                            tailPitch: Math.sin(simT / 2.5),
+                            tailYaw: Math.sin(simT / 3.5),
+                            tailWave: Math.sin(simT / 1.5)
+                        }
+                    };
+                    window.CheapLiveDemo.onFrame(p);
+                    window.requestAnimationFrame(sim);
+                }
+                hud.innerHTML = '<b style="color:#8888a0;">JS fallback 模拟运行</b>';
+                window.requestAnimationFrame(sim);
+            }, 1200);
+        })();
+    </script>
+</body>
+</html>
