@@ -18,12 +18,14 @@ import {
   createSphereMesh,
   deformSphere,
   computeSphereFaceAnchor,
+  computeSphereFaceAnchorXYZ,
 } from './mesh-sphere.js';
 import {
   createSpindleMesh,
   createWhaleTailMesh,
   deformSpindle,
   computeFaceAnchor,
+  computeFaceAnchorXYZ,
 } from './mesh-spindle-whale.js';
 
 // ---------------- 公共工具 ----------------
@@ -239,10 +241,18 @@ class ProceduralMeshRenderer {
       const facing = avgNz / nLen;
       if (facing < -0.05) continue;
 
-      // 选择颜色：根据 "是否上半(y<0)" 区分灰白
-      const avgTy = (p0.v.ty !== undefined
-        ? (p0.v.ty + p1.v.ty + p2.v.ty + p3.v.ty) * 0.25
-        : (p0.v.y + p1.v.y + p2.v.y + p3.v.y) * 0.25);
+      // 选择颜色：使用原始坐标判断上下，不随旋转变化
+      // 对于球体：y < 0 为上半（灰），y >= 0 为下半（白）
+      // 对于鲸鱼：cos(angle) < 0 为上半（灰），cos(angle) >= 0 为下半（白）
+      // 使用顶点原始属性来判断，而不是旋转后的坐标
+      let isTop = false;
+      if (f.isTop !== undefined) {
+        isTop = f.isTop;
+      } else {
+        // 兼容旧网格：使用原始 y 坐标判断
+        const avgOriginalY = (f.vertices[0].y + f.vertices[1].y + f.vertices[2].y + f.vertices[3].y) * 0.25;
+        isTop = avgOriginalY < 0;
+      }
 
       // 如果是纺锤/鲸鱼，顶点可能带 faceWeight，用它来过渡面部颜色
       let faceWeight = 0;
@@ -252,9 +262,9 @@ class ProceduralMeshRenderer {
       }
       faceWeight *= 0.25;
 
-      let base = (avgTy < 0 ? baseColorTop : baseColorBottom);
+      let base = (isTop ? baseColorTop : baseColorBottom);
       if (faceWeight > 0.01 && faceTopColor && faceBottomColor) {
-        const faceBase = avgTy < 0 ? faceTopColor : faceBottomColor;
+        const faceBase = isTop ? faceTopColor : faceBottomColor;
         base = lerpColor(base, faceBase, faceWeight);
       }
 
@@ -367,21 +377,33 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
    *   theta=0 朝 +X, theta=pi/2 朝 +Z（朝向摄像机）
    * 我们让面部朝 +Z，所以眼睛的 theta 应接近 pi/2。
    */
+  /**
+   * 返回五官锚点的局部坐标参数（球面头像）。
+   *   faceCenter = (0, 0, radius) —— 朝 +z
+   *   horizontal = (1, 0, 0) —— 屏幕水平
+   *   vertical = (0, 1, 0) —— 屏幕垂直
+   *
+   * 视觉不变量：
+   *   - 左右眼 |horizOffset| 相同 → screenX 有明确间距
+   *   - 左右眼 vertOffset 相同 → screenY 等高
+   *   - 嘴 vertOffset > 眼 vertOffset → 嘴在眼下
+   *   - 眉 vertOffset < 眼 vertOffset → 眉在眼上
+   */
   getAnchors(params) {
-    // 左眼 (phi, theta)：左 (-X)、中上偏上
-    const eyePhi = Math.PI * 0.42; // 约 75°：上半部
-    const eyeThetaL = Math.PI * 0.5 - 0.35; // 朝摄像机但偏左
-    const eyeThetaR = Math.PI * 0.5 + 0.35;
-    const mouthPhi = Math.PI * 0.60; // 眼睛下方
-    const mouthTheta = Math.PI * 0.5;
+    const r = this.mesh.radius;
+    const eyeSpacing = r * 0.32;
+    const eyeHeight = -r * 0.15;    // 眼在中心偏上
+    const mouthHeight = r * 0.25;    // 嘴在中心下方
+    const browOffset = -r * 0.28;    // 眉在眼上方
+    const browSpacing = r * 0.28;    // 眉水平间距
 
-    const browPhi = eyePhi - 0.10;
-    const leftEye = { phi: eyePhi, theta: eyeThetaL, surfaceOffset: 2 };
-    const rightEye = { phi: eyePhi, theta: eyeThetaR, surfaceOffset: 2 };
-    const mouth = { phi: mouthPhi, theta: mouthTheta, surfaceOffset: 2 };
-    const browLeft = { phi: browPhi, theta: eyeThetaL, surfaceOffset: 3 };
-    const browRight = { phi: browPhi, theta: eyeThetaR, surfaceOffset: 3 };
-    return { leftEye, rightEye, mouth, browLeft, browRight };
+    return {
+      leftEye:  { horizOffset: -eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 2 },
+      rightEye: { horizOffset:  eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 2 },
+      mouth:    { horizOffset: 0,            vertOffset: mouthHeight, surfaceOffset: 2 },
+      browLeft: { horizOffset: -browSpacing, vertOffset: browOffset, surfaceOffset: 3 },
+      browRight:{ horizOffset:  browSpacing, vertOffset: browOffset, surfaceOffset: 3 },
+    };
   }
 
   _render(ctx, w, h) {
@@ -393,8 +415,8 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
     const margin = 0.12;
     const minSide = Math.min(w, h);
     const scale = (minSide * (1 - margin * 2)) / (this.mesh.radius * 2.1);
-    const originX = w * 0.5 + (np.headX - 0.5) * minSide * 0.15;
-    const originY = h * 0.5 + (np.headY - 0.5) * minSide * 0.10;
+    const originX = w * 0.5 + (np.headX - 0.5) * minSide * 0.30;
+    const originY = h * 0.5 + (np.headY - 0.5) * minSide * 0.20;
 
     const lightDir = { x: -0.35, y: -0.4, z: 0.8 };
     // 球体的"上半=灰，下半=白"的简单配色：
@@ -415,7 +437,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
     const anchors = this.getAnchors(np);
 
     const drawEye = (anchor, openness, isLeft) => {
-      const local = computeSphereFaceAnchor(this.mesh, anchor.phi, anchor.theta, anchor.surfaceOffset);
+      const local = computeSphereFaceAnchorXYZ(this.mesh, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       // 可见性：根据法线朝向摄像机 (+Z) 的程度
       const facing = clamp(t.nz, -0.2, 1.0);
@@ -434,11 +456,12 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.strokeStyle = '#222';
       ctx.stroke();
 
-      // 瞳孔
+      // 瞳孔：尺寸固定，不随 openness 缩放
+      // 眼睑开合通过裁剪眼白区域来实现，而不是缩放瞳孔
       if (openness > 0.1) {
         ctx.beginPath();
         const pupilRx = rx * 0.55;
-        const pupilRy = ry * 0.55 * openness;
+        const pupilRy = rx * 0.55;  // 固定尺寸，与 rx 成正比，不受 openness 影响
         ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#1f1f1f';
         ctx.fill();
@@ -447,7 +470,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
     };
 
     const drawBrow = (anchor, raise, isLeft) => {
-      const local = computeSphereFaceAnchor(this.mesh, anchor.phi, anchor.theta, anchor.surfaceOffset);
+      const local = computeSphereFaceAnchorXYZ(this.mesh, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
@@ -467,7 +490,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
     };
 
     const drawMouth = (anchor, open, smile) => {
-      const local = computeSphereFaceAnchor(this.mesh, anchor.phi, anchor.theta, anchor.surfaceOffset);
+      const local = computeSphereFaceAnchorXYZ(this.mesh, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
@@ -522,20 +545,20 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
   constructor(canvasId) {
     super(canvasId);
     this.spindleMesh = createSpindleMesh({
-      headR: 75,
-      bodyLength: 150,
-      bodyWidth: 60,
-      bodyDepth: 45,
-      columns: 22,
-      rows: 16,
+      headR: 95,
+      bodyLength: 120,
+      bodyWidth: 70,
+      bodyDepth: 55,
+      columns: 26,
+      rows: 18,
       topColor: '#bdb8aa',
       bottomColor: '#f2f0e6',
       faceTopColor: '#c8c2b4',
       faceBottomColor: '#fffaf0',
     });
     this.tailMesh = createWhaleTailMesh({
-      tailLength: 75,
-      tailWidth: 65,
+      tailLength: 60,
+      tailWidth: 70,
       flukeSegments: 6,
       color: '#bdb8aa',
     });
@@ -552,18 +575,36 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
    * 面部区域在 bodyT ≈ 0.1~0.2，surfAngle 接近 PI/2（朝摄像机）。
    * 约定：摄像机方向 +Z；angle = PI/2 时 z = depth * sin(PI/2) = depth > 0。
    */
+  /**
+   * 面部局部坐标系参数（萨卡班甲鱼）。
+   *   faceCenter = (spineX(faceT), 0, bodyDepth(faceT)) —— 朝 +z
+   *   horizontal = (1, 0, 0) —— 屏幕水平
+   *   vertical = (0, 1, 0) —— 屏幕垂直
+   *
+   * 视觉不变量：
+   *   - 左右眼 |horizOffset| 相同 → screenX 有明确间距
+   *   - 左右眼 vertOffset 相同 → screenY 等高
+   *   - 嘴 vertOffset > 眼 vertOffset → 嘴在眼下
+   *   - 眉 vertOffset < 眼 vertOffset → 眉在眼上
+   */
   getAnchors(params) {
     const faceT = 0.12;
-    const faceCenterAngle = Math.PI / 2; // 朝摄像机
-    const eyeAngularOffset = 0.38;       // 两眼水平间距（弧度）
-    const browAngularOffset = 0.32;      // 眉毛间距，略窄于眼睛
+
+    // 按模型尺寸比例计算偏移，确保跨模型尺寸一致
+    const mesh = this.spindleMesh;
+    const headR = mesh.headR;
+    const eyeSpacing = headR * 0.25;  // 两眼水平间距
+    const eyeHeight = -headR * 0.10; // 眼在中心上方（负 = 向上）
+    const mouthHeight = headR * 0.25;  // 嘴在中心下方（正 = 向下）
+    const browOffset = -headR * 0.18;  // 眉在眼上方
+    const browSpacing = headR * 0.22;  // 眉水平间距略窄于眼睛
 
     return {
-      leftEye:  { bodyT: faceT,       surfAngle: faceCenterAngle - eyeAngularOffset, surfaceOffset: 1.5 },
-      rightEye: { bodyT: faceT,       surfAngle: faceCenterAngle + eyeAngularOffset, surfaceOffset: 1.5 },
-      mouth:    { bodyT: faceT + 0.03, surfAngle: faceCenterAngle,                 surfaceOffset: 1.5 },
-      browLeft: { bodyT: faceT - 0.018, surfAngle: faceCenterAngle - browAngularOffset, surfaceOffset: 2 },
-      browRight:{ bodyT: faceT - 0.018, surfAngle: faceCenterAngle + browAngularOffset, surfaceOffset: 2 },
+      leftEye:  { bodyT: faceT, horizOffset: -eyeSpacing, vertOffset: eyeHeight, surfaceOffset: 1.5 },
+      rightEye: { bodyT: faceT, horizOffset:  eyeSpacing, vertOffset: eyeHeight, surfaceOffset: 1.5 },
+      mouth:    { bodyT: faceT, horizOffset: 0,           vertOffset: mouthHeight, surfaceOffset: 1.5 },
+      browLeft: { bodyT: faceT, horizOffset: -browSpacing, vertOffset: browOffset, surfaceOffset: 2 },
+      browRight:{ bodyT: faceT, horizOffset:  browSpacing, vertOffset: browOffset, surfaceOffset: 2 },
     };
   }
 
@@ -579,8 +620,8 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const scale = (minSide * (1 - margin * 2)) / totalLen * 1.1;
 
     // 让鲸鱼整体在画布中居中，鼻端偏左一点
-    const originX = w * 0.5 - (this.spindleMesh.headR * 0.2) * scale + (np.headX - 0.5) * minSide * 0.08;
-    const originY = h * 0.5 + (np.headY - 0.5) * minSide * 0.08;
+    const originX = w * 0.5 - (this.spindleMesh.headR * 0.2) * scale + (np.headX - 0.5) * minSide * 0.25;
+    const originY = h * 0.5 + (np.headY - 0.5) * minSide * 0.18;
 
     // 先画尾巴（更远离摄像机的一端），再画身体，最后画头部五官
     const lightDir = { x: -0.3, y: -0.5, z: 0.8 };
@@ -627,7 +668,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const anchors = this.getAnchors(np);
 
     const drawEye = (anchor, openness, isLeft) => {
-      const local = computeFaceAnchor(this.spindleMesh, anchor.bodyT, anchor.surfAngle, anchor.surfaceOffset);
+      const local = computeFaceAnchorXYZ(this.spindleMesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
@@ -646,7 +687,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       if (openness > 0.1) {
         ctx.beginPath();
         const pupilRx = rx * 0.55;
-        const pupilRy = ry * 0.55 * openness;
+        const pupilRy = rx * 0.55;  // 固定尺寸，不随 openness 缩放
         ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#1f1f1f';
         ctx.fill();
@@ -655,7 +696,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     };
 
     const drawBrow = (anchor, raise, isLeft) => {
-      const local = computeFaceAnchor(this.spindleMesh, anchor.bodyT, anchor.surfAngle, anchor.surfaceOffset);
+      const local = computeFaceAnchorXYZ(this.spindleMesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
@@ -675,7 +716,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     };
 
     const drawMouth = (anchor, open, smile) => {
-      const local = computeFaceAnchor(this.spindleMesh, anchor.bodyT, anchor.surfAngle, anchor.surfaceOffset);
+      const local = computeFaceAnchorXYZ(this.spindleMesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;

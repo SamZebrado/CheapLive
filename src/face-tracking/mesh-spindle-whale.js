@@ -31,21 +31,22 @@ function getSpineX(t, headR, bodyLength) {
  * t 越小越靠前，越圆润；中段保持稳定，尾部收细。
  */
 function getBodyWidth(t, headR, bodyWidth, bodyLength) {
-  if (t < 0.18) {
-    // 头部圆形：从 0 平滑升到 headR 的 1.0 倍
-    const k = t / 0.18;
-    const fade = Math.sin(k * Math.PI * 0.5);  // 0 → 1 (光滑)
-    return headR * fade;
-  } else if (t < 0.55) {
-    // 头部-身体过渡：略宽，保持圆润
-    return bodyWidth * (1 - (t - 0.18) / 0.37 * 0.06);
-  } else if (t < 0.82) {
-    // 身体中部，略收细
-    return bodyWidth * (0.96 - (t - 0.55) * 0.2);
+  if (t < 0.25) {
+    // 萨卡班甲鱼头部：圆球形，前端较圆
+    const k = t / 0.25;
+    const fade = Math.sin(k * Math.PI * 0.5);
+    const minWidth = headR * 0.5;
+    return minWidth + (headR - minWidth) * fade;
+  } else if (t < 0.60) {
+    // 头部-身体过渡：略窄
+    return bodyWidth * (1 - (t - 0.25) / 0.35 * 0.15);
+  } else if (t < 0.85) {
+    // 身体中部，收细
+    return bodyWidth * (0.92 - (t - 0.60) * 0.3);
   } else {
-    // 尾柄收细
-    const tt = (t - 0.82) / 0.18;
-    return bodyWidth * 0.85 * (1 - tt) * (1 - tt * 0.6);
+    // 尾柄快速收细
+    const tt = (t - 0.85) / 0.15;
+    return bodyWidth * 0.75 * (1 - tt) * (1 - tt * 0.5);
   }
 }
 
@@ -54,17 +55,19 @@ function getBodyWidth(t, headR, bodyWidth, bodyLength) {
  * 与 bodyWidth 协同，使得正面看起来是圆形头部。
  */
 function getBodyDepth(t, headR, bodyDepth, bodyLength) {
-  if (t < 0.18) {
-    const k = t / 0.18;
+  if (t < 0.25) {
+    // 萨卡班甲鱼头部：圆球形，深度接近宽度
+    const k = t / 0.25;
     const fade = Math.sin(k * Math.PI * 0.5);
-    return headR * 0.92 * fade;  // 头部接近球形
-  } else if (t < 0.55) {
-    return bodyDepth * (0.96 - (t - 0.18) * 0.05);
-  } else if (t < 0.82) {
-    return bodyDepth * 0.88 * (1 - (t - 0.55) * 0.25);
+    const minDepth = headR * 0.45;
+    return minDepth + (headR * 0.95 - minDepth) * fade;
+  } else if (t < 0.60) {
+    return bodyDepth * (1 - (t - 0.25) / 0.35 * 0.12);
+  } else if (t < 0.85) {
+    return bodyDepth * (0.90 - (t - 0.60) * 0.25);
   } else {
-    const tt = (t - 0.82) / 0.18;
-    return bodyDepth * 0.8 * (1 - tt) * (1 - tt * 0.6);
+    const tt = (t - 0.85) / 0.15;
+    return bodyDepth * 0.72 * (1 - tt) * (1 - tt * 0.5);
   }
 }
 
@@ -225,11 +228,12 @@ export function createSpindleMesh(options = {}) {
  * 给定身体参数坐标 (bodyT, surfAngle) 和表面偏移，计算模型空间下
  * 五官锚点的位置 + 法线 + 局部切线。
  *
- * @param {Object} mesh  - createSpindleMesh 返回的网格对象
- * @param {number} bodyT - 沿脊柱位置（0=鼻端，1=尾端）
- * @param {number} surfAngle - 环绕角度（弧度），0 指向下方（肚子）
- * @param {number} [surfaceOffset] - 沿法线外推的小距离（像素）
- * @returns {{ x:number, y:number, z:number, nx:number, ny:number, nz:number, tangentX:number, tangentY:number, tangentZ:number }}
+ * 保留原 API 以兼容现有测试代码，不用于正式渲染。
+ *
+ * @param {Object} mesh
+ * @param {number} bodyT
+ * @param {number} surfAngle
+ * @param {number} [surfaceOffset]
  */
 export function computeFaceAnchor(mesh, bodyT, surfAngle, surfaceOffset = 0) {
   const { headR, bodyLength, bodyWidth, bodyDepth } = mesh;
@@ -240,41 +244,69 @@ export function computeFaceAnchor(mesh, bodyT, surfAngle, surfaceOffset = 0) {
   const cosA = Math.cos(surfAngle);
   const sinA = Math.sin(surfAngle);
 
-  let x = spineX;
   let y = bw * cosA;
   let z = bd * sinA;
 
   // 椭圆外法线
-  const rawNy = cosA / Math.max(bw, 0.001);
-  const rawNz = sinA / Math.max(bd, 0.001);
-  const nLen = Math.sqrt(rawNy * rawNy + rawNz * rawNz) || 1;
-  let ny = rawNy / nLen;
-  let nz = rawNz / nLen;
-  let nx = 0;
+  const nyLen = Math.sqrt((cosA * cosA) / (bw * bw) + (sinA * sinA) / (bd * bd)) || 1;
+  const ny = (cosA / bw) / nyLen;
+  const nz = (sinA / bd) / nyLen;
 
-  // 面部区域微凸，保持与网格顶点一致的形变
-  const fw = getFaceWeight(bodyT, surfAngle);
-  if (fw > 0.05) {
-    const bulge = 2.5 * fw;
-    const radialLen = Math.max(1e-3, Math.sqrt(y * y + z * z));
-    const ry = y / radialLen;
-    const rz = z / radialLen;
-    y += ry * bulge;
-    z += rz * bulge;
-  }
-
-  // 表面偏移（用于防止与主体 z-fighting）
+  // 表面偏移（法线方向外推）
   if (surfaceOffset !== 0) {
     y += ny * surfaceOffset;
     z += nz * surfaceOffset;
   }
 
-  // 沿脊柱方向的切线 (1, 0, 0) 在局部近似
-  const tangentX = 1;
-  const tangentY = 0;
-  const tangentZ = 0;
+  return {
+    x: spineX, y, z,
+    nx: 0, ny, nz,
+    tangentX: 1, tangentY: 0, tangentZ: 0,
+    faceWeight: getFaceWeight(bodyT, surfAngle),
+  };
+}
 
-  return { x, y, z, nx, ny, nz, tangentX, tangentY, tangentZ, faceWeight: fw };
+/**
+ * 面部局部坐标系锚点生成。
+ *
+ * 定义：
+ *   faceCenter = (spineX(faceT), 0, bodyDepth(faceT)) —— 脸部表面中心，朝 +z
+ *   horizontal = (1, 0, 0) —— 沿脊柱方向 → 屏幕水平方向
+ *   vertical = (0, 1, 0) —— 沿横截面 y 方向 → 屏幕垂直方向
+ *   normal = (0, 0, 1) —— 朝摄像机方向
+ *
+ * 每个五官由 (horizOffset, vertOffset) 生成：
+ *   position = faceCenter + horizontal * horizOffset + vertical * vertOffset
+ *
+ * 视觉不变量：
+ *   - 左右眼 |horizOffset| 相同 → 屏幕 x 有明确间距
+ *   - 左右眼 vertOffset 相同 → 屏幕 y 等高
+ *   - 嘴 vertOffset > 眼 vertOffset → 嘴在眼下
+ *   - 眉 vertOffset < 眼 vertOffset → 眉在眼上
+ *
+ * @param {Object} mesh - createSpindleMesh 的返回值
+ * @param {number} faceT - 面部中心的 bodyT（沿脊柱位置）
+ * @param {number} horizOffset - 水平偏移（像素，模型坐标系）
+ * @param {number} vertOffset - 垂直偏移（像素，模型坐标系）；正值向下
+ * @param {number} [surfaceOffset] - 沿法线的小偏移（防止 z-fighting）
+ */
+export function computeFaceAnchorXYZ(mesh, faceT, horizOffset, vertOffset, surfaceOffset = 0) {
+  const { headR, bodyLength, bodyWidth, bodyDepth } = mesh;
+  const faceCenterX = getSpineX(faceT, headR, bodyLength);
+  const faceCenterY = 0;
+  // 朝摄像机方向（surfAngle=PI/2 → sin=1 → z=bd）
+  const faceCenterZ = getBodyDepth(faceT, headR, bodyDepth, bodyLength);
+
+  const x = faceCenterX + horizOffset;
+  const y = faceCenterY + vertOffset;
+  const z = faceCenterZ + surfaceOffset;
+
+  return {
+    x, y, z,
+    nx: 0, ny: 0, nz: 1,
+    tangentX: 1, tangentY: 0, tangentZ: 0,
+    faceWeight: 1.0,
+  };
 }
 
 // -------------------- 鲸鱼尾巴 --------------------
