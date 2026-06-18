@@ -27,8 +27,11 @@ module.exports = defineConfig({
   /* 并发 worker 数 */
   workers: process.env.CI ? 1 : undefined,
 
-  /* 报告器 */
-  reporter: 'html',
+  /* 报告器：list 用于人类可读输出，json 用于机器可读结果 */
+  reporter: [
+    ['list'],
+    ['json', { outputFile: 'test-results/results.json' }],
+  ],
 
   /* 共享项目配置 */
   use: {

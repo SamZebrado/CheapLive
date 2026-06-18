@@ -5,7 +5,7 @@
  * via page.evaluate() in a real browser context.
  */
 
-const { test, expect } = require('playwright/test');
+const { test, expect } = require('@playwright/test');
 
 /**
  * 在页面中注入 copyToClipboard 及相关辅助函数

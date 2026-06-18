@@ -5,7 +5,7 @@
  * Each test uses independent BrowserContexts for sender and receiver.
  */
 
-const { test, expect } = require('playwright/test');
+const { test, expect } = require('@playwright/test');
 const { spawn } = require('child_process');
 const path = require('path');
 
