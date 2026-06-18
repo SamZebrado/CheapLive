@@ -1,37 +1,29 @@
 /**
  * Mesh Sphere - 球体网格生成器
- * 使用经纬度网格生成球体，支持不对称表面标记
- * 模拟 Live2D 2.5D 体积效果
+ *
+ * 语义约定：
+ *   - 球体位于原点。
+ *   - 顶部 phi=0，底部 phi=pi。
+ *   - 在 phi=pi/3 与 theta=±pi/4 的椭圆区域内存在斑点标记（面部区域）。
+ *   - 摄像机朝向 +Z。
  */
 
-/**
- * 生成球体网格
- * @param {Object} options
- * @param {number} options.radius - 球体半径
- * @param {number} options.rings - 纬度环数 (默认 8)
- * @param {number} options.segments - 经度分段数 (默认 20)
- * @param {string} options.baseColor - 基础颜色
- * @param {string} options.markingColor - 标记颜色
- * @param {string} options.highlightColor - 高光颜色
- * @param {string} options.shadowColor - 阴影颜色
- */
 export function createSphereMesh(options = {}) {
   const {
-    radius = 100,
-    rings = 8,
-    segments = 20,
+    radius = 80,
+    rings = 16,
+    segments = 24,
     baseColor = '#d4d1c8',
     markingColor = '#8B4513',
-    highlightColor = '#ffffff',
-    shadowColor = '#6a6758',
   } = options;
 
   const vertices = [];
   const faces = [];
 
-  // 生成顶点 (latitude/longitude 风格)
-  // phi: 0 ~ PI (从上到下)
-  // theta: 0 ~ 2*PI (围绕 Y 轴)
+  const markCenterPhi = Math.PI / 3;
+  const markCenterTheta = Math.PI / 4;
+  const markRadius = 0.4;
+
   for (let i = 0; i <= rings; i++) {
     const phi = (i / rings) * Math.PI;
     const sinPhi = Math.sin(phi);
@@ -42,41 +34,27 @@ export function createSphereMesh(options = {}) {
       const sinTheta = Math.sin(theta);
       const cosTheta = Math.cos(theta);
 
-      // 球面坐标转笛卡尔坐标
       const x = radius * sinPhi * cosTheta;
-      const y = -radius * cosPhi; // 翻转 Y 使顶部朝上
+      const y = -radius * cosPhi;
       const z = radius * sinPhi * sinTheta;
 
-      // 法向量 (单位化)
+      // 球面法线（单位向量）
       const nx = sinPhi * cosTheta;
       const ny = -cosPhi;
       const nz = sinPhi * sinTheta;
 
-      // UV 坐标
-      const u = j / segments;
-      const v = i / rings;
-
-      // 表面标记: 在球体右侧偏上的位置有一个斑点
-      // 标记中心在 (phi=PI/3, theta=PI/4)
-      const markCenterPhi = Math.PI / 3;
-      const markCenterTheta = Math.PI / 4;
-      const markRadius = 0.35; // 标记的角半径
-
-      const dPhi = phi - markCenterPhi;
-      const dTheta = Math.atan2(
-        Math.sin(theta - markCenterTheta),
-        Math.cos(theta - markCenterTheta)
-      );
-      const markDist = Math.sqrt(dPhi * dPhi + dTheta * dTheta);
-      const isMarking = markDist < markRadius;
-      const markIntensity = isMarking
-        ? Math.max(0, 1 - markDist / markRadius)
-        : 0;
+      // 斑点标记：在 phi ~ pi/3 和 theta ~ ±pi/4 内加权。
+      const dphi = phi - markCenterPhi;
+      const dthetaRaw = theta - markCenterTheta;
+      // 环绕归一化到 [-pi, pi]
+      const dtheta = Math.atan2(Math.sin(dthetaRaw), Math.cos(dthetaRaw));
+      const markDist = Math.sqrt(dphi * dphi + dtheta * dtheta);
+      const markIntensity = markDist < markRadius ? Math.max(0, 1 - markDist / markRadius) : 0;
 
       vertices.push({
         x, y, z,
         nx, ny, nz,
-        u, v,
+        u: j / segments, v: i / rings,
         phi, theta,
         spot: markIntensity,
         originalIndex: vertices.length,
@@ -84,14 +62,12 @@ export function createSphereMesh(options = {}) {
     }
   }
 
-  // 生成面 (四边形网格，每个面由两个三角形组成或作为一个四边形)
   for (let i = 0; i < rings; i++) {
     for (let j = 0; j < segments; j++) {
       const a = i * (segments + 1) + j;
       const b = a + 1;
       const c = (i + 1) * (segments + 1) + j;
       const d = c + 1;
-
       faces.push({
         indices: [a, b, d, c],
         vertices: [vertices[a], vertices[b], vertices[d], vertices[c]],
@@ -100,187 +76,109 @@ export function createSphereMesh(options = {}) {
   }
 
   return {
-    vertices,
-    faces,
-    radius,
-    rings,
-    segments,
-    baseColor,
-    markingColor,
-    highlightColor,
-    shadowColor,
+    vertices, faces,
+    radius, rings, segments,
+    baseColor, markingColor,
     type: 'sphere',
   };
 }
 
 /**
- * 根据参数变形球体网格顶点
- * @param {Object} mesh - 网格数据
- * @param {Object} params - 变形参数
- * @param {number} params.angleX - X轴旋转角度 (度)
- * @param {number} params.angleY - Y轴旋转角度 (度)
- * @param {number} params.angleZ - Z轴旋转角度 (度)
- * @param {number} params.breath - 呼吸参数 0-1
+ * 球体上的面部锚点；按球坐标 (phi, theta) 给出。
+ * phi=pi/2 → 赤道；theta=0 → 朝向 +X。
  */
-export function deformSphere(mesh, params = {}) {
-  const {
-    angleX = 0,
-    angleY = 0,
-    angleZ = 0,
-    breath = 0,
-  } = params;
+export function computeSphereFaceAnchor(mesh, phi, theta, surfaceOffset = 0) {
+  const r = mesh.radius;
+  const sinPhi = Math.sin(phi);
+  const cosPhi = Math.cos(phi);
+  const sinTheta = Math.sin(theta);
+  const cosTheta = Math.cos(theta);
 
-  const radX = (angleX * Math.PI) / 180;
-  const radY = (angleY * Math.PI) / 180;
-  const radZ = (angleZ * Math.PI) / 180;
+  const x = r * sinPhi * cosTheta;
+  const y = -r * cosPhi;
+  const z = r * sinPhi * sinTheta;
+  const nx = sinPhi * cosTheta;
+  const ny = -cosPhi;
+  const nz = sinPhi * sinTheta;
 
-  const cosX = Math.cos(radX), sinX = Math.sin(radX);
-  const cosY = Math.cos(radY), sinY = Math.sin(radY);
-  const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
-
-  const breathScale = 1 + breath * 0.02;
-
-  const transformedVertices = mesh.vertices.map((v) => {
-    let x = v.x * breathScale;
-    let y = v.y * breathScale;
-    let z = v.z * breathScale;
-
-    // 旋转变换: Z -> Y -> X (Tait-Bryan angles)
-    // 绕 Y 轴 (yaw)
-    let x1 = x * cosY + z * sinY;
-    let z1 = -x * sinY + z * cosY;
-    let y1 = y;
-
-    // 绕 X 轴 (pitch)
-    let y2 = y1 * cosX - z1 * sinX;
-    let z2 = y1 * sinX + z1 * cosX;
-    let x2 = x1;
-
-    // 绕 Z 轴 (roll)
-    let x3 = x2 * cosZ - y2 * sinZ;
-    let y3 = x2 * sinZ + y2 * cosZ;
-    let z3 = z2;
-
-    // 法向量也做相同旋转
-    let nx = v.nx, ny = v.ny, nz = v.nz;
-    let nx1 = nx * cosY + nz * sinY;
-    let nz1 = -nx * sinY + nz * cosY;
-    let ny1 = ny;
-    let ny2 = ny1 * cosX - nz1 * sinX;
-    let nz2 = ny1 * sinX + nz1 * cosX;
-    let nx2 = nx1;
-    let nx3 = nx2 * cosZ - ny2 * sinZ;
-    let ny3 = nx2 * sinZ + ny2 * cosZ;
-    let nz3 = nz2;
-
+  if (surfaceOffset !== 0) {
     return {
-      ...v,
-      tx: x3, ty: y3, tz: z3,
-      nx: nx3, ny: ny3, nz: nz3,
+      x: x + nx * surfaceOffset,
+      y: y + ny * surfaceOffset,
+      z: z + nz * surfaceOffset,
+      nx, ny, nz,
+      tangentX: cosPhi * cosTheta,
+      tangentY: sinPhi,
+      tangentZ: cosPhi * sinTheta,
     };
-  });
-
-  // 更新面的顶点引用
-  const transformedFaces = mesh.faces.map((f) => ({
-    ...f,
-    vertices: f.indices.map((idx) => transformedVertices[idx]),
-  }));
-
+  }
   return {
-    ...mesh,
-    vertices: transformedVertices,
-    faces: transformedFaces,
+    x, y, z, nx, ny, nz,
+    tangentX: cosPhi * cosTheta,
+    tangentY: sinPhi,
+    tangentZ: cosPhi * sinTheta,
   };
 }
 
 /**
- * 计算球体网格的光照颜色
- * @param {Object} face - 面数据
- * @param {Object} lightDir - 光源方向
- * @param {Object} mesh - 网格材质参数
+ * 变形球：整体 yaw/pitch/roll + 呼吸缩放。
  */
-export function computeSphereFaceColor(face, lightDir = { x: 0.3, y: -0.5, z: 0.8 }, mesh) {
-  // 计算面的平均法向量
-  const nx = face.vertices.reduce((s, v) => s + v.nx, 0) / 4;
-  const ny = face.vertices.reduce((s, v) => s + v.ny, 0) / 4;
-  const nz = face.vertices.reduce((s, v) => s + v.nz, 0) / 4;
+export function deformSphere(mesh, params = {}) {
+  const angleY = params.angleY || 0;
+  const angleX = params.angleX || 0;
+  const angleZ = params.angleZ || 0;
+  const breath = params.breath || 0;
 
-  const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-  const nnx = nx / len;
-  const nny = ny / len;
-  const nnz = nz / len;
+  const radY = angleY * Math.PI / 180;
+  const radX = angleX * Math.PI / 180;
+  const radZ = angleZ * Math.PI / 180;
+  const cosY = Math.cos(radY), sinY = Math.sin(radY);
+  const cosX = Math.cos(radX), sinX = Math.sin(radX);
+  const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
+  const bs = 1 + breath * 0.02;
 
-  // 点积计算光照强度
-  const dot = Math.max(0, nnx * lightDir.x + nny * lightDir.y + nnz * lightDir.z);
+  const transformed = mesh.vertices.map((v) => {
+    const x = v.x * bs, y = v.y * bs, z = v.z * bs;
+    const x1 = x * cosY + z * sinY;
+    const z1 = -x * sinY + z * cosY;
+    const y1 = y;
+    const y2 = y1 * cosX - z1 * sinX;
+    const z2 = y1 * sinX + z1 * cosX;
+    const x2 = x1;
+    const x3 = x2 * cosZ - y2 * sinZ;
+    const y3 = x2 * sinZ + y2 * cosZ;
+    const z3 = z2;
 
-  // 基础颜色
-  let baseR, baseG, baseB;
-  if (face.markIntensity > 0) {
-    // 标记区域混合标记色
-    const m = face.markIntensity;
-    const bc = hexToRgb(mesh.baseColor);
-    const mc = hexToRgb(mesh.markingColor);
-    baseR = lerp(bc.r, mc.r, m);
-    baseG = lerp(bc.g, mc.g, m);
-    baseB = lerp(bc.b, mc.b, m);
-  } else {
-    const bc = hexToRgb(mesh.baseColor);
-    baseR = bc.r;
-    baseG = bc.g;
-    baseB = bc.b;
-  }
+    const nx1 = v.nx * cosY + v.nz * sinY;
+    const nz1 = -v.nx * sinY + v.nz * cosY;
+    const ny1 = v.ny;
+    const ny2 = ny1 * cosX - nz1 * sinX;
+    const nz2 = ny1 * sinX + nz1 * cosX;
+    const nx2 = nx1;
+    const nx3 = nx2 * cosZ - ny2 * sinZ;
+    const ny3 = nx2 * sinZ + ny2 * cosZ;
+    const nz3 = nz2;
 
-  // 高光
-  const hl = hexToRgb(mesh.highlightColor);
-  const sd = hexToRgb(mesh.shadowColor);
+    return { ...v, tx: x3, ty: y3, tz: z3, nx: nx3, ny: ny3, nz: nz3 };
+  });
 
-  // 根据法向量 Y 分量添加上下渐变 (模拟环境光)
-  const ambientFactor = (nny + 1) * 0.5; // 0 ~ 1
+  const transformedFaces = mesh.faces.map((f) => ({
+    ...f,
+    vertices: f.indices.map((idx) => transformed[idx]),
+  }));
 
-  // 漫反射 + 环境光
-  const diffuse = dot * 0.7;
-  const ambient = 0.3 + ambientFactor * 0.2;
-
-  let r = baseR * (ambient + diffuse) + hl.r * Math.pow(dot, 3) * 0.3;
-  let g = baseG * (ambient + diffuse) + hl.g * Math.pow(dot, 3) * 0.3;
-  let b = baseB * (ambient + diffuse) + hl.b * Math.pow(dot, 3) * 0.3;
-
-  // 阴影区域
-  if (dot < 0.3) {
-    const shadowFactor = (0.3 - dot) / 0.3;
-    r = lerp(r, sd.r * 0.5, shadowFactor * 0.5);
-    g = lerp(g, sd.g * 0.5, shadowFactor * 0.5);
-    b = lerp(b, sd.b * 0.5, shadowFactor * 0.5);
-  }
-
-  return {
-    r: clamp(r, 0, 255),
-    g: clamp(g, 0, 255),
-    b: clamp(b, 0, 255),
-    alpha: face.vertices[0].tz > -mesh.radius * 0.8 ? 1 : 0.4, // 背面半透明
-  };
+  return { ...mesh, vertices: transformed, faces: transformedFaces };
 }
 
-// 工具函数
-function hexToRgb(hex) {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? {
-    r: parseInt(result[1], 16),
-    g: parseInt(result[2], 16),
-    b: parseInt(result[3], 16),
-  } : { r: 200, g: 200, b: 200 };
-}
-
-function lerp(a, b, t) {
-  return a + (b - a) * t;
-}
-
-function clamp(v, min, max) {
-  return Math.max(min, Math.min(max, v));
-}
-
-/** 顶点光照计算（供渲染器使用） */
+/**
+ * 顶点光照（供渲染器使用的独立帮助函数）。
+ */
 export function computeVertexLight(vertex, lightDir) {
-  const dot = Math.max(0, vertex.nx * lightDir.x + vertex.ny * lightDir.y + vertex.nz * lightDir.z);
+  const dot = Math.max(
+    0,
+    (vertex.nx || 0) * lightDir.x +
+      (vertex.ny || 0) * lightDir.y +
+      (vertex.nz || 0) * lightDir.z
+  );
   return { dot, ambient: 0.45, diffuse: dot * 0.45 };
 }

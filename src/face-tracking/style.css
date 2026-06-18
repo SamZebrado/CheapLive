@@ -367,6 +367,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
 }
 
 .avatar-section h2 {
@@ -376,14 +377,19 @@ button:disabled {
   border-bottom: 2px solid var(--accent);
 }
 
+/* 尺寸稳定：明确 min/max，避免内部渲染导致外层在球体/鲸鱼切换时尺寸闪烁 */
 .avatar-wrapper {
   position: relative;
   width: 100%;
+  min-height: 240px;
+  min-width: 240px;
+  max-height: 640px;
   aspect-ratio: 1;
   background: var(--bg2);
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--rule);
+  display: block;
 }
 
 .avatar-wrapper canvas {
