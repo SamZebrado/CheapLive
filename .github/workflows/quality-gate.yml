@@ -1,0 +1,51 @@
+# CheapLive quality gate
+
+# 触发时机：main 分支上的 push 和 PR。
+# 只运行稳定的 gate（单元 + 程序化 Avatar runtime smoke + public-status）。
+# 不运行 Android Gradle、WebRTC、真实媒体、或需要多设备连接的实验测试。
+
+name: quality-gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  stable-gate:
+    name: stable gate (unit + avatar runtime smoke + public-status)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: install deps
+        run: npm ci || npm install
+
+      - name: install playwright chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: npm run test:gate
+        run: npm run test:gate
+        env:
+          CI: '1'
+
+      # 记录 Playwright trace，便于定位；测试通过时也保留一份简化输出。
+      - name: upload playwright trace on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-trace
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
