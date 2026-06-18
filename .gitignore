@@ -6,3 +6,11 @@ test-results/
 # Playwright test artifacts (randomly named, non-deterministic)
 artifacts/**/*.webm
 artifacts/**/page@*.webm
+
+# Android build output
+android-capture/build/
+android-capture/app/build/
+android-capture/.gradle/
+android-capture/*.iml
+android-capture/.idea/
+android-capture/local.properties
