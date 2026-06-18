@@ -70,23 +70,36 @@ function getBodyDepth(t, headR, bodyDepth, bodyLength) {
 
 /**
  * 面部区域：判断给定 (t, angle) 是否位于头部正面/近侧。
+ * 坐标约定：angle = PI/2 朝摄像机（+Z 方向）；
+ *   angle = 0      指向 Y 正方向（身体侧前）；
+ *   angle = PI     指向 Y 负方向（身体另一侧）。
+ *
  * 返回 0~1 的软权重：1 为面部中心，0 为非面部区域。
+ * 使用最短弧角距离，避免 ±π 边界错误。
  */
-function getFaceWeight(t, angle) {
-  // t 在 0.02 ~ 0.22 之间，角度在 [-55°, +55°]，随距离高斯衰减。
-  const tCenter = 0.12;
-  const tHalf = 0.10;
-  const angleDeg = angle * 180 / Math.PI;
-  const angleHalf = 55;
+function shortestAngleDist(a, b) {
+  let d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
 
-  const dt = (t - tCenter) / tHalf;
-  const da = angleDeg / angleHalf;
+function getFaceWeight(t, angle) {
+  const FACE_CENTER_T = 0.12;
+  const FACE_CENTER_ANGLE = Math.PI / 2; // 朝摄像机
+  const tHalf = 0.10;
+  const angleHalf = 0.55; // ~31°
+
+  const dt = (t - FACE_CENTER_T) / tHalf;
+  const da = shortestAngleDist(angle, FACE_CENTER_ANGLE) / angleHalf;
 
   const val = Math.exp(-(dt * dt + da * da));
 
-  // 只在 t 和 angle 的合理范围内生效；背部不参与。
+  // 只在 t 和 angle 的合理范围内生效；背部（angle 接近 0 或 PI）不参与。
   if (t < 0.02 || t > 0.28) return 0;
-  if (Math.abs(angle) > Math.PI * 0.75) return 0;
+  // 排除背部：angle 接近 0 或 PI 时权重为 0
+  const awayFromFace = Math.abs(shortestAngleDist(angle, FACE_CENTER_ANGLE));
+  if (awayFromFace > Math.PI * 0.7) return 0;
   return val;
 }
 

@@ -267,23 +267,36 @@ function getBodyDepth(t, headR, bodyDepth, bodyLength) {
 
 /**
  * 面部区域：判断给定 (t, angle) 是否位于头部正面/近侧。
+ * 坐标约定：angle = PI/2 朝摄像机（+Z 方向）；
+ *   angle = 0      指向 Y 正方向（身体侧前）；
+ *   angle = PI     指向 Y 负方向（身体另一侧）。
+ *
  * 返回 0~1 的软权重：1 为面部中心，0 为非面部区域。
+ * 使用最短弧角距离，避免 ±π 边界错误。
  */
-function getFaceWeight(t, angle) {
-  // t 在 0.02 ~ 0.22 之间，角度在 [-55°, +55°]，随距离高斯衰减。
-  const tCenter = 0.12;
-  const tHalf = 0.10;
-  const angleDeg = angle * 180 / Math.PI;
-  const angleHalf = 55;
+function shortestAngleDist(a, b) {
+  let d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
 
-  const dt = (t - tCenter) / tHalf;
-  const da = angleDeg / angleHalf;
+function getFaceWeight(t, angle) {
+  const FACE_CENTER_T = 0.12;
+  const FACE_CENTER_ANGLE = Math.PI / 2; // 朝摄像机
+  const tHalf = 0.10;
+  const angleHalf = 0.55; // ~31°
+
+  const dt = (t - FACE_CENTER_T) / tHalf;
+  const da = shortestAngleDist(angle, FACE_CENTER_ANGLE) / angleHalf;
 
   const val = Math.exp(-(dt * dt + da * da));
 
-  // 只在 t 和 angle 的合理范围内生效；背部不参与。
+  // 只在 t 和 angle 的合理范围内生效；背部（angle 接近 0 或 PI）不参与。
   if (t < 0.02 || t > 0.28) return 0;
-  if (Math.abs(angle) > Math.PI * 0.75) return 0;
+  // 排除背部：angle 接近 0 或 PI 时权重为 0
+  const awayFromFace = Math.abs(shortestAngleDist(angle, FACE_CENTER_ANGLE));
+  if (awayFromFace > Math.PI * 0.7) return 0;
   return val;
 }
 
@@ -744,8 +757,8 @@ class ProceduralMeshRenderer {
     this._resizeHandler = () => this.resize();
     window.addEventListener('resize', this._resizeHandler);
 
-    this.resize();
-    this.draw();
+    // 基类只初始化，不调用 draw()——子类创建 mesh 后再调用
+    // this.draw() 移到子类构造函数末尾
   }
 
   updateParams(newParams) {
@@ -1119,8 +1132,8 @@ class ProceduralSphereAvatar extends ProceduralMeshRenderer {
     if (this.mirror) {
       drawEye(anchors.rightEye, np.eyeLeft, true);
       drawEye(anchors.leftEye, np.eyeRight, false);
-      drawBrow(anchors.rightBrow, np.browLeft, true);
-      drawBrow(anchors.leftBrow, np.browRight, false);
+      drawBrow(anchors.browRight, np.browLeft, true);
+      drawBrow(anchors.browLeft, np.browRight, false);
     } else {
       drawEye(anchors.leftEye, np.eyeLeft, true);
       drawEye(anchors.rightEye, np.eyeRight, false);
@@ -1160,21 +1173,25 @@ class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
   /**
    * 参数坐标：
    *   bodyT 沿脊柱：0 鼻端，1 尾端
-   *   surfAngle 环绕角度：0 下方（肚子），±π 上方（背）
+   *   surfAngle 环绕角度：0 指向 Y 正方向（身体侧面偏前），
+   *     angle = PI/2 指向 +Z（朝摄像机），
+   *     angle = PI   指向 Y 负方向（身体另一侧）
    *
-   * 面部区域在 bodyT ≈ 0.1~0.2，surfAngle 接近 0（下方朝前的脸）。
+   * 面部区域在 bodyT ≈ 0.1~0.2，surfAngle 接近 PI/2（朝摄像机）。
+   * 约定：摄像机方向 +Z；angle = PI/2 时 z = depth * sin(PI/2) = depth > 0。
    */
   getAnchors(params) {
     const faceT = 0.12;
-    const surfAngleLeft = -0.55; // 左下方
-    const surfAngleRight = 0.55; // 右下方
-    const surfAngleMouth = 0.0;
+    const faceCenterAngle = Math.PI / 2; // 朝摄像机
+    const eyeAngularOffset = 0.38;       // 两眼水平间距（弧度）
+    const browAngularOffset = 0.32;      // 眉毛间距，略窄于眼睛
+
     return {
-      leftEye: { bodyT: faceT, surfAngle: surfAngleLeft, surfaceOffset: 1.5 },
-      rightEye: { bodyT: faceT, surfAngle: surfAngleRight, surfaceOffset: 1.5 },
-      mouth: { bodyT: faceT + 0.03, surfAngle: surfAngleMouth, surfaceOffset: 1.5 },
-      browLeft: { bodyT: faceT - 0.015, surfAngle: surfAngleLeft * 0.9, surfaceOffset: 2 },
-      browRight: { bodyT: faceT - 0.015, surfAngle: surfAngleRight * 0.9, surfaceOffset: 2 },
+      leftEye:  { bodyT: faceT,       surfAngle: faceCenterAngle - eyeAngularOffset, surfaceOffset: 1.5 },
+      rightEye: { bodyT: faceT,       surfAngle: faceCenterAngle + eyeAngularOffset, surfaceOffset: 1.5 },
+      mouth:    { bodyT: faceT + 0.03, surfAngle: faceCenterAngle,                 surfaceOffset: 1.5 },
+      browLeft: { bodyT: faceT - 0.018, surfAngle: faceCenterAngle - browAngularOffset, surfaceOffset: 2 },
+      browRight:{ bodyT: faceT - 0.018, surfAngle: faceCenterAngle + browAngularOffset, surfaceOffset: 2 },
     };
   }
 
