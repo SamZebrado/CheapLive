@@ -14,7 +14,7 @@ const path = require('path');
 // ===================== 信令服务器管理 =====================
 
 function startSignalingServer(port) {
-  return spawn('node', [path.join(__dirname, '../../src/multi-device/signaling-server.js')], {
+  return spawn(process.execPath, [path.join(__dirname, '../../src/multi-device/signaling-server.js')], {
     env: { ...process.env, SIGNAL_PORT: String(port), TEST_MODE: '1' },
     stdio: 'pipe',
   });
