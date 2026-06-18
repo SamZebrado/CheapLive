@@ -78,8 +78,7 @@ export function createSphereMesh(options = {}) {
         nx, ny, nz,
         u, v,
         phi, theta,
-        isMarking,
-        markIntensity,
+        spot: markIntensity,
         originalIndex: vertices.length,
       });
     }
@@ -94,19 +93,8 @@ export function createSphereMesh(options = {}) {
       const d = c + 1;
 
       faces.push({
-        indices: [a, b, d, c], // 四边形
+        indices: [a, b, d, c],
         vertices: [vertices[a], vertices[b], vertices[d], vertices[c]],
-        isMarking:
-          vertices[a].isMarking ||
-          vertices[b].isMarking ||
-          vertices[c].isMarking ||
-          vertices[d].isMarking,
-        markIntensity: Math.max(
-          vertices[a].markIntensity,
-          vertices[b].markIntensity,
-          vertices[c].markIntensity,
-          vertices[d].markIntensity
-        ),
       });
     }
   }
@@ -289,4 +277,10 @@ function lerp(a, b, t) {
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
+}
+
+/** 顶点光照计算（供渲染器使用） */
+export function computeVertexLight(vertex, lightDir) {
+  const dot = Math.max(0, vertex.nx * lightDir.x + vertex.ny * lightDir.y + vertex.nz * lightDir.z);
+  return { dot, ambient: 0.45, diffuse: dot * 0.45 };
 }

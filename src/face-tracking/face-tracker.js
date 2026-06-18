@@ -52,7 +52,7 @@ class FaceTracker {
 
     // 调试小人
     this.avatar = null;
-    this.avatarVersion = 'saka';
+    this.avatarVersion = 'mesh-spindle-whale';
 
     // 按需加载的模块（懒加载）
     this.voiceChanger = null;
@@ -272,7 +272,7 @@ class FaceTracker {
           live2dImport.style.display = 'none';
           modelStatus.textContent = '';
           // 切换回萨卡班甲鱼（当前选择的版本）
-          const version = avatarVersionSelect ? avatarVersionSelect.value : 'saka';
+          const version = avatarVersionSelect ? avatarVersionSelect.value : 'mesh-spindle-whale';
           this.switchAvatarVersion(version);
         }
       });
