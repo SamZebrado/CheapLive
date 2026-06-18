@@ -14,7 +14,8 @@
     "test:smoke": "npx playwright test tests/e2e/smoke.test.js",
     "test:webrtc": "npx playwright test tests/e2e/webrtc-connected.test.js tests/e2e/audio-track.test.js tests/e2e/multi-device.test.js",
     "test:visual": "npx playwright test tests/e2e/mesh-visual.test.js tests/e2e/before-screenshots.test.js tests/e2e/after-screenshots.test.js tests/e2e/procedural-demo.test.js",
-    "test:functional": "npx playwright test tests/e2e/smoke.test.js tests/e2e/copy-clipboard.test.js tests/e2e/voice-changer.test.js tests/e2e/voice-changer-ui.test.js tests/e2e/audio-track.test.js tests/e2e/multi-device.test.js tests/e2e/webrtc-connected.test.js"
+    "test:functional": "npx playwright test tests/e2e/smoke.test.js tests/e2e/copy-clipboard.test.js tests/e2e/voice-changer.test.js tests/e2e/voice-changer-ui.test.js tests/e2e/audio-track.test.js tests/e2e/multi-device.test.js tests/e2e/webrtc-connected.test.js",
+    "test:status": "npx playwright test tests/public-status"
   },
   "repository": {
     "type": "git",
