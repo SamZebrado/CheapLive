@@ -15,7 +15,7 @@ cd CheapLive
 git checkout main
 git fetch origin
 git rev-parse HEAD
-# 预期 HEAD: d520376b5dcf0e3d2b3e9e6eab6e650e103e4e0e
+# 预期 HEAD: b86508bbe6dbfb52fabe68133544b311c003192a
 # 如果本地 HEAD 与 GitHub 远端不一致，以 GitHub 远端为准：
 # git reset --hard origin/main
 

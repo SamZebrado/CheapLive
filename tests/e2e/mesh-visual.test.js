@@ -3,7 +3,7 @@
  * 为程序化 Canvas 2.5D 网格 Avatar 生成视觉验收截图
  */
 
-const { test } = require('playwright/test');
+const { test } = require('@playwright/test');
 
 async function renderMeshAvatar(page, type) {
   // 直接创建 mesh avatar 并绘制，不依赖 face-tracker 初始化

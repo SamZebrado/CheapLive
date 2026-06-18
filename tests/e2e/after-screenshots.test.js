@@ -1,4 +1,4 @@
-const { test } = require('playwright/test');
+const { test } = require('@playwright/test');
 test.setTimeout(120000);
 
 function p({ angleY, angleX, angleZ, eyeLeft, eyeRight, mouthOpen, mouthSmile, browLeft, browRight, tailPitch, tailYaw }) {

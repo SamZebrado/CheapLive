@@ -7,7 +7,7 @@
  *   B. 媒体连接层 (connectionState/iceConnectionState) — 本文件覆盖
  */
 
-const { test, expect } = require('playwright/test');
+const { test, expect } = require('@playwright/test');
 const { spawn } = require('child_process');
 const path = require('path');
 
@@ -385,25 +385,25 @@ test.describe('WebRTC Connected State', () => {
       await receiverPage.evaluate((sid) => window.receiver.connectToSender(sid), senderId);
       await receiverPage.waitForFunction(() => window.receiver.conn?.connected, { timeout: 20000 });
 
-      // 关闭 receiver 页面
-      await receiverPage.close();
-
-      // 等待 sender 端检测到连接断开（ICE 超时或在无连接环境下可能较慢）
-      // 在自动化测试中，单机无头浏览器 PeerConnection 超时可能需要很长时间
-      // 因此此处仅验证连接状态存在，不强制要求立即断开
-      await senderPage.waitForTimeout(1000);
-
-      const senderConnState = await senderPage.evaluate(() => {
+      // 关闭 receiver 页面后，sender 端应检测到连接断开
+      // PeerConnection 在对方关闭后应变为 disconnected/failed/closed
+      // connected 表示尚未检测到断开
+      const disconnecting = await senderPage.waitForFunction(() => {
         const conns = window.sender?.connections;
         if (!conns || conns.size === 0) return 'no_connections';
         for (const [id, conn] of conns) {
-          return conn.pc?.connectionState || 'unknown';
+          const state = conn.pc?.connectionState;
+          if (state === 'connected') return 'still_connected';
+          if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+            return 'disconnected_' + state;
+          }
+          return state || 'unknown';
         }
-        return 'unknown';
-      });
+      }, { timeout: 10000 });
 
-      // 接受 connected（未超时）或 disconnected/failed/closed
-      expect(['connected', 'disconnected', 'failed', 'closed', 'no_connections'].includes(senderConnState)).toBe(true);
+      const result = disconnecting.remoteValue();
+      // 结果应为断开状态或无连接
+      expect(['no_connections', 'disconnected_disconnected', 'disconnected_failed', 'disconnected_closed']).toContain(result);
     } finally {
       await senderCtx.close();
       stopSignalingServer(server);
@@ -446,9 +446,13 @@ test.describe('WebRTC Connected State', () => {
         await receiverPage.waitForTimeout(500);
       }
 
-      // 最终连接数应该只有 1
+      // 连接 5 次后，sender 应只有 1 个活跃连接
+      // 不应有多个重复连接累积
       const connCount = await senderPage.evaluate(() => window.sender?.connections?.size || 0);
+      // 重新连接 5 次后，应恰好有 1 个连接（或 0 个如果代码正确清理了旧的）
       expect(connCount).toBeLessThanOrEqual(1);
+      // 如果有多于 1 个连接，说明存在连接泄漏
+      expect(connCount).not.toBeGreaterThan(1);
     } finally {
       await senderCtx.close();
       await receiverCtx.close();
@@ -505,8 +509,9 @@ test.describe('WebRTC Connected State', () => {
         }
         return active;
       });
-      // 连接关闭后，active 应该很少
-      expect(connCount).toBeLessThanOrEqual(1);
+      // 连续 5 次连接/断开后，所有连接应已关闭
+      // active === 0 表示无泄漏；active > 0 表示连接未正确清理
+      expect(connCount).toBe(0);
     } finally {
       await senderCtx.close();
       await receiverCtx.close();

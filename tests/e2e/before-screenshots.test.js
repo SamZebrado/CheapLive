@@ -1,4 +1,4 @@
-const { test } = require('playwright/test');
+const { test } = require('@playwright/test');
 test('before', async ({ browser }) => {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();

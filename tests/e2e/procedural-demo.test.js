@@ -3,7 +3,7 @@
  * 为程序化 Canvas 2.5D 网格 Avatar 生成动态展示 webm 视频
  */
 
-const { test } = require('playwright/test');
+const { test } = require('@playwright/test');
 const path = require('path');
 const { execSync } = require('child_process');
 
