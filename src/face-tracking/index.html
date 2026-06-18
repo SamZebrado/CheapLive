@@ -63,9 +63,9 @@
         <div id="status" class="status">点击"启动摄像头"开始</div>
       </div>
 
-      <!-- 中间：调试小人 -->
+      <!-- 中间：程序化 Canvas Avatar -->
       <div class="avatar-section">
-        <h2>萨卡班甲鱼</h2>
+        <h2>程序化 Canvas 头像</h2>
         <div class="avatar-wrapper">
           <canvas id="avatar_canvas"></canvas>
         </div>
@@ -94,20 +94,19 @@
         <div class="model-import">
           <h3>形象切换</h3>
           <div class="model-tabs">
-            <button class="model-tab active" data-model="avatar">萨卡班甲鱼</button>
-            <button class="model-tab" data-model="live2d">Live2D</button>
+            <button class="model-tab active" data-model="avatar">纺锤鲸鱼</button>
+            <button class="model-tab" data-model="sphere">球形头像</button>
           </div>
           <div class="avatar-version-select">
             <label for="avatarVersion">形象版本：</label>
             <select id="avatarVersion">
               <option value="mesh-spindle-whale">纺锤鲸鱼（默认）</option>
               <option value="mesh-sphere">球形头像</option>
-              <option value="saka-memorial">纪念版</option>
-              <option value="live2d-cubism">Live2D 自定义模型（实验）</option>
             </select>
           </div>
+          <!-- 以下 live2d 入口保留 DOM 结构以兼容旧代码，默认隐藏 -->
           <div class="live2d-import" id="live2dImport" style="display:none;">
-            <p class="import-hint">上传 Live2D 模型 ZIP 文件（包含 .model3.json + 贴图）</p>
+            <p class="import-hint">当前主 Demo 使用程序化 Canvas 渲染，无需 Live2D 文件。</p>
             <div class="upload-row">
               <input type="file" id="modelZip" accept=".zip" class="import-input">
               <label for="modelZip" class="import-btn">📁 选择 ZIP 文件</label>

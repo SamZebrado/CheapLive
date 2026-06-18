@@ -265,15 +265,12 @@ class FaceTracker {
         tab.classList.add('active');
 
         const model = tab.dataset.model;
-        if (model === 'live2d') {
-          live2dImport.style.display = 'block';
-          modelStatus.textContent = '';
+        if (model === 'sphere') {
+          avatarVersionSelect.value = 'mesh-sphere';
+          this.switchAvatarVersion('mesh-sphere');
         } else {
-          live2dImport.style.display = 'none';
-          modelStatus.textContent = '';
-          // 切换回萨卡班甲鱼（当前选择的版本）
-          const version = avatarVersionSelect ? avatarVersionSelect.value : 'mesh-spindle-whale';
-          this.switchAvatarVersion(version);
+          avatarVersionSelect.value = 'mesh-spindle-whale';
+          this.switchAvatarVersion('mesh-spindle-whale');
         }
       });
     });

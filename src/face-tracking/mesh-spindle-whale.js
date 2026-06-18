@@ -1,90 +1,177 @@
 /**
  * Mesh Spindle + Whale Tail - 纺锤体身体 + 鲸鱼尾巴网格生成器
- * 模拟 Live2D 2.5D 体积效果
+ *
+ * 语义约定：
+ *   - 主轴沿 X 方向。
+ *   - t=0 为鼻端（头部），t=1 为尾端。
+ *   - 摄像机朝向 +Z，近侧表面法线指向 +Z。
+ *   - angle=0 对应下方（肚子/底部），angle=±π 为上方（背）。
+ *   - 面部区域位于 headT 区间的近侧 (angle 接近 0 的一个带)。
+ *
+ * 说明：不依赖 Live2D Cubism；为程序化 Canvas 2D 网格渲染。
  */
 
+// -------------------- 基础几何参数函数 --------------------
+
+function getSpineX(t, headR, bodyLength) {
+  // 脊柱位置：头部在负数一侧（靠近摄像机负 X 端），尾部在 +X。
+  const p0 = -headR * 0.35;          // 鼻端
+  const p3 = bodyLength + 30;         // 尾端
+  const cp1 = headR * 0.4;
+  const cp2 = bodyLength * 0.7;
+  const mt = 1 - t;
+  return (mt * mt * mt) * p0
+       + 3 * (mt * mt) * t * cp1
+       + 3 * mt * (t * t) * cp2
+       + (t * t * t) * p3;
+}
+
 /**
- * 生成纺锤体身体网格
- * @param {Object} options
- * @param {number} options.headR - 头部半径
- * @param {number} options.bodyLength - 身体长度
- * @param {number} options.bodyWidth - 身体最大宽度
- * @param {number} options.bodyDepth - 身体深度 (z方向)
- * @param {number} options.columns - 沿长度方向分段数 (默认 16)
- * @param {number} options.rows - 环绕分段数 (默认 7)
- * @param {string} options.topColor - 上半部分颜色
- * @param {string} options.bottomColor - 下半部分颜色
+ * 身体横断面的半宽（y 方向）。
+ * t 越小越靠前，越圆润；中段保持稳定，尾部收细。
  */
+function getBodyWidth(t, headR, bodyWidth, bodyLength) {
+  if (t < 0.18) {
+    // 头部圆形：从 0 平滑升到 headR 的 1.0 倍
+    const k = t / 0.18;
+    const fade = Math.sin(k * Math.PI * 0.5);  // 0 → 1 (光滑)
+    return headR * fade;
+  } else if (t < 0.55) {
+    // 头部-身体过渡：略宽，保持圆润
+    return bodyWidth * (1 - (t - 0.18) / 0.37 * 0.06);
+  } else if (t < 0.82) {
+    // 身体中部，略收细
+    return bodyWidth * (0.96 - (t - 0.55) * 0.2);
+  } else {
+    // 尾柄收细
+    const tt = (t - 0.82) / 0.18;
+    return bodyWidth * 0.85 * (1 - tt) * (1 - tt * 0.6);
+  }
+}
+
+/**
+ * 身体横断面的深度（z 方向）。
+ * 与 bodyWidth 协同，使得正面看起来是圆形头部。
+ */
+function getBodyDepth(t, headR, bodyDepth, bodyLength) {
+  if (t < 0.18) {
+    const k = t / 0.18;
+    const fade = Math.sin(k * Math.PI * 0.5);
+    return headR * 0.92 * fade;  // 头部接近球形
+  } else if (t < 0.55) {
+    return bodyDepth * (0.96 - (t - 0.18) * 0.05);
+  } else if (t < 0.82) {
+    return bodyDepth * 0.88 * (1 - (t - 0.55) * 0.25);
+  } else {
+    const tt = (t - 0.82) / 0.18;
+    return bodyDepth * 0.8 * (1 - tt) * (1 - tt * 0.6);
+  }
+}
+
+/**
+ * 面部区域：判断给定 (t, angle) 是否位于头部正面/近侧。
+ * 返回 0~1 的软权重：1 为面部中心，0 为非面部区域。
+ */
+function getFaceWeight(t, angle) {
+  // t 在 0.02 ~ 0.22 之间，角度在 [-55°, +55°]，随距离高斯衰减。
+  const tCenter = 0.12;
+  const tHalf = 0.10;
+  const angleDeg = angle * 180 / Math.PI;
+  const angleHalf = 55;
+
+  const dt = (t - tCenter) / tHalf;
+  const da = angleDeg / angleHalf;
+
+  const val = Math.exp(-(dt * dt + da * da));
+
+  // 只在 t 和 angle 的合理范围内生效；背部不参与。
+  if (t < 0.02 || t > 0.28) return 0;
+  if (Math.abs(angle) > Math.PI * 0.75) return 0;
+  return val;
+}
+
+// -------------------- 网格生成 --------------------
+
 export function createSpindleMesh(options = {}) {
   const {
     headR = 75,
     bodyLength = 140,
     bodyWidth = 55,
     bodyDepth = 40,
-    columns = 16,
-    rows = 7,
-    topColor = '#bdb8aa',
-    bottomColor = '#f2f1ea',
+    columns = 20,
+    rows = 12,
+    topColor = '#bdb8aa',       // 背部/上半灰色
+    bottomColor = '#f2f1ea',    // 腹部/下半白色
+    faceTopColor = '#c8c2b4',   // 面部区域略暖
+    faceBottomColor = '#fff8ee',
   } = options;
 
   const vertices = [];
   const faces = [];
 
-  // 生成顶点: 沿脊柱排列的椭圆截面
+  // t ∈ [0, 1]，沿脊柱
   for (let col = 0; col <= columns; col++) {
     const t = col / columns;
     const spineX = getSpineX(t, headR, bodyLength);
-    const width = getBodyWidth(t, headR, bodyWidth, bodyLength);
-    const depth = getBodyDepth(t, headR, bodyDepth, bodyLength);
+    const bw = getBodyWidth(t, headR, bodyWidth, bodyLength);
+    const bd = getBodyDepth(t, headR, bodyDepth, bodyLength);
 
+    // angle ∈ [-π, +π]，环绕身体。angle=0 指向下方（肚子）。
     for (let row = 0; row <= rows; row++) {
-      const angle = (row / rows) * Math.PI * 2;
+      const angle = -Math.PI + (row / rows) * 2 * Math.PI;
       const cosA = Math.cos(angle);
       const sinA = Math.sin(angle);
 
-      // 椭圆截面上的点
+      // 椭圆截面：y = bw * cos(angle), z = bd * sin(angle)
+      const localY = bw * cosA;
+      const localZ = bd * sinA;
       const x = spineX;
-      const y = width * cosA;
-      const z = depth * sinA;
 
-      // 法向量 (椭圆截面法向量)
-      const nx = 0;
-      const ny = cosA / Math.max(width, 0.001);
-      const nz = sinA / Math.max(depth, 0.001);
-      const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+      // 椭圆外法线（非单位法，后续再归一化）
+      const rawNx = 0;
+      const rawNy = cosA / Math.max(bw, 0.001);
+      const rawNz = sinA / Math.max(bd, 0.001);
+      const rawNlen = Math.sqrt(rawNx * rawNx + rawNy * rawNy + rawNz * rawNz) || 1;
+      let nx = rawNx / rawNlen;
+      let ny = rawNy / rawNlen;
+      let nz = rawNz / rawNlen;
 
-      // 脊柱切线方向 (用于计算正确的法向量)
-      const dt = 0.01;
-      const nextX = getSpineX(Math.min(t + dt, 1), headR, bodyLength);
-      const prevX = getSpineX(Math.max(t - dt, 0), headR, bodyLength);
-      const tangentX = (nextX - prevX) / (2 * dt);
-      const tangentY = 0;
-      const tangentZ = 0;
+      // 面部区域的额外凸起：让头看起来更圆。
+      const fw = getFaceWeight(t, angle);
+      if (fw > 0.1) {
+        // 在法向微凸，使面部区域更饱满但连续。
+        const bulge = 2.5 * fw;
+        // localZ += bulge * sign(angle near 0)；实际操作在表面点上做微位移。
+        // 直接沿局部 (y,z) 平面外推：
+        const radialLen = Math.max(1e-3, Math.sqrt(localY * localY + localZ * localZ));
+        const ry = localY / radialLen;
+        const rz = localZ / radialLen;
+        const xNew = x;
+        const yNew = localY + ry * bulge;
+        const zNew = localZ + rz * bulge;
 
-      // 重新计算法向量，考虑脊柱曲率
-      const rx = 0;
-      const ry = width * cosA;
-      const rz = depth * sinA;
-      const rlen = Math.sqrt(rx * rx + ry * ry + rz * rz) || 1;
-
-      vertices.push({
-        x, y, z,
-        nx: rx / rlen,
-        ny: ry / rlen,
-        nz: rz / rlen,
-        u: t,
-        v: row / rows,
-        t, // 沿身体位置 0~1
-        angle,
-        isTop: cosA < 0, // 上半部分
-        isBottom: cosA >= 0, // 下半部分
-        column: col,
-        row,
-      });
+        vertices.push({
+          x: xNew, y: yNew, z: zNew,
+          nx, ny, nz,
+          t, angle, col, row,
+          isTop: cosA < 0,
+          isBottom: cosA >= 0,
+          faceWeight: fw,
+        });
+      } else {
+        vertices.push({
+          x, y: localY, z: localZ,
+          nx, ny, nz,
+          t, angle, col, row,
+          isTop: cosA < 0,
+          isBottom: cosA >= 0,
+          faceWeight: fw,
+        });
+      }
     }
   }
 
-  // 生成面
+  // 生成面（四边形）
   for (let col = 0; col < columns; col++) {
     for (let row = 0; row < rows; row++) {
       const a = col * (rows + 1) + row;
@@ -97,17 +184,14 @@ export function createSpindleMesh(options = {}) {
       const vc = vertices[c];
       const vd = vertices[d];
 
-      // 判断面属于上半部分还是下半部分
-      const isTopFace = (va.isTop && vb.isTop) || (vc.isTop && vd.isTop);
-      const isBottomFace = (va.isBottom && vb.isBottom) || (vc.isBottom && vd.isBottom);
-
+      // 判断面属于上半还是下半：基于平均 cos(angle)
+      const avgCos = (Math.cos(va.angle) + Math.cos(vb.angle) + Math.cos(vc.angle) + Math.cos(vd.angle)) / 4;
       faces.push({
         indices: [a, b, d, c],
         vertices: [va, vb, vd, vc],
-        isTop: isTopFace,
-        isBottom: isBottomFace,
-        column: col,
-        row,
+        isTop: avgCos < 0,
+        isBottom: avgCos >= 0,
+        column: col, row,
       });
     }
   }
@@ -115,143 +199,169 @@ export function createSpindleMesh(options = {}) {
   return {
     vertices,
     faces,
-    headR,
-    bodyLength,
-    bodyWidth,
-    bodyDepth,
-    columns,
-    rows,
-    topColor,
-    bottomColor,
+    headR, bodyLength, bodyWidth, bodyDepth,
+    columns, rows,
+    topColor, bottomColor, faceTopColor, faceBottomColor,
     type: 'spindle',
   };
 }
 
+// -------------------- 面部锚点 --------------------
+
 /**
- * 生成鲸鱼尾巴网格
- * @param {Object} options
- * @param {number} options.tailLength - 尾巴长度
- * @param {number} options.tailWidth - 尾巴展开宽度
- * @param {number} options.flukeSegments - 尾叶分段数
- * @param {string} options.color - 尾巴颜色
+ * 给定身体参数坐标 (bodyT, surfAngle) 和表面偏移，计算模型空间下
+ * 五官锚点的位置 + 法线 + 局部切线。
+ *
+ * @param {Object} mesh  - createSpindleMesh 返回的网格对象
+ * @param {number} bodyT - 沿脊柱位置（0=鼻端，1=尾端）
+ * @param {number} surfAngle - 环绕角度（弧度），0 指向下方（肚子）
+ * @param {number} [surfaceOffset] - 沿法线外推的小距离（像素）
+ * @returns {{ x:number, y:number, z:number, nx:number, ny:number, nz:number, tangentX:number, tangentY:number, tangentZ:number }}
  */
+export function computeFaceAnchor(mesh, bodyT, surfAngle, surfaceOffset = 0) {
+  const { headR, bodyLength, bodyWidth, bodyDepth } = mesh;
+  const spineX = getSpineX(bodyT, headR, bodyLength);
+  const bw = getBodyWidth(bodyT, headR, bodyWidth, bodyLength);
+  const bd = getBodyDepth(bodyT, headR, bodyDepth, bodyLength);
+
+  const cosA = Math.cos(surfAngle);
+  const sinA = Math.sin(surfAngle);
+
+  let x = spineX;
+  let y = bw * cosA;
+  let z = bd * sinA;
+
+  // 椭圆外法线
+  const rawNy = cosA / Math.max(bw, 0.001);
+  const rawNz = sinA / Math.max(bd, 0.001);
+  const nLen = Math.sqrt(rawNy * rawNy + rawNz * rawNz) || 1;
+  let ny = rawNy / nLen;
+  let nz = rawNz / nLen;
+  let nx = 0;
+
+  // 面部区域微凸，保持与网格顶点一致的形变
+  const fw = getFaceWeight(bodyT, surfAngle);
+  if (fw > 0.05) {
+    const bulge = 2.5 * fw;
+    const radialLen = Math.max(1e-3, Math.sqrt(y * y + z * z));
+    const ry = y / radialLen;
+    const rz = z / radialLen;
+    y += ry * bulge;
+    z += rz * bulge;
+  }
+
+  // 表面偏移（用于防止与主体 z-fighting）
+  if (surfaceOffset !== 0) {
+    y += ny * surfaceOffset;
+    z += nz * surfaceOffset;
+  }
+
+  // 沿脊柱方向的切线 (1, 0, 0) 在局部近似
+  const tangentX = 1;
+  const tangentY = 0;
+  const tangentZ = 0;
+
+  return { x, y, z, nx, ny, nz, tangentX, tangentY, tangentZ, faceWeight: fw };
+}
+
+// -------------------- 鲸鱼尾巴 --------------------
+
 export function createWhaleTailMesh(options = {}) {
   const {
     tailLength = 60,
-    tailWidth = 50,
-    flukeSegments = 8,
+    tailWidth = 55,
+    flukeSegments = 10,
     color = '#8a8a8a',
   } = options;
 
   const vertices = [];
   const faces = [];
 
-  // 尾巴柄 (连接身体的部分)
-  const handleLength = tailLength * 0.3;
-  const handleWidth = 8;
+  // 尾柄 + 尾叶以参数化曲面生成。
+  const handleLen = tailLength * 0.3;
+  const handleW = 8;
 
-  // 生成左尾叶和右尾叶
-  // 每个尾叶是一个参数化曲面
+  // --- 尾叶（左右两叶） ---
   for (let side of [-1, 1]) {
-    const sideVertices = [];
-    const baseIndex = vertices.length;
-
     for (let i = 0; i <= flukeSegments; i++) {
       for (let j = 0; j <= flukeSegments; j++) {
-        const u = i / flukeSegments; // 0~1, 沿尾叶长度方向
-        const v = j / flukeSegments; // 0~1, 沿尾叶宽度方向
+        const u = i / flukeSegments;
+        const v = j / flukeSegments;
 
-        // 尾叶形状: 扇形展开
-        const spreadFactor = Math.pow(u, 0.7); // 根部窄，末端宽
-        const localWidth = tailWidth * spreadFactor * v;
+        // 沿尾柄方向厚度：根部厚，末端薄
+        const thickness = handleW * (1 - u * 0.8) * Math.sin(v * Math.PI);
+        // 尾叶展开宽度
+        const spreadFactor = Math.pow(u, 0.75);
+        const localW = tailWidth * spreadFactor * v;
 
-        // 尾叶弯曲
-        const bendY = -Math.pow(u, 2) * tailLength * 0.15;
+        // 尾叶弯曲：末端上翘
+        const bendY = -Math.pow(u, 2) * tailLength * 0.18;
 
-        // 尾叶厚度 (根部厚，末端薄)
-        const thickness = handleWidth * (1 - u * 0.8) * Math.sin(v * Math.PI);
-
-        const x = handleLength + u * tailLength * 0.7;
-        const y = side * localWidth + bendY;
+        const x = handleLen + u * tailLength * 0.7;
+        const y = side * localW + bendY;
         const z = thickness * Math.cos(v * Math.PI);
 
-        // 法向量
-        const nx = 0;
-        const ny = side * Math.cos(v * Math.PI * 0.5);
-        const nz = Math.sin(v * Math.PI * 0.5);
-        const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+        // 法线：指向外侧 (侧+前)
+        const nyDir = side;
+        const nxDir = 0.2;
+        const nzDir = Math.sin(v * Math.PI - Math.PI / 2);
+        const nLen = Math.sqrt(nxDir * nxDir + nyDir * nyDir + nzDir * nzDir) || 1;
 
-        const vertex = {
+        vertices.push({
           x, y, z,
-          nx: nx / nlen,
-          ny: ny / nlen,
-          nz: nz / nlen,
+          nx: nxDir / nLen,
+          ny: nyDir / nLen,
+          nz: nzDir / nLen,
           u, v,
-          side, // -1 左, 1 右
-          isFluke: true,
-        };
-
-        sideVertices.push(vertex);
-        vertices.push(vertex);
+          side, isFluke: true,
+        });
       }
     }
 
-    // 生成尾叶面
+    // 面
     for (let i = 0; i < flukeSegments; i++) {
       for (let j = 0; j < flukeSegments; j++) {
-        const a = baseIndex + i * (flukeSegments + 1) + j;
+        const a = side === -1
+          ? i * (flukeSegments + 1) + j
+          : (flukeSegments + 1) * (flukeSegments + 1) + i * (flukeSegments + 1) + j;
         const b = a + 1;
-        const c = baseIndex + (i + 1) * (flukeSegments + 1) + j;
+        const c = a + (flukeSegments + 1);
         const d = c + 1;
-
         faces.push({
           indices: [a, b, d, c],
           vertices: [vertices[a], vertices[b], vertices[d], vertices[c]],
-          isFluke: true,
-          side,
+          isFluke: true, side,
         });
       }
     }
   }
 
-  // 尾巴柄网格 (连接身体到尾叶)
-  const handleBaseIndex = vertices.length;
-  const handleSegments = 6;
-  const handleRows = 4;
-
-  for (let i = 0; i <= handleSegments; i++) {
+  // --- 尾柄（圆柱连接身体） ---
+  const handleBase = vertices.length;
+  const handleSegs = 8;
+  const handleRows = 6;
+  for (let i = 0; i <= handleSegs; i++) {
     for (let j = 0; j <= handleRows; j++) {
-      const u = i / handleSegments;
-      const v = (j / handleRows) * Math.PI * 2;
-
-      const cosV = Math.cos(v);
-      const sinV = Math.sin(v);
-
-      const x = u * handleLength;
-      const hw = handleWidth * (1 - u * 0.3); // 根部宽，连接处窄
-      const hd = handleWidth * 0.6 * (1 - u * 0.2);
-
-      const y = hw * cosV;
-      const z = hd * sinV;
-
+      const u = i / handleSegs;
+      const ang = (j / handleRows) * Math.PI * 2;
+      const x = u * handleLen;
+      const hw = handleW * (1 - u * 0.3);
+      const hd = handleW * 0.6 * (1 - u * 0.2);
+      const y = hw * Math.cos(ang);
+      const z = hd * Math.sin(ang);
       vertices.push({
         x, y, z,
-        nx: cosV,
-        ny: sinV,
-        nz: 0,
-        u, v: j / handleRows,
-        isHandle: true,
+        nx: Math.cos(ang), ny: Math.sin(ang), nz: 0,
+        u, v: j / handleRows, isHandle: true,
       });
     }
   }
-
-  for (let i = 0; i < handleSegments; i++) {
+  for (let i = 0; i < handleSegs; i++) {
     for (let j = 0; j < handleRows; j++) {
-      const a = handleBaseIndex + i * (handleRows + 1) + j;
+      const a = handleBase + i * (handleRows + 1) + j;
       const b = a + 1;
-      const c = handleBaseIndex + (i + 1) * (handleRows + 1) + j;
+      const c = handleBase + (i + 1) * (handleRows + 1) + j;
       const d = c + 1;
-
       faces.push({
         indices: [a, b, d, c],
         vertices: [vertices[a], vertices[b], vertices[d], vertices[c]],
@@ -261,383 +371,57 @@ export function createWhaleTailMesh(options = {}) {
   }
 
   return {
-    vertices,
-    faces,
-    tailLength,
-    tailWidth,
-    color,
+    vertices, faces, tailLength, tailWidth, color,
     type: 'whaleTail',
   };
 }
 
-/**
- * 变形纺锤体网格
- * @param {Object} mesh - 纺锤体网格
- * @param {Object} params - 变形参数
- */
+// -------------------- 变形与旋转 --------------------
+
+function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
+  const { angleY = 0, angleX = 0, angleZ = 0 } = params;
+  const radY = angleY * Math.PI / 180;
+  const radX = angleX * Math.PI / 180;
+  const radZ = angleZ * Math.PI / 180;
+  const cosY = Math.cos(radY), sinY = Math.sin(radY);
+  const cosX = Math.cos(radX), sinX = Math.sin(radX);
+  const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
+
+  // Yaw (绕 Y)
+  let x1 = x * cosY + z * sinY;
+  let z1 = -x * sinY + z * cosY;
+  let y1 = y;
+  let nx1 = nx * cosY + nz * sinY;
+  let nz1 = -nx * sinY + nz * cosY;
+  let ny1 = ny;
+
+  // Pitch (绕 X)
+  let y2 = y1 * cosX - z1 * sinX;
+  let z2 = y1 * sinX + z1 * cosX;
+  let x2 = x1;
+  let ny2 = ny1 * cosX - nz1 * sinX;
+  let nz2 = ny1 * sinX + nz1 * cosX;
+  let nx2 = nx1;
+
+  // Roll (绕 Z)
+  let x3 = x2 * cosZ - y2 * sinZ;
+  let y3 = x2 * sinZ + y2 * cosZ;
+  let z3 = z2;
+  let nx3 = nx2 * cosZ - ny2 * sinZ;
+  let ny3 = nx2 * sinZ + ny2 * cosZ;
+  let nz3 = nz2;
+
+  return { x: x3, y: y3, z: z3, nx: nx3, ny: ny3, nz: nz3 };
+}
+
 export function deformSpindle(mesh, params = {}) {
-  const {
-    angleX = 0,
-    angleY = 0,
-    angleZ = 0,
-    tailPitch = 0,
-    tailYaw = 0,
-    tailWave = 0,
-    breath = 0,
-  } = params;
-
-  const radX = (angleX * Math.PI) / 180;
-  const radY = (angleY * Math.PI) / 180;
-  const radZ = (angleZ * Math.PI) / 180;
-
-  const cosX = Math.cos(radX), sinX = Math.sin(radX);
-  const cosY = Math.cos(radY), sinY = Math.sin(radY);
-  const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
-
-  const breathScale = 1 + breath * 0.015;
-
-  const transformedVertices = mesh.vertices.map((v) => {
-    let x = v.x * breathScale;
-    let y = v.y * breathScale;
-    let z = v.z * breathScale;
-
-    // 如果是尾巴部分，应用尾巴参数
-    if (v.isFluke || v.isHandle) {
-      // 尾巴相对于身体根部的偏移
-      const tailBaseX = mesh.bodyLength || 140;
-
-      // 尾巴摆动: 基于 tailWave 的正弦波
-      const waveOffset = v.isFluke
-        ? Math.sin(v.u * Math.PI * 2 + tailWave * Math.PI * 2) * tailWave * 15
-        : 0;
-
-      // 尾巴俯仰 (pitch)
-      const pitchRad = (tailPitch * Math.PI) / 180;
-      const cosP = Math.cos(pitchRad);
-      const sinP = Math.sin(pitchRad);
-
-      // 尾巴偏航 (yaw)
-      const yawRad = (tailYaw * Math.PI) / 180;
-      const cosYw = Math.cos(yawRad);
-      const sinYw = Math.sin(yawRad);
-
-      // 相对坐标
-      const rx = x - tailBaseX;
-      const ry = y;
-      const rz = z;
-
-      // 应用 pitch (绕 Y 轴局部旋转)
-      let px = rx * cosYw + rz * sinYw;
-      let pz = -rx * sinYw + rz * cosYw;
-      let py = ry;
-
-      // 应用 yaw (绕 Z 轴局部旋转)
-      let yx = px;
-      let yy = py * cosP - pz * sinP;
-      let yz = py * sinP + pz * cosP;
-
-      // 加回基础位置
-      x = tailBaseX + yx;
-      y = yy + waveOffset;
-      z = yz;
-    }
-
-    // 全身旋转
-    let x1 = x * cosY + z * sinY;
-    let z1 = -x * sinY + z * cosY;
-    let y1 = y;
-
-    let y2 = y1 * cosX - z1 * sinX;
-    let z2 = y1 * sinX + z1 * cosX;
-    let x2 = x1;
-
-    let x3 = x2 * cosZ - y2 * sinZ;
-    let y3 = x2 * sinZ + y2 * cosZ;
-    let z3 = z2;
-
-    // 法向量旋转
-    let nx = v.nx, ny = v.ny, nz = v.nz;
-    let nx1 = nx * cosY + nz * sinY;
-    let nz1 = -nx * sinY + nz * cosY;
-    let ny1 = ny;
-    let ny2 = ny1 * cosX - nz1 * sinX;
-    let nz2 = ny1 * sinX + nz1 * cosX;
-    let nx2 = nx1;
-    let nx3 = nx2 * cosZ - ny2 * sinZ;
-    let ny3 = nx2 * sinZ + ny2 * cosZ;
-    let nz3 = nz2;
-
-    return {
-      ...v,
-      tx: x3, ty: y3, tz: z3,
-      nx: nx3, ny: ny3, nz: nz3,
-    };
+  const transformed = mesh.vertices.map((v) => {
+    const r = applyYawPitchRoll(v.x, v.y, v.z, v.nx, v.ny, v.nz, params);
+    return { ...v, tx: r.x, ty: r.y, tz: r.z, nx: r.nx, ny: r.ny, nz: r.nz };
   });
-
   const transformedFaces = mesh.faces.map((f) => ({
     ...f,
-    vertices: f.indices.map((idx) => transformedVertices[idx]),
+    vertices: f.indices.map((idx) => transformed[idx]),
   }));
-
-  return {
-    ...mesh,
-    vertices: transformedVertices,
-    faces: transformedFaces,
-  };
-}
-
-/**
- * 变形鲸鱼尾巴网格
- * @param {Object} mesh - 鲸鱼尾巴网格
- * @param {Object} params - 变形参数
- * @param {Object} bodyParams - 身体参数 (用于连接)
- */
-export function deformWhaleTail(mesh, params = {}, bodyParams = {}) {
-  const {
-    angleX = 0,
-    angleY = 0,
-    angleZ = 0,
-    tailPitch = 0,
-    tailYaw = 0,
-    tailWave = 0,
-  } = params;
-
-  const radX = (angleX * Math.PI) / 180;
-  const radY = (angleY * Math.PI) / 180;
-  const radZ = (angleZ * Math.PI) / 180;
-
-  const cosX = Math.cos(radX), sinX = Math.sin(radX);
-  const cosY = Math.cos(radY), sinY = Math.sin(radY);
-  const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
-
-  const tailBaseX = bodyParams.bodyLength || 140;
-
-  const pitchRad = (tailPitch * Math.PI) / 180;
-  const yawRad = (tailYaw * Math.PI) / 180;
-  const cosP = Math.cos(pitchRad);
-  const sinP = Math.sin(pitchRad);
-  const cosYw = Math.cos(yawRad);
-  const sinYw = Math.sin(yawRad);
-
-  const transformedVertices = mesh.vertices.map((v) => {
-    let x = v.x;
-    let y = v.y;
-    let z = v.z;
-
-    // 尾巴局部变形
-    if (v.isFluke) {
-      // 波浪效果
-      const wavePhase = v.u * Math.PI * 2 + tailWave * Math.PI * 2;
-      const waveAmp = tailWave * 12 * v.u;
-      y += Math.sin(wavePhase) * waveAmp;
-
-      // 相对尾巴根部
-      const rx = x - tailBaseX;
-      const ry = y;
-      const rz = z;
-
-      // 局部旋转
-      let px = rx * cosYw + rz * sinYw;
-      let pz = -rx * sinYw + rz * cosYw;
-      let py = ry;
-
-      let yx = px;
-      let yy = py * cosP - pz * sinP;
-      let yz = py * sinP + pz * cosP;
-
-      x = tailBaseX + yx;
-      y = yy;
-      z = yz;
-    } else if (v.isHandle) {
-      // 尾巴柄也做轻微旋转
-      const rx = x - tailBaseX;
-      const influence = Math.min(1, x / (tailBaseX + 20));
-
-      let px = rx * cosYw * influence + rx * (1 - influence);
-      let py = y;
-      let pz = z;
-
-      x = tailBaseX + px;
-      y = py;
-      z = pz;
-    }
-
-    // 全身旋转
-    let x1 = x * cosY + z * sinY;
-    let z1 = -x * sinY + z * cosY;
-    let y1 = y;
-
-    let y2 = y1 * cosX - z1 * sinX;
-    let z2 = y1 * sinX + z1 * cosX;
-    let x2 = x1;
-
-    let x3 = x2 * cosZ - y2 * sinZ;
-    let y3 = x2 * sinZ + y2 * cosZ;
-    let z3 = z2;
-
-    let nx = v.nx, ny = v.ny, nz = v.nz;
-    let nx1 = nx * cosY + nz * sinY;
-    let nz1 = -nx * sinY + nz * cosY;
-    let ny1 = ny;
-    let ny2 = ny1 * cosX - nz1 * sinX;
-    let nz2 = ny1 * sinX + nz1 * cosX;
-    let nx2 = nx1;
-    let nx3 = nx2 * cosZ - ny2 * sinZ;
-    let ny3 = nx2 * sinZ + ny2 * cosZ;
-    let nz3 = nz2;
-
-    return {
-      ...v,
-      tx: x3, ty: y3, tz: z3,
-      nx: nx3, ny: ny3, nz: nz3,
-    };
-  });
-
-  const transformedFaces = mesh.faces.map((f) => ({
-    ...f,
-    vertices: f.indices.map((idx) => transformedVertices[idx]),
-  }));
-
-  return {
-    ...mesh,
-    vertices: transformedVertices,
-    faces: transformedFaces,
-  };
-}
-
-/**
- * 计算纺锤体面颜色
- */
-export function computeSpindleFaceColor(face, lightDir = { x: 0.3, y: -0.5, z: 0.8 }, mesh) {
-  const nx = face.vertices.reduce((s, v) => s + v.nx, 0) / 4;
-  const ny = face.vertices.reduce((s, v) => s + v.ny, 0) / 4;
-  const nz = face.vertices.reduce((s, v) => s + v.nz, 0) / 4;
-
-  const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-  const nnx = nx / len;
-  const nny = ny / len;
-  const nnz = nz / len;
-
-  const dot = Math.max(0, nnx * lightDir.x + nny * lightDir.y + nnz * lightDir.z);
-
-  // 根据面的位置选择颜色 (上半灰色，下半白色)
-  const isTop = face.isTop || face.vertices[0].isTop;
-  const baseColor = isTop ? mesh.topColor : mesh.bottomColor;
-  const bc = hexToRgb(baseColor);
-
-  const hl = hexToRgb('#ffffff');
-  const sd = hexToRgb('#7a7a72');
-
-  const ambientFactor = (nny + 1) * 0.5;
-  const diffuse = dot * 0.6;
-  const ambient = 0.35 + ambientFactor * 0.15;
-
-  let r = bc.r * (ambient + diffuse) + hl.r * Math.pow(dot, 3) * 0.25;
-  let g = bc.g * (ambient + diffuse) + hl.g * Math.pow(dot, 3) * 0.25;
-  let b = bc.b * (ambient + diffuse) + hl.b * Math.pow(dot, 3) * 0.25;
-
-  if (dot < 0.25) {
-    const shadowFactor = (0.25 - dot) / 0.25;
-    r = lerp(r, sd.r * 0.6, shadowFactor * 0.5);
-    g = lerp(g, sd.g * 0.6, shadowFactor * 0.5);
-    b = lerp(b, sd.b * 0.6, shadowFactor * 0.5);
-  }
-
-  return {
-    r: clamp(r, 0, 255),
-    g: clamp(g, 0, 255),
-    b: clamp(b, 0, 255),
-    alpha: face.vertices[0].tz > -50 ? 1 : 0.35,
-  };
-}
-
-/**
- * 计算鲸鱼尾巴面颜色
- */
-export function computeWhaleTailFaceColor(face, lightDir = { x: 0.3, y: -0.5, z: 0.8 }, mesh) {
-  const nx = face.vertices.reduce((s, v) => s + v.nx, 0) / 4;
-  const ny = face.vertices.reduce((s, v) => s + v.ny, 0) / 4;
-  const nz = face.vertices.reduce((s, v) => s + v.nz, 0) / 4;
-
-  const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-  const nnx = nx / len;
-  const nny = ny / len;
-  const nnz = nz / len;
-
-  const dot = Math.max(0, nnx * lightDir.x + nny * lightDir.y + nnz * lightDir.z);
-
-  const bc = hexToRgb(mesh.color);
-  const hl = hexToRgb('#aaaaaa');
-  const sd = hexToRgb('#5a5a5a');
-
-  const ambient = 0.4;
-  const diffuse = dot * 0.6;
-
-  let r = bc.r * (ambient + diffuse) + hl.r * Math.pow(dot, 2) * 0.3;
-  let g = bc.g * (ambient + diffuse) + hl.g * Math.pow(dot, 2) * 0.3;
-  let b = bc.b * (ambient + diffuse) + hl.b * Math.pow(dot, 2) * 0.3;
-
-  if (dot < 0.2) {
-    const shadowFactor = (0.2 - dot) / 0.2;
-    r = lerp(r, sd.r, shadowFactor * 0.4);
-    g = lerp(g, sd.g, shadowFactor * 0.4);
-    b = lerp(b, sd.b, shadowFactor * 0.4);
-  }
-
-  return {
-    r: clamp(r, 0, 255),
-    g: clamp(g, 0, 255),
-    b: clamp(b, 0, 255),
-    alpha: face.vertices[0].tz > -40 ? 1 : 0.3,
-  };
-}
-
-// 纺锤体参数化函数
-function getSpineX(t, headR, bodyLength) {
-  const p0 = -headR * 0.3;
-  const p3 = bodyLength + 30;
-  const cp1 = headR * 0.5;
-  const cp2 = bodyLength * 0.7;
-  const mt = 1 - t;
-  return mt * mt * mt * p0 + 3 * mt * mt * t * cp1 + 3 * mt * t * t * cp2 + t * t * t * p3;
-}
-
-function getBodyWidth(t, headR, bodyWidth, bodyLength) {
-  if (t < 0.15) {
-    return headR * Math.sin((t / 0.15) * Math.PI * 0.5);
-  } else if (t < 0.6) {
-    return bodyWidth * (1 - (t - 0.15) * 0.2);
-  } else {
-    const tailT = (t - 0.6) / 0.4;
-    return bodyWidth * (1 - tailT) * (1 - tailT * 0.5);
-  }
-}
-
-function getBodyDepth(t, headR, bodyDepth, bodyLength) {
-  if (t < 0.15) {
-    return bodyDepth * 0.8 * Math.sin((t / 0.15) * Math.PI * 0.5);
-  } else if (t < 0.6) {
-    return bodyDepth * 0.8 * (1 - (t - 0.15) * 0.15);
-  } else {
-    const tailT = (t - 0.6) / 0.4;
-    return bodyDepth * 0.8 * (1 - tailT) * (1 - tailT);
-  }
-}
-
-// 工具函数
-function hexToRgb(hex) {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? {
-    r: parseInt(result[1], 16),
-    g: parseInt(result[2], 16),
-    b: parseInt(result[3], 16),
-  } : { r: 150, g: 150, b: 150 };
-}
-
-function lerp(a, b, t) {
-  return a + (b - a) * t;
-}
-
-function clamp(v, min, max) {
-  return Math.max(min, Math.min(max, v));
+  return { ...mesh, vertices: transformed, faces: transformedFaces };
 }
