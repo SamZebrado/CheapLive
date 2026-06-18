@@ -58,6 +58,8 @@ export function createSphereMesh(options = {}) {
         phi, theta,
         spot: markIntensity,
         originalIndex: vertices.length,
+        isTop: y < 0,
+        isBottom: y >= 0,
       });
     }
   }
@@ -68,10 +70,17 @@ export function createSphereMesh(options = {}) {
       const b = a + 1;
       const c = (i + 1) * (segments + 1) + j;
       const d = c + 1;
-      faces.push({
-        indices: [a, b, d, c],
-        vertices: [vertices[a], vertices[b], vertices[d], vertices[c]],
-      });
+      const va = vertices[a];
+    const vb = vertices[b];
+    const vc = vertices[c];
+    const vd = vertices[d];
+    const avgY = (va.y + vb.y + vc.y + vd.y) * 0.25;
+    faces.push({
+      indices: [a, b, d, c],
+      vertices: [va, vb, vd, vc],
+      isTop: avgY < 0,
+      isBottom: avgY >= 0,
+    });
     }
   }
 
@@ -86,6 +95,7 @@ export function createSphereMesh(options = {}) {
 /**
  * 球体上的面部锚点；按球坐标 (phi, theta) 给出。
  * phi=pi/2 → 赤道；theta=0 → 朝向 +X。
+ * 保留原 API 以兼容现有代码。
  */
 export function computeSphereFaceAnchor(mesh, phi, theta, surfaceOffset = 0) {
   const r = mesh.radius;
@@ -117,6 +127,37 @@ export function computeSphereFaceAnchor(mesh, phi, theta, surfaceOffset = 0) {
     tangentX: cosPhi * cosTheta,
     tangentY: sinPhi,
     tangentZ: cosPhi * sinTheta,
+  };
+}
+
+/**
+ * 球体的面部局部坐标系锚点生成。
+ *
+ * 定义：
+ *   faceCenter = (0, 0, radius) —— 球体表面中心（朝 +z）
+ *   horizontal = (1, 0, 0) —— 屏幕水平方向
+ *   vertical = (0, 1, 0) —— 屏幕垂直方向
+ *   normal = (0, 0, 1) —— 朝摄像机方向
+ *
+ * 视觉不变量：
+ *   - 左右眼 |horizOffset| 相同 → screenX 有明确间距
+ *   - 左右眼 vertOffset 相同 → screenY 等高
+ *   - 嘴 vertOffset > 眼 vertOffset → 嘴在眼下
+ *   - 眉 vertOffset < 眼 vertOffset → 眉在眼上
+ *
+ * @param {Object} mesh
+ * @param {number} horizOffset - 水平偏移（像素，模型坐标系）
+ * @param {number} vertOffset - 垂直偏移（像素，模型坐标系）；正值向下
+ * @param {number} [surfaceOffset]
+ */
+export function computeSphereFaceAnchorXYZ(mesh, horizOffset, vertOffset, surfaceOffset = 0) {
+  const r = mesh.radius;
+  return {
+    x: horizOffset,
+    y: vertOffset,
+    z: r + surfaceOffset,
+    nx: 0, ny: 0, nz: 1,
+    tangentX: 1, tangentY: 0, tangentZ: 0,
   };
 }
 

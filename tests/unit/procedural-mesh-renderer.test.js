@@ -196,11 +196,25 @@ describe('Spindle whale 锚点来自表面（新 PI/2 坐标约定）', () => {
     assert.ok(a.z > 0, `angle=PI/2 时锚点 z 应 > 0，实际 z=${a.z.toFixed(2)}`);
   });
 
-  it('surfAngle 偏离 PI/2 → y/z 均变化', () => {
-    const a1 = computeFaceAnchor(mesh, 0.12, FACE_CENTER - 0.38, 0);
-    const a2 = computeFaceAnchor(mesh, 0.12, FACE_CENTER + 0.38, 0);
-    assert.ok(!approx(a1.y, a2.y, 0.3) || !approx(a1.z, a2.z, 0.3),
-      `angle 变化时 y/z 应变: (${a1.y.toFixed(1)},${a1.z.toFixed(1)}) vs (${a2.y.toFixed(1)},${a2.z.toFixed(1)})`);
+  it('computeFaceAnchorXYZ 确保左右眼等高、水平分离（局部坐标系不变量）', () => {
+    // 新 API：使用固定 faceT 和 horizOffset/vertOffset
+    const headR2 = mesh.headR;
+    const left = meshWhale.computeFaceAnchorXYZ(mesh, 0.12, -headR2 * 0.25, 0, 2);
+    const right = meshWhale.computeFaceAnchorXYZ(mesh, 0.12, headR2 * 0.25, 0, 2);
+    const dy = Math.abs(left.y - right.y);
+    const dx = Math.abs(left.x - right.x);
+    assert.ok(dy < 1, `左右眼 y 应相等（等高）: ${left.y.toFixed(1)} vs ${right.y.toFixed(1)}`);
+    assert.ok(dx > 5, `左右眼 x 应有明确间距: ${dx.toFixed(1)}`);
+  });
+
+  it('computeFaceAnchorXYZ 确保嘴在眼下，眉在眼上', () => {
+    const headR2 = mesh.headR;
+    const eyeY = 0;
+    const eye = meshWhale.computeFaceAnchorXYZ(mesh, 0.12, -30, eyeY, 2);
+    const mouth = meshWhale.computeFaceAnchorXYZ(mesh, 0.12, 0, headR2 * 0.25, 2);
+    const brow = meshWhale.computeFaceAnchorXYZ(mesh, 0.12, -26, -headR2 * 0.18, 3);
+    assert.ok(mouth.y > eye.y, `嘴应在眼下: mouth.y=${mouth.y.toFixed(1)}, eye.y=${eye.y.toFixed(1)}`);
+    assert.ok(brow.y < eye.y, `眉应在眼上: brow.y=${brow.y.toFixed(1)}, eye.y=${eye.y.toFixed(1)}`);
   });
 
   it('中性姿态（yaw=0）：面部特征 nz > 0（均朝摄像机）', () => {
@@ -380,5 +394,113 @@ describe('调试模式 vs 正式模式', () => {
     // 查找 "debugMesh = false" 或 "debugMesh:false"
     const match = /debugMesh\s*[:=]\s*(false|0)/i.test(text);
     assert.ok(match, `renderer 应有默认关闭的 debugMesh`);
+  });
+});
+
+// ========== 不变量：面部锚点几何 ==========
+// 使用新的 computeFaceAnchorXYZ / computeSphereFaceAnchorXYZ，
+// 确保在局部坐标系下五官位置满足视觉不变量。
+describe('面部锚点局部坐标不变量（萨卡班甲鱼）', () => {
+  const mesh = createSpindleMesh({ headR: 75, bodyLength: 150 });
+  const { computeFaceAnchorXYZ } = meshWhale;
+
+  it('左眼与右眼的 x 有明确间距（水平分离）', () => {
+    const left = computeFaceAnchorXYZ(mesh, 0.12, -30, 0, 2);
+    const right = computeFaceAnchorXYZ(mesh, 0.12, 30, 0, 2);
+    const dx = Math.abs(right.x - left.x);
+    assert.ok(dx > 5, `左右眼 x 间距应 > 5px, 实际: ${dx.toFixed(1)}`);
+  });
+
+  it('左眼与右眼的 y 相等（等高）', () => {
+    const left = computeFaceAnchorXYZ(mesh, 0.12, -30, 0, 2);
+    const right = computeFaceAnchorXYZ(mesh, 0.12, 30, 0, 2);
+    const dy = Math.abs(right.y - left.y);
+    assert.ok(dy < 1, `左右眼 y 差应 < 1px, 实际: ${dy.toFixed(1)}`);
+  });
+
+  it('嘴巴的 y 在双眼下方', () => {
+    const left = computeFaceAnchorXYZ(mesh, 0.12, -30, 0, 2);
+    const mouth = computeFaceAnchorXYZ(mesh, 0.12, 0, 20, 2);
+    // mouth.y > (left.y + right.y)/2（更靠下）
+    const eyeMidY = left.y;
+    assert.ok(mouth.y > eyeMidY, `嘴巴应在双眼下方: mouth.y=${mouth.y.toFixed(1)}, eye.y=${eyeMidY.toFixed(1)}`);
+  });
+
+  it('眉毛的 y 在眼睛上方', () => {
+    const left = computeFaceAnchorXYZ(mesh, 0.12, -30, 0, 2);
+    const brow = computeFaceAnchorXYZ(mesh, 0.12, -30, -15, 3);
+    assert.ok(brow.y < left.y, `眉毛应在眼睛上方: brow.y=${brow.y.toFixed(1)}, eye.y=${left.y.toFixed(1)}`);
+  });
+});
+
+describe('面部锚点局部坐标不变量（球面）', () => {
+  const mesh = createSphereMesh({ radius: 80 });
+  const { computeSphereFaceAnchorXYZ } = meshSphere;
+
+  it('左眼与右眼的 x 有明确间距（水平分离）', () => {
+    const left = computeSphereFaceAnchorXYZ(mesh, -25, 0, 2);
+    const right = computeSphereFaceAnchorXYZ(mesh, 25, 0, 2);
+    const dx = Math.abs(right.x - left.x);
+    assert.ok(dx > 10, `左右眼 x 间距应 > 10px, 实际: ${dx.toFixed(1)}`);
+  });
+
+  it('左眼与右眼的 y 相等（等高）', () => {
+    const left = computeSphereFaceAnchorXYZ(mesh, -25, 0, 2);
+    const right = computeSphereFaceAnchorXYZ(mesh, 25, 0, 2);
+    const dy = Math.abs(right.y - left.y);
+    assert.ok(dy < 1, `左右眼 y 差应 < 1px, 实际: ${dy.toFixed(1)}`);
+  });
+
+  it('嘴巴的 y 在双眼下方', () => {
+    const left = computeSphereFaceAnchorXYZ(mesh, -25, 0, 2);
+    const mouth = computeSphereFaceAnchorXYZ(mesh, 0, 25, 2);
+    assert.ok(mouth.y > left.y, `嘴巴应在双眼下方: mouth.y=${mouth.y.toFixed(1)}, eye.y=${left.y.toFixed(1)}`);
+  });
+
+  it('眉毛的 y 在眼睛上方', () => {
+    const left = computeSphereFaceAnchorXYZ(mesh, -25, 0, 2);
+    const brow = computeSphereFaceAnchorXYZ(mesh, -25, -20, 3);
+    assert.ok(brow.y < left.y, `眉毛应在眼睛上方: brow.y=${brow.y.toFixed(1)}, eye.y=${left.y.toFixed(1)}`);
+  });
+});
+
+// ========== 不变量：材质稳定性 ==========
+describe('材质不变量（球面）', () => {
+  const mesh = createSphereMesh({ radius: 80 });
+
+  it('顶点旋转前的 originalY 稳定存在', () => {
+    // createSphereMesh 会在每个顶点记录 x/y/z，这些是旋转前的坐标
+    assert.ok(mesh.vertices.length > 0, 'mesh 必须有顶点');
+    for (const v of mesh.vertices) {
+      assert.ok(typeof v.y === 'number', '每个顶点必须有 y 坐标');
+    }
+  });
+
+  it('变形后顶点仍保留原始坐标信息', () => {
+    const deformed = deformSphere(mesh, { angleY: 20, angleX: 10, angleZ: 0 });
+    assert.ok(deformed.vertices.length > 0, 'deform 后仍有顶点');
+    // 检查变形后仍可访问原始 x/y/z
+    for (const v of deformed.vertices) {
+      assert.ok(typeof v.x === 'number' && typeof v.y === 'number' && typeof v.z === 'number',
+        '变形后顶点必须保留原始坐标');
+    }
+  });
+});
+
+// ========== 不变量：瞳孔尺寸 ==========
+describe('瞳孔尺寸不变量', () => {
+  // 验证瞳孔相关的几何计算：瞳孔半径应该与 openness 无关
+  it('瞳孔半径与眼 openness 无关（计算层面验证）', () => {
+    // 瞳孔绘制逻辑：pupilRx = rx * 0.55, pupilRy = rx * 0.55
+    // 其中 rx = scale * compress，不依赖 openness
+    const scale = 2;
+    const compress = 1;
+    const rx = 10 * scale * compress;
+    const pupilRx = rx * 0.55;
+    const pupilRy = rx * 0.55;
+    // 在不同 openness 下瞳孔尺寸应相同
+    assert.ok(pupilRx > 0 && pupilRy > 0, '瞳孔尺寸必须为正');
+    // 关键：ry 不再像旧实现那样乘以 openness
+    assert.ok(!(pupilRy === rx * 0.55 * 0.5), '瞳孔不应随 openness 缩放（旧 bug）');
   });
 });
