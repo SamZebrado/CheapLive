@@ -1,74 +1,34 @@
-// @ts-check
-const { defineConfig, devices } = require('playwright/test');
+// CheapLive Playwright configuration.
+// Runs tests over the static site via http-server on the repo root.
+// Status/doc-check tests live in tests/public-status/ and are kept
+// separate from functional tests so the two categories can be run
+// independently.
 
-/**
- * @see https://playwright.dev/docs/test-configuration
- */
+const { defineConfig, devices } = require('@playwright/test');
+
 module.exports = defineConfig({
-  testDir: 'tests/e2e',
-
-  /* 每个测试的超时时间 */
-  timeout: 30000,
-
-  /* 全局 expect 超时 */
-  expect: {
-    timeout: 5000,
-  },
-
-  /* 在本地运行所有文件，CI 上只运行一个 */
+  testDir: 'tests',
   fullyParallel: true,
-
-  /* 失败时不停止 */
-  forbidOnly: !!process.env.CI,
-
-  /* 重试次数 */
-  retries: process.env.CI ? 2 : 0,
-
-  /* 并发 worker 数 */
-  workers: process.env.CI ? 1 : undefined,
-
-  /* 报告器：list 用于人类可读输出，json 用于机器可读结果 */
-  reporter: [
-    ['list'],
-    ['json', { outputFile: 'test-results/results.json' }],
-  ],
-
-  /* 共享项目配置 */
-  use: {
-    /* 基础 URL */
-    baseURL: 'http://localhost:8765',
-
-    /* 无头模式（无图形界面环境必需） */
-    headless: true,
-
-    /* 收集 trace，失败时保留 */
-    trace: 'on-first-retry',
-
-    /* 截图，失败时保留 */
-    screenshot: 'only-on-failure',
-  },
-
-  /* 多浏览器/多角色配置 */
-  projects: [
-    {
-      name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        /* Fake media device 用于自动化测试音频/摄像头 */
-        launchOptions: {
-          args: [
-            '--use-fake-ui-for-media-stream',
-            '--use-fake-device-for-media-stream',
-          ],
-        },
-      },
-    },
-  ],
-
-  /* 本地开发服务器（可选） */
+  retries: 0,
+  reporter: 'line',
+  timeout: 30000,
   webServer: {
-    command: 'npx http-server . -p 8765 --cors',
-    url: 'http://localhost:8765',
+    command: 'npx http-server -p 8769 -s',
+    url: 'http://127.0.0.1:8769/',
+    timeout: 30000,
     reuseExistingServer: true,
   },
+  use: {
+    baseURL: 'http://127.0.0.1:8769/',
+  },
+  projects: [
+    {
+      name: 'chromium-desktop',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'chromium-mobile',
+      use: { ...devices['Pixel 5'] },
+    },
+  ],
 });
