@@ -129,8 +129,8 @@ class ProceduralMeshRenderer {
     this._resizeHandler = () => this.resize();
     window.addEventListener('resize', this._resizeHandler);
 
-    this.resize();
-    this.draw();
+    // 基类只初始化，不调用 draw()——子类创建 mesh 后再调用
+    // this.draw() 移到子类构造函数末尾
   }
 
   updateParams(newParams) {
@@ -504,8 +504,8 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
     if (this.mirror) {
       drawEye(anchors.rightEye, np.eyeLeft, true);
       drawEye(anchors.leftEye, np.eyeRight, false);
-      drawBrow(anchors.rightBrow, np.browLeft, true);
-      drawBrow(anchors.leftBrow, np.browRight, false);
+      drawBrow(anchors.browRight, np.browLeft, true);
+      drawBrow(anchors.browLeft, np.browRight, false);
     } else {
       drawEye(anchors.leftEye, np.eyeLeft, true);
       drawEye(anchors.rightEye, np.eyeRight, false);
@@ -545,21 +545,25 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
   /**
    * 参数坐标：
    *   bodyT 沿脊柱：0 鼻端，1 尾端
-   *   surfAngle 环绕角度：0 下方（肚子），±π 上方（背）
+   *   surfAngle 环绕角度：0 指向 Y 正方向（身体侧面偏前），
+   *     angle = PI/2 指向 +Z（朝摄像机），
+   *     angle = PI   指向 Y 负方向（身体另一侧）
    *
-   * 面部区域在 bodyT ≈ 0.1~0.2，surfAngle 接近 0（下方朝前的脸）。
+   * 面部区域在 bodyT ≈ 0.1~0.2，surfAngle 接近 PI/2（朝摄像机）。
+   * 约定：摄像机方向 +Z；angle = PI/2 时 z = depth * sin(PI/2) = depth > 0。
    */
   getAnchors(params) {
     const faceT = 0.12;
-    const surfAngleLeft = -0.55; // 左下方
-    const surfAngleRight = 0.55; // 右下方
-    const surfAngleMouth = 0.0;
+    const faceCenterAngle = Math.PI / 2; // 朝摄像机
+    const eyeAngularOffset = 0.38;       // 两眼水平间距（弧度）
+    const browAngularOffset = 0.32;      // 眉毛间距，略窄于眼睛
+
     return {
-      leftEye: { bodyT: faceT, surfAngle: surfAngleLeft, surfaceOffset: 1.5 },
-      rightEye: { bodyT: faceT, surfAngle: surfAngleRight, surfaceOffset: 1.5 },
-      mouth: { bodyT: faceT + 0.03, surfAngle: surfAngleMouth, surfaceOffset: 1.5 },
-      browLeft: { bodyT: faceT - 0.015, surfAngle: surfAngleLeft * 0.9, surfaceOffset: 2 },
-      browRight: { bodyT: faceT - 0.015, surfAngle: surfAngleRight * 0.9, surfaceOffset: 2 },
+      leftEye:  { bodyT: faceT,       surfAngle: faceCenterAngle - eyeAngularOffset, surfaceOffset: 1.5 },
+      rightEye: { bodyT: faceT,       surfAngle: faceCenterAngle + eyeAngularOffset, surfaceOffset: 1.5 },
+      mouth:    { bodyT: faceT + 0.03, surfAngle: faceCenterAngle,                 surfaceOffset: 1.5 },
+      browLeft: { bodyT: faceT - 0.018, surfAngle: faceCenterAngle - browAngularOffset, surfaceOffset: 2 },
+      browRight:{ bodyT: faceT - 0.018, surfAngle: faceCenterAngle + browAngularOffset, surfaceOffset: 2 },
     };
   }
 
