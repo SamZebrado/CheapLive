@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>萨卡班甲鱼 - 简化测试</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #1A1A2E;
+      color: #eee;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    h1 { font-size: 18px; margin: 10px 0; }
+    .avatar-wrapper {
+      width: 400px;
+      height: 400px;
+      background: #1A1A2E;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    .controls { margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    button {
+      padding: 8px 16px;
+      background: #4a5fd1;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover { background: #5e75e6; }
+    .status { font-size: 13px; color: #aaa; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>萨卡班甲鱼（简化版测试）</h1>
+  <div class="avatar-wrapper">
+    <canvas id="avatar_canvas"></canvas>
+  </div>
+  <div class="controls">
+    <button onclick="testBlink()">测试眨眼</button>
+    <button onclick="testSmile()">测试微笑</button>
+    <button onclick="testMouth()">测试张嘴</button>
+    <button onclick="testYaw()">测试转头</button>
+    <button onclick="resetAvatar()">重置</button>
+  </div>
+  <div class="status" id="status">加载中...</div>
+
+  <script type="module">
+    import { ProceduralSpindleWhaleAvatar } from './procedural-mesh-renderer.js';
+
+    let avatar;
+    try {
+      avatar = new ProceduralSpindleWhaleAvatar('avatar_canvas');
+      document.getElementById('status').textContent = '已加载 - 身体主轴沿 Z 轴（屏幕深度）';
+    } catch (e) {
+      document.getElementById('status').textContent = '错误: ' + e.message;
+      console.error(e);
+    }
+
+    window.testBlink = () => {
+      let t = 0;
+      const timer = setInterval(() => {
+        t += 0.08;
+        const val = Math.pow(Math.max(0, Math.sin(t * Math.PI)), 0.5);
+        avatar.updateParams({ eyeLeft: 1 - val * 0.8, eyeRight: 1 - val * 0.8 });
+        if (t > 1.2) clearInterval(timer);
+      }, 30);
+    };
+    window.testSmile = () => {
+      let t = 0;
+      const timer = setInterval(() => {
+        t += 0.05;
+        const val = Math.max(0, Math.sin(t * Math.PI));
+        avatar.updateParams({ mouthSmile: val, browLeft: val * 0.3, browRight: val * 0.3 });
+        if (t > 1.5) clearInterval(timer);
+      }, 30);
+    };
+    window.testMouth = () => {
+      let t = 0;
+      const timer = setInterval(() => {
+        t += 0.05;
+        const val = Math.max(0, Math.sin(t * Math.PI));
+        avatar.updateParams({ mouthOpen: val });
+        if (t > 1.5) clearInterval(timer);
+      }, 30);
+    };
+    window.testYaw = () => {
+      let t = 0;
+      const timer = setInterval(() => {
+        t += 0.03;
+        const val = Math.sin(t * Math.PI * 2);
+        avatar.updateParams({ headYaw: 0.5 + val * 0.3 });
+        if (t > 2) clearInterval(timer);
+      }, 30);
+    };
+    window.resetAvatar = () => {
+      avatar.updateParams({
+        eyeLeft: 1, eyeRight: 1,
+        mouthOpen: 0, mouthSmile: 0,
+        browLeft: 0, browRight: 0,
+        headYaw: 0.5, headPitch: 0.5, headRoll: 0.5,
+        headX: 0.5, headY: 0.5
+      });
+    };
+  </script>
+</body>
+</html>
