@@ -302,6 +302,38 @@ class FaceTracker {
       });
     });
 
+    // 头部姿态测试按钮（方便在不启用摄像头时查看侧面形状）
+    // headYaw/Pitch/Roll 范围都是 0~1，0.5 为正中。
+    const POSE_STEP = 0.15; // 每次点击调整幅度（约 ±18° yaw / ±13.5° pitch / ±12° roll
+    const clamp01 = (v) => Math.max(0, Math.min(1, v));
+    const getCurrentPose = () => ({
+      yaw: this.avatar.params.headYaw ?? 0.5,
+      pitch: this.avatar.params.headPitch ?? 0.5,
+      roll: this.avatar.params.headRoll ?? 0.5,
+    });
+
+    document.getElementById('testYawLeft').addEventListener('click', () => {
+      const p = getCurrentPose(); this.avatar.updateParams({ headYaw: clamp01(p.yaw - POSE_STEP) });
+    });
+    document.getElementById('testYawRight').addEventListener('click', () => {
+      const p = getCurrentPose(); this.avatar.updateParams({ headYaw: clamp01(p.yaw + POSE_STEP) });
+    });
+    document.getElementById('testPitchUp').addEventListener('click', () => {
+      const p = getCurrentPose(); this.avatar.updateParams({ headPitch: clamp01(p.pitch - POSE_STEP) });
+    });
+    document.getElementById('testPitchDown').addEventListener('click', () => {
+      const p = getCurrentPose(); this.avatar.updateParams({ headPitch: clamp01(p.pitch + POSE_STEP) });
+    });
+    document.getElementById('testRollLeft').addEventListener('click', () => {
+      const p = getCurrentPose(); this.avatar.updateParams({ headRoll: clamp01(p.roll - POSE_STEP) });
+    });
+    document.getElementById('testRollRight').addEventListener('click', () => {
+      const p = getCurrentPose(); this.avatar.updateParams({ headRoll: clamp01(p.roll + POSE_STEP) });
+    });
+    document.getElementById('testPoseReset').addEventListener('click', () => {
+      this.avatar.updateParams({ headYaw: 0.5, headPitch: 0.5, headRoll: 0.5 });
+    });
+
     // 镜像开关：交换左右面部数据，而非翻转图形
     const mirrorToggle = document.getElementById('mirrorMode');
     if (mirrorToggle) {

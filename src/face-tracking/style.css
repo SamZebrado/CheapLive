@@ -423,6 +423,14 @@ button:disabled {
   border-color: var(--accent);
 }
 
+.control-label {
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+  color: var(--ink2);
+  text-align: center;
+  padding-top: 4px;
+}
+
 /* 镜像开关 */
 .mirror-toggle,
 .app-mode-toggle {
