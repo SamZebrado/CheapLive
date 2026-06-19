@@ -615,14 +615,14 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
   getAnchors(params) {
     const faceT = 0.12;
 
-    // 按模型尺寸比例计算偏移，确保跨模型尺寸一致
+    // 五官位置基于 bodyWidth（Y方向，屏幕上下），确保与身体宽度成比例
     const mesh = this.spindleMesh;
-    const headR = mesh.headR;
-    const eyeSpacing = headR * 0.25;  // 两眼水平间距
-    const eyeHeight = -headR * 0.10; // 眼在中心上方（负 = 向上）
-    const mouthHeight = headR * 0.25;  // 嘴在中心下方（正 = 向下）
-    const browOffset = -headR * 0.18;  // 眉在眼上方
-    const browSpacing = headR * 0.22;  // 眉水平间距略窄于眼睛
+    const w = mesh.bodyWidth;
+    const eyeSpacing = w * 0.32;   // 两眼水平间距（屏幕左右）
+    const eyeHeight = -w * 0.12;   // 眼在中心略上（负 = 向上）
+    const mouthHeight = w * 0.30;  // 嘴在中心下方（正 = 向下）
+    const browOffset = -w * 0.22;  // 眉在眼上方
+    const browSpacing = w * 0.28;  // 眉水平间距
 
     return {
       leftEye:  { bodyT: faceT, horizOffset: -eyeSpacing, vertOffset: eyeHeight, surfaceOffset: 1.5 },
@@ -638,9 +638,8 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const rot = { angleY: np.headYaw, angleX: np.headPitch, angleZ: np.headRoll };
 
     const minSide = Math.min(w, h);
-    // scale：整体身体长度约 bodyLength + tailLength + headR；按此决定像素缩放
-    const totalLen =
-      this.spindleMesh.bodyLength + this.tailMesh.tailLength + this.spindleMesh.headR;
+    // scale：整体身体长度约 bodyLength + tailLength（主身体），按此决定像素缩放
+    const totalLen = this.spindleMesh.bodyLength + this.tailMesh.tailLength + this.spindleMesh.headR * 0.2;
     const margin = 0.10;
     const scale = (minSide * (1 - margin * 2)) / totalLen * 1.1;
 

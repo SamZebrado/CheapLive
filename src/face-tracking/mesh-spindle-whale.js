@@ -33,59 +33,61 @@ function getSpineX(t, headR, bodyLength) {
 }
 
 /**
- * 圆形截面的半径函数。
- * 设计目标：前大后小的水滴/圆盾形轮廓。
- *   - t=0：鼻端（略小，圆润过渡）
- *   - t≈0.15：达到最大半径（圆盾形头部的中心）
- *   - t≈0.15-0.60：缓慢收窄（头盾主体，保持圆润）
+ * 水滴形截面半宽函数（y 方向：屏幕水平方向，即身体的左右宽度）。
+ * 以 bodyWidth 为基础尺寸，而不是 headR。
+ *   - t=0：鼻端（较小，圆润过渡）
+ *   - t≈0.15：达到最大宽度（圆盾形头部的中心）
+ *   - t≈0.15-0.60：缓慢收窄（头盾主体）
  *   - t≈0.60-1.0：快速收细为细尾
- *
- * 由于截面是圆形（y 方向半宽 = z 方向半深），
- * getBodyWidth 和 getBodyDepth 都调用此函数。
  */
-function getBodyRadius(t, headR, bodyWidth) {
-  const maxR = headR * 1.10;      // 头盾最大半径（圆盾又大又圆）
-  const shieldBaseR = headR * 0.55; // 头盾后缘半径
-  const tailBaseR = headR * 0.20;   // 尾基部半径
-  const tailTipR = headR * 0.05;    // 尾尖半径
+function getBodyWidth(t, headR, bodyWidth, bodyLength) {
+  const maxW = bodyWidth * 1.0;
+  const shieldBaseW = bodyWidth * 0.55;
+  const tailBaseW = bodyWidth * 0.20;
+  const tailTipW = bodyWidth * 0.05;
 
   if (t < 0.15) {
-    // 鼻端 -> 头盾最宽处：圆润地撑开
     const k = t / 0.15;
-    // sin 缓出：从鼻端 60% 直径平滑增长到最大直径
     const eased = Math.sin(k * Math.PI * 0.5);
-    return maxR * (0.60 + 0.40 * eased);
+    return maxW * (0.55 + 0.45 * eased);
   } else if (t < 0.60) {
-    // 头盾主体：从最大半径缓慢收窄到盾基
     const k = (t - 0.15) / 0.45;
-    // 余弦缓出：中段保持较圆，后段加速收窄
     const eased = 0.5 * (1 - Math.cos(k * Math.PI));
-    return maxR - (maxR - shieldBaseR) * eased;
+    return maxW - (maxW - shieldBaseW) * eased;
   } else if (t < 0.90) {
-    // 尾柄：从盾基收窄到尾基
     const k = (t - 0.60) / 0.30;
-    return shieldBaseR * (1 - k) + tailBaseR * k;
+    return shieldBaseW * (1 - k) + tailBaseW * k;
   } else {
-    // 尾尖：快速收细
     const k = (t - 0.90) / 0.10;
-    return tailBaseR * (1 - k) + tailTipR * k;
+    return tailBaseW * (1 - k) + tailTipW * k;
   }
 }
 
 /**
- * 身体横断面的半宽（y 方向）。
- * 圆形截面 → 与深度相同。
- */
-function getBodyWidth(t, headR, bodyWidth, bodyLength) {
-  return getBodyRadius(t, headR, bodyWidth);
-}
-
-/**
- * 身体横断面的深度（z 方向）。
- * 圆形截面 → 与宽度相同。
+ * 水滴形截面深度函数（z 方向：朝摄像机方向的深度，也决定屏幕上下高度）。
+ * 以 bodyDepth 为基础尺寸，萨卡班甲鱼的深度略小于宽度（略扁）。
  */
 function getBodyDepth(t, headR, bodyDepth, bodyLength) {
-  return getBodyRadius(t, headR, bodyDepth);
+  const maxD = bodyDepth * 1.0;
+  const shieldBaseD = bodyDepth * 0.55;
+  const tailBaseD = bodyDepth * 0.20;
+  const tailTipD = bodyDepth * 0.05;
+
+  if (t < 0.15) {
+    const k = t / 0.15;
+    const eased = Math.sin(k * Math.PI * 0.5);
+    return maxD * (0.55 + 0.45 * eased);
+  } else if (t < 0.60) {
+    const k = (t - 0.15) / 0.45;
+    const eased = 0.5 * (1 - Math.cos(k * Math.PI));
+    return maxD - (maxD - shieldBaseD) * eased;
+  } else if (t < 0.90) {
+    const k = (t - 0.60) / 0.30;
+    return shieldBaseD * (1 - k) + tailBaseD * k;
+  } else {
+    const k = (t - 0.90) / 0.10;
+    return tailBaseD * (1 - k) + tailTipD * k;
+  }
 }
 
 /**
@@ -127,12 +129,12 @@ function getFaceWeight(t, angle) {
 
 export function createSpindleMesh(options = {}) {
   const {
-    headR = 75,
-    bodyLength = 140,
-    bodyWidth = 55,
-    bodyDepth = 40,
-    columns = 20,
-    rows = 12,
+    headR = 85,
+    bodyLength = 130,
+    bodyWidth = 65,
+    bodyDepth = 50,
+    columns = 24,
+    rows = 14,
     topColor = '#bdb8aa',       // 背部/上半灰色
     bottomColor = '#f2f1ea',    // 腹部/下半白色
     faceTopColor = '#c8c2b4',   // 面部区域略暖
