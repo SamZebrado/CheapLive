@@ -46,53 +46,64 @@ function smoothstep01(t) {
  *   0.35 ~ 1.0：身体区域 —— 从头后方平滑收细到尾巴
  */
 function getSpineAndRadius(t, headX, headY, headZ, bodyLength, bodyEndX, bodyEndY) {
-  // --- 头部 ---
-  // t = 0 (最前)：圆钝鼻端，半径约 0.35*head
-  // t ≈ 0.12：达到最大宽度（≈ 1.0*head）
-  // t = HEAD_T_END：头部后端/颈部，半径约 0.75*head
+  // --- Z 轴方向修复：鼻端在 -Z（朝向相机），身体向 +Z 延伸（远离相机）---
+  // 这样前端（t=0）法线自然朝向相机，不会被背面剔除
   //
-  // 使用两段平滑函数：从鼻端圆滑鼓胀到最大，再圆滑收缩到颈部。
-  const HEAD_T_END = 0.30;
+  // 头部设计（t=0 → t=HEAD_T_END）：
+  //   t=0：鼻端，在 -Z，最小半径
+  //   t≈0.12：达到最大宽度
+  //   t=HEAD_T_END：头部后端，开始收细到身体
+  //
+  // 身体设计（t=HEAD_T_END → t=1）：
+  //   前期保持较多体积，后期快速收窄到尾巴
+  //   后半段脊柱向 +X 弯曲，让尾巴侧面露出
+  const HEAD_T_END = 0.28;
 
   if (t < HEAD_T_END) {
-    const zFront = headZ * 0.95;
-    const zBack  = -headZ * 0.10;
+    // 头部：鼻端在 -headZ*0.95，后端在 +headZ*0.10
+    const zNose  = -headZ * 0.95;  // 鼻端，朝向相机
+    const zBack  =  headZ * 0.10;   // 头后端，远离相机
     const localT = t / HEAD_T_END;  // 0~1 沿头部
-    const zPos = zFront + (zBack - zFront) * localT;
+    const zPos = zNose + (zBack - zNose) * localT;
 
-    // 两段曲线：前 45% 为鼓胀段（从 0.35 → 1.0），后 55% 为收缓段（1.0 → 0.75）
+    // 两段平滑曲线：前半段鼓起（鼻→最宽），后半段收窄（最宽→颈）
     const mid = 0.45;
-    const growShape = Math.sin((localT / mid) * Math.PI * 0.5); // 0 → 1
-    const shrinkShape = Math.cos(((localT - mid) / (1 - mid)) * Math.PI * 0.5); // 1 → 0
-
     let shape;
     if (localT < mid) {
+      const growShape = Math.sin((localT / mid) * Math.PI * 0.5); // 0 → 1
       shape = 0.35 + (1.00 - 0.35) * growShape;
     } else {
+      const shrinkShape = Math.cos(((localT - mid) / (1 - mid)) * Math.PI * 0.5); // 1 → 0
       shape = 1.00 * (1 - shrinkShape) + 0.75 * shrinkShape;
     }
 
     const rx = headX * shape;
-    const ry = headY * shape;    // headY 已在构造函数中设置略小，实现自然的椭圆形头部
-
-    return { zPos, rx, ry, isHead: true };
+    const ry = headY * shape;
+    // 弯曲：头部略向 -X 偏，让头部稍微偏向侧面，配合 baseYaw=-12° 的3/4视角
+    const spineX = headX * 0.05 * (1 - localT);
+    return { xPos: spineX, zPos, rx, ry, isHead: true };
   }
 
-  // --- 身体：从颈部平滑收窄到尾端 ---
-  // 头部终点（t = HEAD_T_END）的半径约 0.75*headX/Y
+  // --- 身体：从颈部向 +Z 延伸，尾段向 +X 弯曲 ---
   const headEndRX = headX * 0.75;
   const headEndRY = headY * 0.75;
 
-  const bodyT = (t - HEAD_T_END) / (1 - HEAD_T_END); // 0~1
-  // 平滑收细：前期保留较多体积，后期快速收窄
+  const bodyT = (t - HEAD_T_END) / (1 - HEAD_T_END); // 0~1 沿身体
   const eased = Math.pow(smoothstep01(bodyT), 0.7);
 
   const rx = headEndRX * (1 - eased) + bodyEndX * eased;
   const ry = headEndRY * (1 - eased) + bodyEndY * eased;
 
-  const headZBack = -headZ * 0.10;
-  const zPos = headZBack - bodyLength * bodyT;
-  return { zPos, rx, ry, isHead: false };
+  // 脊柱位置：头后端在 +headZ*0.10，身体向后延伸
+  const headZBack = headZ * 0.10;
+  const zPos = headZBack + bodyLength * bodyT;
+
+  // 尾巴弯曲：后半段 (bodyT > 0.35) 向 +X 弯曲，露出尾巴
+  // 使用 smoothstep^2 控制弯曲强度，弯曲越往后越强
+  const bendT = smoothstep01(Math.max(0, (bodyT - 0.35) / 0.65));
+  const spineX = headX * 0.05 + (headX * 1.20) * bendT * bendT; // 二次曲线，最大弯曲 1.2*headX ≈ 72px
+
+  return { xPos: spineX, zPos, rx, ry, isHead: false };
 }
 
 // -------------------- 面部区域 --------------------
@@ -168,10 +179,10 @@ export function createSpindleMesh(options = {}) {
       const cosA = Math.cos(angle);
       const sinA = Math.sin(angle);
 
-      // 椭圆截面
-      const x = rx * sinA;  // sinA 在 angle=±PI/2 处最大 → 左右
+      // 椭圆截面，叠加脊柱的 X 偏移
+      const x = cross.xPos + rx * sinA;  // sinA 在 angle=±PI/2 处最大 → 左右
       const y = ry * cosA;   // cosA 在 angle=0/PI 处最大 → 上下
-      const z = zPos;
+      const z = cross.zPos;
 
       // 椭圆外法线（用于光照和背面剔除）
       const nxRaw = sinA / Math.max(rx, 0.001);
@@ -228,6 +239,37 @@ export function createSpindleMesh(options = {}) {
     }
   }
 
+  // --- 前端封口（Front Cap）：从鼻端顶点扇形三角化到头部前端轮廓 ---
+  // 这样鼻端不是空洞，而是一个完整的实心圆盘
+  const firstRingStart = 0;
+  const firstRingEnd = rows; // 第一圈的 rows+1 个顶点（0 到 rows）
+  const noseIdx = vertices.length;
+  // 鼻端中心顶点：取第一列顶点的平均值作为鼻端中心
+  const noseZ = vertices[firstRingStart].z; // 应该接近 -headZ*0.95
+  const noseX = vertices[firstRingStart].x; // 应该接近 spineX = headX*0.05
+  const noseY = 0; // y 方向中心
+  vertices.push({
+    x: noseX, y: noseY, z: noseZ,
+    nx: 0, ny: 0, nz: 1, // 法线朝向 +Z（摄像机方向）
+    t: 0, angle: 0, col: 0, row: -1,
+    isTop: false, isBottom: true,
+    faceWeight: 0,
+    isHead: true,
+  });
+  // 扇形三角化：每三角形用 4 索引 [nose, ring[i+1], ring[i], nose]
+  // 凑成 4 顶点 quad，最后一个顶点和第一个相同 → 退化 quad = 三角形
+  for (let row = 0; row < rows; row++) {
+    const curr = firstRingStart + row;
+    const next = firstRingStart + row + 1;
+    faces.push({
+      indices: [noseIdx, next, curr, noseIdx],
+      vertices: [vertices[noseIdx], vertices[next], vertices[curr], vertices[noseIdx]],
+      isTop: false,
+      isBottom: true,
+      column: 0, row,
+    });
+  }
+
   return {
     vertices, faces,
     headX, headY, headZ, bodyLength, bodyEndX, bodyEndY,
@@ -250,8 +292,9 @@ export function createSpindleMesh(options = {}) {
  * 返回模型空间下的 (x, y, z) 和法线方向。
  */
 export function computeFaceAnchorXYZ(mesh, _, horizOffset, vertOffset, depthOffset = 0) {
-  // 面部位于头部前表面：z ≈ +headZ * 0.75 处
-  const zFront = mesh.headZ * 0.75;
+  // 面部位于头部前表面：鼻端在 -headZ*0.95，此处取 -headZ*0.80 略靠后一点
+  // 以便让眼睛和嘴巴有足够深度（在鼻端前方或表面）
+  const zFront = -mesh.headZ * 0.80;
   const xBase = horizOffset;
   const yBase = vertOffset;
 
