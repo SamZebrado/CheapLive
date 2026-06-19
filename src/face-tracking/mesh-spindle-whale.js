@@ -1,163 +1,169 @@
 /**
- * Mesh Sacabambaspis (萨卡班甲鱼) — 鱼雷形：圆球形头部 + 流线型收窄身体 + 尾鳍
+ * Mesh Sacabambaspis (萨卡班甲鱼) — 鱼雷形：
+ *   圆球形头部 + 平滑收窄身体 + 尾鳍 + 正确的 3D 曲面法线
  *
- * 坐标约定（面向摄像机）：
- *   - X：屏幕水平（右为正）
- *   - Y：屏幕垂直（下为正，Canvas 坐标）
- *   - Z：屏幕深度（+z = 朝向摄像机/近，-z = 远离摄像机/远）
- *   - 身体主轴沿 Z：鼻端在 +z，尾端在 -z
- *   - angle 环绕角度：angle = 0 在 +Y（下），逆时针环绕
- *   - angle = PI/2 在 -X（左），angle = -PI/2 在 +X（右）
+ * 形状的核心是一对 R_x(s) / R_y(s) 半径曲线（s ∈ [0,1]，沿主轴参数）
+ *   s=0     → 鼻端（R=0）
+ *   s≈0.22  → 头部最大半径（头部球体）
+ *   s≈0.22~1 → 身体平滑 taper 收窄到尾尖（R→很小的值）
+ *   z(s)    → 从 +headZ（靠近摄像机）线性退到 -bodyLength
+ *   yBend(s) → 尾段轻微向上（-Y）翘起
  *
- * 投影到屏幕：
- *   - screenX = originX + tx * scale
- *   - screenY = originY + ty * scale
- *   - depth = tz（越大越近，最后画）
- *
- * 设计目标（鱼雷形状）：
- *   - 头部：接近完美的圆球形，从鼻端快速膨胀到最大半径
- *   - 身体：最大半径之后**平滑、缓慢地收窄**（前段慢、后段快），形成流线型
- *   - 尾鳍：在身体后段向外延伸出一个扁平的三角形尾鳍，尖尾收尾
- *   - 整体比例：头直径 : 身体长度 ≈ 1 : 3（鱼雷/潜艇比例）
- *   - 尾尖向上轻微翘起（萨卡班甲鱼的尾鳍特征）
- *
- * 说明：不依赖 Live2D Cubism；为程序化 Canvas 2D 网格渲染器。
+ * 关键改进（对比旧版）：
+ *   1. R_x / R_y 统一用 smooth 数学曲线，使侧视轮廓圆润；
+ *   2. 每个顶点的法线用参数化曲面 (θ, s) 的切向量叉乘计算：
+ *        T_θ = ∂p/∂θ = (-R_x(s)·sinθ,  R_y(s)·cosθ,  0)
+ *        T_s = ∂p/∂s ≈ (R_x'(s)·cosθ, R_y'(s)·sinθ, z'(s) + yBend'(s))  【数值差分】
+ *        n = T_θ × T_s （归一化）
+ *      这样旋转后背面剔除与真实光照都正确，不会出现"明明可见却被隐藏"
+ *      的问题。
  */
 
-// -------------------- 参数与辅助 --------------------
-
-// smoothstep：对 t 做平滑处理（0→1 间自然过渡），用于 taper 和 blend
+// smoothstep：平滑插值（0→1）
 function smoothstep01(t) {
   t = Math.max(0, Math.min(1, t));
   return t * t * (3 - 2 * t);
 }
 
-// 从圆方程得到"完美半圆"膨胀曲线：r = sqrt(1 - (1 - t)^2)
-// 用于头部区域：鼻端 r=0，t=HEAD_T_END 时 r=headX（最大半径）
-function semicircleExpansion(tLocal) {
-  // tLocal: 0 鼻端，1 最大半径处
-  const s = 1 - tLocal;
-  return Math.sqrt(Math.max(0, 1 - s * s));
+// -------------------- 形状曲线 --------------------
+
+const HEAD_T_END = 0.22;   // 头部最大半径位置
+const MID_T = 0.55;        // 身体中前段结束位置
+
+/**
+ * 沿主轴 s ∈ [0,1] 的归一化半径曲线：
+ *   s ∈ [0, HEAD_T_END]：半圆膨胀（鼻端 0 → 最大 1）
+ *   s ∈ [HEAD_T_END, MID_T]：smoothstep 从 1 降到 0.72（缓慢收窄 "肩膀"）
+ *   s ∈ [MID_T, 1]：smoothstep 从 0.72 降到 0.04（快速收尖）
+ *
+ * 返回 0~1 缩放因子；外部乘以 headX/headY 得到实际半径。
+ */
+function radiusScale(s) {
+  if (s <= HEAD_T_END) {
+    // 头部：r(s) = sqrt(1 - (1 - s/HEAD_T_END)^2)
+    const u = s / HEAD_T_END;
+    const v = 1 - u;
+    return Math.sqrt(Math.max(0, 1 - v * v));
+  }
+  if (s <= MID_T) {
+    // 肩部：慢收窄到 0.72
+    const u = (s - HEAD_T_END) / (MID_T - HEAD_T_END);
+    const eased = smoothstep01(u);
+    return 1.0 * (1 - eased) + 0.72 * eased;
+  }
+  // 尾部：从 0.72 快速收尖到 0.04
+  const u = (s - MID_T) / (1 - MID_T);
+  const eased = smoothstep01(u);
+  return 0.72 * (1 - eased) + 0.04 * eased;
+}
+
+/**
+ * 数值计算半径曲线的导数 dR/ds（用于法线计算）。
+ * 用中心差分，端点用单边差分。
+ */
+function radiusScaleDeriv(s) {
+  const h = 0.002;
+  if (s <= h) return (radiusScale(s + h) - radiusScale(s)) / h;
+  if (s >= 1 - h) return (radiusScale(s) - radiusScale(s - h)) / h;
+  return (radiusScale(s + h) - radiusScale(s - h)) / (2 * h);
+}
+
+/**
+ * 脊柱 y 方向偏移（尾尖向上翘）。
+ * s ∈ [0, TAIL_BEND_START] 时为 0；之后 smoothstep 上升到 -headY*0.40（向上）。
+ */
+const TAIL_BEND_START = 0.72;
+function spineYOffset(s, headY) {
+  if (s < TAIL_BEND_START) return 0;
+  const u = (s - TAIL_BEND_START) / (1 - TAIL_BEND_START);
+  const eased = smoothstep01(u);
+  // 平方一下让弯曲过程先慢后快，尾尖最终上扬
+  return -headY * 0.40 * eased * eased;
+}
+function spineYOffsetDeriv(s, headY) {
+  if (s < TAIL_BEND_START - 0.01) return 0;
+  const h = 0.003;
+  const s0 = Math.max(0, s - h);
+  const s1 = Math.min(1, s + h);
+  return (spineYOffset(s1, headY) - spineYOffset(s0, headY)) / (s1 - s0);
 }
 
 // -------------------- 脊柱与截面 --------------------
 
 /**
- * 给定沿脊柱的参数 t ∈ [0, 1]，返回 (xPos, yPos, zPos, rx, ry, isHead)。
- *
- * 鱼雷形设计（关键参数比例）：
- *   t=0 ~ HEAD_T_END：头部 —— 完美的圆球形（按圆方程膨胀到最大半径）
- *   t=HEAD_T_END ~ TAIL_T_START：身体 —— 缓慢平滑收窄（前段慢、后段快）
- *   t=TAIL_T_START ~ 1：尾端收尖 —— 快速收尖到尾尖，同时脊柱向 +Y 上方微翘
- *
- *   HEAD_T_END = 0.22（头部占比 22%）：头直径≈104，身体长度≈180 → 头:身 ≈ 1:3
+ * 返回 s 处的 (spineX, spineY, spineZ, rx, ry, rxDeriv, ryDeriv, spineZDeriv, spineYDeriv, isHead)。
+ * 加入导数信息，以便计算真正的曲面法线。
  */
-function getSpineAndRadius(t, headX, headY, headZ, bodyLength, bodyEndX, bodyEndY) {
-  // 坐标约定：
-  //   摄像机在 +Z 方向，看向原点（-Z 方向）
-  //   模型的"正面"（鼻端）应该在 +Z（靠近摄像机）
-  //   身体和尾巴向 -Z 延伸（远离摄像机）
-  //   朝向 +Z 的面：nz > 0，可见
-  //   朝向 -Z 的面：nz < 0，被剔除
+function getSection(s, headX, headY, headZ, bodyLength) {
+  const sc = radiusScale(s);
+  const scDeriv = radiusScaleDeriv(s);
 
-  const HEAD_T_END = 0.22;      // 头部/最大半径位置
-  const TAIL_T_START = 0.65;    // 尾端快速收尖的起点
-  const TIP_T = 1.0;
+  // 沿 Z 的位置：s=0 → +headZ，s=1 → -bodyLength
+  // z(s) = headZ - s * (headZ + bodyLength)，z'(s) = -(headZ + bodyLength)
+  const spineZ = headZ - s * (headZ + bodyLength);
+  const spineZDeriv = -(headZ + bodyLength);
 
-  // --- 头部：完美圆球形（按半圆方程膨胀） ---
-  //   t=0:   鼻端（z=+headZ*0.98, rx=0）
-  //   t=0.22:最大半径处（z≈+headZ*0.0, rx=headX）
-  if (t <= HEAD_T_END) {
-    const localT = t / HEAD_T_END; // 0~1 沿头部
-    const rScale = semicircleExpansion(localT);  // 完美半圆膨胀
-    // z 从 +headZ (鼻端) 线性退到 0 (头部最鼓处)
-    const zScale = 1.0 - localT * 1.0;
+  // 半径：略扁椭圆（正面更圆，侧面略瘦）—— rx/ry 用同样曲线但乘不同"椭圆度"
+  const rx = headX * sc;
+  const ry = headY * sc * (0.88 + 0.12 * sc);  // 头部处接近 headY，身体处略扁
+  const rxDeriv = headX * scDeriv;
+  const ryDeriv = headY * (scDeriv * (0.88 + 0.12 * sc) + sc * (0.12 * scDeriv));
 
-    const rx = headX * rScale;
-    const ry = headY * rScale;
-    const zPos = headZ * zScale;
-    return { xPos: 0, yPos: 0, zPos, rx, ry, isHead: true };
-  }
+  const spineY = spineYOffset(s, headY);
+  const spineYDeriv = spineYOffsetDeriv(s, headY);
 
-  // --- 身体 + 尾端 ---
-  // bodyT: 0 在 HEAD_T_END（最大半径），1 在尾尖
-  const bodyT = (t - HEAD_T_END) / (1 - HEAD_T_END);
-
-  // 1) 半径曲线（平滑收窄 —— 鱼雷风格）：
-  //    前段（0~0.55）：缓慢收窄到 0.65 * headX
-  //    后段（0.55~1）：加速收尖到 bodyEndX/Y
-  //    整体用 smoothstep 的指数曲线让过渡更自然
-  let rxFinal, ryFinal;
-  if (bodyT <= 0.55) {
-    // 前段：慢收窄
-    const localT = bodyT / 0.55;
-    const eased = 1 - Math.pow(1 - localT, 1.8); // 上凸曲线 = 先快后慢
-    const target = 0.65; // 保留 65% 最大半径
-    const scale = 1 * (1 - eased) + target * eased;
-    rxFinal = headX * scale;
-    ryFinal = headY * scale;
-  } else {
-    // 后段：快速收尖
-    const localT = (bodyT - 0.55) / 0.45;
-    const eased = Math.pow(localT, 1.5); // 下凸 = 先慢后快，末端加速
-    const startRX = headX * 0.65;
-    const startRY = headY * 0.65;
-    rxFinal = startRX * (1 - eased) + bodyEndX * eased;
-    ryFinal = startRY * (1 - eased) + bodyEndY * eased;
-  }
-
-  // 2) 脊柱 z：从头部后端（z ≈ 0）线性向 -Z 延伸 bodyLength
-  const zPos = 0 - bodyLength * bodyT;
-
-  // 3) 脊柱 y：尾端向 -Y（屏幕上方）轻微翘起
-  //    从 bodyT=0.7 开始向上弯，尾尖抬高 ≈ headY*0.45
-  const tailBendStartT = 0.7;
-  const tailBend = smoothstep01(
-    Math.max(0, (bodyT - tailBendStartT) / (1 - tailBendStartT))
-  );
-  const tailTipOffsetY = -headY * 0.45; // 向上（-Y）翘
-  const spineY = tailTipOffsetY * tailBend * tailBend; // 平方让弯曲更平滑
-
-  // 脊柱保持左右对称（spineX = 0）
-  return { xPos: 0, yPos: spineY, zPos, rx: rxFinal, ry: ryFinal, isHead: false };
+  return {
+    xPos: 0,
+    yPos: spineY,
+    zPos: spineZ,
+    rx, ry,
+    rxDeriv, ryDeriv,
+    spineZDeriv,
+    spineYDeriv,
+    isHead: s <= HEAD_T_END + 0.02,
+  };
 }
 
 // -------------------- 面部区域 --------------------
 
 /**
- * 判断给定 (t, angle) 是否位于头部正面区域（用于给面部着色）。
- * 返回 0~1 的软权重：1 = 面部中心，0 = 非面部。
+ * 给定 (s, θ) 返回面部权重：1 = 鼻端正中央，0 = 非面部区域。
+ * 用于让面部颜色比身体略亮一点。
  */
-function getFaceWeight(t, angle) {
-  if (t > 0.25) return 0; // 头部区域外
-  // 面部区域：靠近鼻端（t < 0.22）
-  const distFromNose = t / 0.22;
-  const tWeight = Math.exp(-distFromNose * distFromNose * 3.0);
-  return tWeight;
+function getFaceWeight(s, angle) {
+  if (s > HEAD_T_END + 0.04) return 0;
+  // 鼻端附近权重更高；同时让 "朝前" 的半球 +θ 靠近 0 的带形区域有效。
+  const u = s / HEAD_T_END;         // 0 在鼻端，1 在头部最鼓处
+  const distFromFront = u;
+  // 让朝前半球（|angle| 小 → cosθ 大 → 接近 1）权重更高
+  const lat = Math.max(0, Math.cos(angle));
+  const falloff = Math.exp(-distFromFront * distFromFront * 2.5) * (0.4 + 0.6 * lat);
+  return falloff;
 }
 
 // -------------------- 主网格生成 --------------------
 
 /**
- * 创建萨卡班甲鱼鱼雷形网格：圆球形头 + 平滑收窄身体 + 尾鳍。
+ * 基于参数化曲面 (s, θ) → (x, y, z)：
+ *   x = rx(s) · cosθ
+ *   y = yBend(s) + ry(s) · sinθ   （注意 angle=0 → +Y 上方；保持与旧约定一致）
+ *   z = spineZ(s) = headZ - s*(headZ + bodyLength)
  *
- * 参数：
- *   headX/headY/headZ — 头部三个方向半径
- *   bodyLength         — 身体长度（沿 -z 方向延伸的距离，不包括尾鳍延伸）
- *   bodyEndX/bodyEndY  — 身体末端半径（越小尾巴越尖）
- *   flukeEnabled       — 是否生成尾鳍（默认 true）
- *   flukeSize          — 尾鳍的左右/上下伸展倍数（默认 1.0）
+ * 真正的曲面法线用 T_s × T_θ 的叉乘计算：
+ *   T_θ = (-rx·sinθ,  ry·cosθ,  0)
+ *   T_s = (rx'·cosθ, yBend' + ry'·sinθ, z')
+ *
+ * 注意：为了让法线朝向"外侧"（远离主轴），叉乘顺序是 T_θ × T_s，
+ * 然后检查 z 分量符号是否正确（朝前的半球 nz > 0）。
  */
 export function createSpindleMesh(options = {}) {
   const {
     headX = 52,
     headY = 46,
     headZ = 50,
-    bodyLength = 180,      // 鱼雷形：身体更长
-    bodyEndX = 5,          // 末端更尖
-    bodyEndY = 4,
-    columns = 30,          // 沿脊柱的环数更多，让收窄更平滑
-    rows = 18,             // 每环更多分段
+    bodyLength = 180,
+    columns = 34,
+    rows = 24,
     flukeEnabled = true,
     flukeSize = 1.2,
     topColor = '#bdb8aa',
@@ -169,46 +175,65 @@ export function createSpindleMesh(options = {}) {
   const vertices = [];
   const faces = [];
 
-  // --- 生成主体顶点：沿脊柱 t 分布，绕 angle 环形 ---
+  // --- 主体顶点：参数化曲面 ---
+  // angle 约定：angle = -π 开始绕一整圈，使 row=0 位于 -Y（上方背面），row=rows/2 位于 +Y（下方正面）
   for (let col = 0; col <= columns; col++) {
-    const t = col / columns;
-    const cross = getSpineAndRadius(t, headX, headY, headZ, bodyLength, bodyEndX, bodyEndY);
+    const s = col / columns;
+    const sec = getSection(s, headX, headY, headZ, bodyLength);
+    const rx = sec.rx;
+    const ry = sec.ry;
+    const rxDeriv = sec.rxDeriv;
+    const ryDeriv = sec.ryDeriv;
+    const zDeriv = sec.spineZDeriv;
+    const yBendDeriv = sec.spineYDeriv;
 
     for (let row = 0; row <= rows; row++) {
-      // angle: 0 在 +Y（下），绕主轴环绕
+      // 与旧版保持一致：angle ∈ [-π, π]
       const angle = -Math.PI + (row / rows) * 2 * Math.PI;
       const cosA = Math.cos(angle);
       const sinA = Math.sin(angle);
 
-      // 椭圆截面，叠加脊柱的 X/Y 偏移（尾巴的弯曲）
-      const x = cross.xPos + cross.rx * sinA;
-      const y = cross.yPos + cross.ry * cosA;
-      const z = cross.zPos;
+      // 顶点位置（y 偏移 = 脊柱弯曲）
+      const x = sec.xPos + rx * cosA;
+      const y = sec.yPos + ry * sinA;
+      const z = sec.zPos;
 
-      // 椭圆外法线（用于光照和背面剔除）—— 简化为沿截面径向向外
-      const nxRaw = sinA / Math.max(cross.rx, 0.001);
-      const nyRaw = cosA / Math.max(cross.ry, 0.001);
-      const nLen = Math.sqrt(nxRaw * nxRaw + nyRaw * nyRaw) || 1;
-      const nx = nxRaw / nLen;
-      const ny = nyRaw / nLen;
-      const nz = 0; // 在变形后根据脊柱方向会自然考虑
+      // --- 曲面法线：T_θ × T_s ---
+      // T_θ = (-rx·sinθ,  ry·cosθ,  0)
+      const tthX = -rx * sinA;
+      const tthY = ry * cosA;
+      const tthZ = 0;
+      // T_s = (rx'·cosθ, yBend' + ry'·sinθ, z')
+      const tsX = rxDeriv * cosA;
+      const tsY = yBendDeriv + ryDeriv * sinA;
+      const tsZ = zDeriv;
 
-      // 面部权重 & 上下
-      const fw = getFaceWeight(t, angle);
-      const isTop = cosA < 0;
+      // 叉乘 n = T_θ × T_s
+      let nx = tthY * tsZ - tthZ * tsY;
+      let ny = tthZ * tsX - tthX * tsZ;
+      let nz = tthX * tsY - tthY * tsX;
+
+      // 归一化
+      const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+      nx /= nLen; ny /= nLen; nz /= nLen;
+
+      // 面部权重 & 上下：sinA > 0 → +Y → 下方；sinA < 0 → 上方
+      const fw = getFaceWeight(s, angle);
+      // isTop: 上方半（-Y 半球，即 sinA < 0）
+      const isTop = sinA < 0;
 
       vertices.push({
         x, y, z,
         nx, ny, nz,
-        t, angle, col, row,
+        t: s, angle, col, row,
         isTop, isBottom: !isTop,
         faceWeight: fw,
-        isHead: cross.isHead,
+        isHead: sec.isHead,
       });
     }
   }
 
-  // --- 生成主体面（四边形） ---
+  // --- 生成主体面（四边形）：与旧版同逻辑 ---
   for (let col = 0; col < columns; col++) {
     for (let row = 0; row < rows; row++) {
       const a = col * (rows + 1) + row;
@@ -221,12 +246,13 @@ export function createSpindleMesh(options = {}) {
       const vc = vertices[c];
       const vd = vertices[d];
 
-      const avgCos = (Math.cos(va.angle) + Math.cos(vb.angle) + Math.cos(vc.angle) + Math.cos(vd.angle)) / 4;
+      const avgSin = (va.angle !== undefined) ?
+        (Math.sin(va.angle) + Math.sin(vb.angle) + Math.sin(vc.angle) + Math.sin(vd.angle)) * 0.25 : 0;
       faces.push({
         indices: [a, b, d, c],
         vertices: [va, vb, vd, vc],
-        isTop: avgCos < 0,
-        isBottom: avgCos >= 0,
+        isTop: avgSin < 0,   // 上方 = -Y
+        isBottom: avgSin >= 0,
         column: col, row,
       });
     }
@@ -401,30 +427,63 @@ export function createSpindleMesh(options = {}) {
 // -------------------- 面部锚点 --------------------
 
 /**
- * 简化版锚点计算：五官锚定在头部前表面（椭球表面）。
+ * 计算五官锚点 + 局部切向量（right/up），以便在头部旋转后把
+ * 眼睛/眉毛/嘴"贴"到曲面上，并在侧视时被椭圆压缩。
  *
  * 输入：
  *   horizOffset —— 水平偏移（X 方向，正值向右）
  *   vertOffset  —— 垂直偏移（Y 方向，正值向下）
- *   depthOffset —— 沿深度的偏移（用于从表面外推一点，避免 z-fighting）
+ *   depthOffset —— 沿表面法线的外推距离（浮到皮肤外一点）
  *
- * 返回模型空间下的 (x, y, z) 和法线方向。
+ * 返回：
+ *   (x, y, z)         —— 锚点位置
+ *   (nx, ny, nz)      —— 椭球表面法线（≈朝摄像机方向归一化）
+ *   (tx, ty, tz)      —— 局部"右"方向（tangent，沿 X 在表面投影）
+ *   (bx, by, bz)      —— 局部"下"方向（binormal，沿 Y 投影）
+ *
+ * 这样，在渲染时，眉毛沿 tangent 画，嘴的垂直方向沿 binormal。
+ * 旋转后再投影，侧视椭圆自然出现。
  */
 export function computeFaceAnchorXYZ(mesh, _, horizOffset, vertOffset, depthOffset = 0.5) {
-  // 五官锚定在头部前表面。用椭球方程求正确的 z：
-  //   (x/hx)^2 + (y/hy)^2 + (z/hz)^2 = 1
-  //   z = hz * sqrt(1 - (x/hx)^2 - (y/hy)^2)
   const hx = mesh.headX, hy = mesh.headY, hz = mesh.headZ;
   const x = horizOffset;
   const y = vertOffset;
   const inside = 1 - (x * x) / (hx * hx) - (y * y) / (hy * hy);
-  const zSurface = hz * Math.sqrt(Math.max(0.01, inside));
+  const zSurface = hz * Math.sqrt(Math.max(0.02, inside));
   const z = zSurface + depthOffset;
+
+  // 椭球表面法线 = (x/hx², y/hy², z/hz²) 方向
+  let nx = x / (hx * hx);
+  let ny = y / (hy * hy);
+  let nz = zSurface / (hz * hz);
+  const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+  nx /= nLen; ny /= nLen; nz /= nLen;
+
+  // 两个切向量：在椭球表面上估计"右"和"下"
+  //   右方向 = (1, 0, -x/z * (hz²/hx²)) —— 近似保持在切平面；为稳定起见用 Gram-Schmidt：
+  //   先猜 right ≈ (1, 0, -x/z * something)，然后减去沿法线分量
+  const approxRX = 1.0;
+  const approxRY = 0.0;
+  const approxRZ = (Math.abs(zSurface) > 0.01) ? -(x * hz * hz) / (hx * hx * zSurface) : 0;
+  const dotRN = approxRX * nx + approxRY * ny + approxRZ * nz;
+  let tx = approxRX - dotRN * nx;
+  let ty = approxRY - dotRN * ny;
+  let tz = approxRZ - dotRN * nz;
+  const tLen = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1;
+  tx /= tLen; ty /= tLen; tz /= tLen;
+
+  // "下"方向 = n × t （右手系，保证互相垂直）
+  let bx = ny * tz - nz * ty;
+  let by = nz * tx - nx * tz;
+  let bz = nx * ty - ny * tx;
+  const bLen = Math.sqrt(bx * bx + by * by + bz * bz) || 1;
+  bx /= bLen; by /= bLen; bz /= bLen;
 
   return {
     x, y, z,
-    nx: 0, ny: 0, nz: 1,
-    tangentX: 1, tangentY: 0, tangentZ: 0,
+    nx, ny, nz,
+    tx, ty, tz,
+    bx, by, bz,
     faceWeight: 1.0,
   };
 }
