@@ -23,7 +23,7 @@ class FaceTracker {
 
     this.running = false;
     this.privacyMode = false;
-    this.mirrorData = false;
+    this.mirrorData = true;
     this.lastVideoTime = -1;
     this.fps = 0;
     this.lastFpsTime = 0;
@@ -834,6 +834,11 @@ class FaceTracker {
       pitch = Math.atan2(-m[9], sy);
       roll = 0;
     }
+
+    // 反向 pitch 和 roll，使 avatar 动作方向与用户面部动作一致
+    // MediaPipe 坐标约定与渲染器约定在俯仰、倾斜上反向
+    pitch = -pitch;
+    roll = -roll;
 
     // 归一化到 0-1 范围
     // 镜像模式下左右翻转 headYaw 和 headRoll
