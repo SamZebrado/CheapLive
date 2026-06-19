@@ -99,7 +99,8 @@ function getSpineAndRadius(t, headX, headY, headZ, bodyLength, bodyEndX, bodyEnd
     return { xPos: spineX, zPos, rx, ry, isHead: true };
   }
 
-  // --- 身体：从颈部向 -Z 延伸，尾部向 +X（右）和 +Y（下）弯曲 ---
+  // --- 身体：从颈部向 -Z 延伸，尾部向 +Y（屏幕下方）弯曲 ---
+  // 尾巴向下方弯，正视角下从下巴下方居中伸出，不会偏向一边
   const headEndRX = headX * 0.72;
   const headEndRY = headY * 0.72;
 
@@ -113,12 +114,12 @@ function getSpineAndRadius(t, headX, headY, headZ, bodyLength, bodyEndX, bodyEnd
   const headZBack = -headZ * 0.10;
   const zPos = headZBack - bodyLength * bodyT;
 
-  // 尾巴弯曲：从 bodyT≈0.62 开始向 +X 弯，向 +Y 轻微向下弯
-  // 让尾尖中心 x ≈ 68，y ≈ 22（在头部右下露出）
-  const tailBendStartT = 0.62;
+  // 尾巴弯曲：只向 +Y（屏幕下方）弯曲，保持 X 方向居中对称
+  // 让尾尖从下巴下方居中伸出
+  const tailBendStartT = 0.55;
   const tailBend = smoothstep01(Math.max(0, (bodyT - tailBendStartT) / (1 - tailBendStartT)));
-  const tailTipOffsetX = headX * 0.97;  // ≈ 68
-  const tailTipOffsetY = headY * 0.38;  // ≈ 22
+  const tailTipOffsetX = 0;          // 不向左右偏
+  const tailTipOffsetY = headY * 0.90; // 向下弯 ~52 单位
   const spineX = tailTipOffsetX * tailBend * tailBend;
   const spineY = tailTipOffsetY * tailBend * tailBend;
 

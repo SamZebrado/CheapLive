@@ -435,20 +435,17 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
   _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
     const anchors = this.getAnchors(np);
 
-    const drawEye = (anchor, openness, isNear) => {
+    const drawEye = (anchor, openness) => {
       const local = computeSphereFaceAnchorXYZ(this.mesh, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
-      // 远侧眼缩小到 76% 并向中线收 20%
-      const farScale = isNear ? 1.0 : 0.76;
-      const farYOffset = isNear ? 0 : -anchor.vertOffset * 0.20;
-      const yawCompress = clamp(facing, 0.3, 1);
-      const rx = 10 * scale * yawCompress * farScale;
-      const ry = 10 * scale * (0.4 + 0.6 * openness) * farScale;
+      // 两眼完全等大对称，不做远近眼缩放
+      const rx = 10 * scale;
+      const ry = 10 * scale * (0.4 + 0.6 * openness);
       ctx.save();
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY + farYOffset, rx, ry, 0, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, rx, ry, 0, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.globalAlpha = facing;
       ctx.fill();
@@ -459,29 +456,28 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
         ctx.beginPath();
         const pupilRx = rx * 0.55;
         const pupilRy = rx * 0.55;
-        ctx.ellipse(t.screenX, t.screenY + farYOffset, pupilRx, pupilRy, 0, 0, Math.PI * 2);
+        ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#1f1f1f';
         ctx.fill();
       }
       ctx.restore();
     };
 
-    const drawBrow = (anchor, raise, isLeft) => {
+    const drawBrow = (anchor, raise) => {
       const local = computeSphereFaceAnchorXYZ(this.mesh, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      const yawCompress = clamp(facing, 0.3, 1);
-      const len = 20 * scale * yawCompress;
+      const len = 20 * scale;
       const up = -raise * 6 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1, 2.2 * scale);
       ctx.beginPath();
-      const tilt = isLeft ? -0.1 : 0.1;
+      // 眉毛水平对称，不做左右倾斜
       ctx.moveTo(t.screenX - len * 0.5, t.screenY + up);
-      ctx.lineTo(t.screenX + len * 0.5, t.screenY + up + tilt * len);
+      ctx.lineTo(t.screenX + len * 0.5, t.screenY + up);
       ctx.stroke();
       ctx.restore();
     };
@@ -491,10 +487,9 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      const yawCompress = clamp(facing, 0.3, 1);
-      // 微笑：嘴角上扬 + 嘴宽增加；张开：高度增加
-      const smileWiden = 1 + smile * 0.4;     // 最大加宽 40%
-      const halfW = 22 * scale * yawCompress * smileWiden;
+      // 正视角对称绘制，不做侧视图压缩
+      const smileWiden = 1 + smile * 0.4;
+      const halfW = 22 * scale * smileWiden;
       const openH = 3 * scale + 14 * scale * open;
       const cornerUp = -smile * 8 * scale;    // 嘴角上移
       const centerUp = -smile * 3 * scale;     // 中心轻微上移
@@ -545,18 +540,11 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    // 左眼 & 右眼：镜像时对调"左右"，远侧眼缩小到 76% 并向中线收
-    if (this.mirror) {
-      drawEye(anchors.rightEye, np.eyeLeft, true);   // 近侧（屏幕左侧）：rightEye 锚点，左眼参数
-      drawEye(anchors.leftEye, np.eyeRight, false);   // 远侧（屏幕右侧）：leftEye 锚点，右眼参数（缩小到 76%）
-      drawBrow(anchors.browRight, np.browLeft, true);
-      drawBrow(anchors.browLeft, np.browRight, false);
-    } else {
-      drawEye(anchors.leftEye, np.eyeLeft, true);    // 近侧（屏幕左侧）：leftEye 锚点，左眼参数
-      drawEye(anchors.rightEye, np.eyeRight, false); // 远侧（屏幕右侧）：rightEye 锚点，右眼参数
-      drawBrow(anchors.browLeft, np.browLeft, true);
-      drawBrow(anchors.browRight, np.browRight, false);
-    }
+    // 正视角：左右眼完全对称等大
+    drawEye(anchors.leftEye, np.eyeLeft);
+    drawEye(anchors.rightEye, np.eyeRight);
+    drawBrow(anchors.browLeft, np.browLeft);
+    drawBrow(anchors.browRight, np.browRight);
     drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile);
   }
 }
