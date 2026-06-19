@@ -152,12 +152,44 @@ export function computeSphereFaceAnchor(mesh, phi, theta, surfaceOffset = 0) {
  */
 export function computeSphereFaceAnchorXYZ(mesh, horizOffset, vertOffset, surfaceOffset = 0) {
   const r = mesh.radius;
+  // 求表面点：把 (horizOffset, vertOffset) 投影到球面上
+  const xyLen = Math.sqrt(horizOffset * horizOffset + vertOffset * vertOffset);
+  const clamped = Math.min(xyLen, r * 0.95);
+  const scale = xyLen > 0.001 ? clamped / xyLen : 1;
+  const x = horizOffset * scale;
+  const y = vertOffset * scale;
+  const zSurface = Math.sqrt(Math.max(0, r * r - x * x - y * y));
+  const z = zSurface + surfaceOffset;
+
+  // 法线 = 球面径向
+  const nLen = r || 1;
+  const nx = x / nLen;
+  const ny = y / nLen;
+  const nz = zSurface / nLen;
+
+  // 切向量（right）：沿 X 方向近似，再 Gram-Schmidt 正交化
+  const approxRX = 1.0, approxRY = 0.0;
+  const approxRZ = (Math.abs(zSurface) > 0.01) ? -x / zSurface : 0;
+  const dot = approxRX * nx + approxRY * ny + approxRZ * nz;
+  let tx = approxRX - dot * nx;
+  let ty = approxRY - dot * ny;
+  let tz = approxRZ - dot * nz;
+  const tLen = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1;
+  tx /= tLen; ty /= tLen; tz /= tLen;
+
+  // binormal（下） = n × t
+  let bx = ny * tz - nz * ty;
+  let by = nz * tx - nx * tz;
+  let bz = nx * ty - ny * tx;
+  const bLen = Math.sqrt(bx * bx + by * by + bz * bz) || 1;
+  bx /= bLen; by /= bLen; bz /= bLen;
+
   return {
-    x: horizOffset,
-    y: vertOffset,
-    z: r + surfaceOffset,
-    nx: 0, ny: 0, nz: 1,
-    tangentX: 1, tangentY: 0, tangentZ: 0,
+    x, y, z,
+    nx, ny, nz,
+    tx, ty, tz,
+    bx, by, bz,
+    faceWeight: 1.0,
   };
 }
 

@@ -318,11 +318,13 @@ class FaceTracker {
     document.getElementById('testYawRight').addEventListener('click', () => {
       const p = getCurrentPose(); this.avatar.updateParams({ headYaw: clamp01(p.yaw + POSE_STEP) });
     });
+    // "抬头"（fish 头向上方看）→ headPitch 增大 → angleX 正 → 鼻端在 -Z，旋转后鼻端向下移（让"头顶"抬到上方）
+    // "低头" → headPitch 减小
     document.getElementById('testPitchUp').addEventListener('click', () => {
-      const p = getCurrentPose(); this.avatar.updateParams({ headPitch: clamp01(p.pitch - POSE_STEP) });
+      const p = getCurrentPose(); this.avatar.updateParams({ headPitch: clamp01(p.pitch + POSE_STEP) });
     });
     document.getElementById('testPitchDown').addEventListener('click', () => {
-      const p = getCurrentPose(); this.avatar.updateParams({ headPitch: clamp01(p.pitch + POSE_STEP) });
+      const p = getCurrentPose(); this.avatar.updateParams({ headPitch: clamp01(p.pitch - POSE_STEP) });
     });
     document.getElementById('testRollLeft').addEventListener('click', () => {
       const p = getCurrentPose(); this.avatar.updateParams({ headRoll: clamp01(p.roll - POSE_STEP) });
