@@ -42,59 +42,78 @@ function getSpineX(t, headR, bodyLength) {
  */
 function getBodyWidth(t, headR, bodyWidth, bodyLength) {
   const maxW = bodyWidth * 1.0;
-  const shieldBaseW = bodyWidth * 0.48; // 头盾后缘比原来更细
-  const tailBaseW = bodyWidth * 0.18;
+  const shieldBaseW = bodyWidth * 0.45;
+  const tailBaseW = bodyWidth * 0.16;
   const tailTipW = bodyWidth * 0.04;
 
+  let result;
   if (t < 0.15) {
-    // 鼻端到头盾最宽处：快速撑开到最大
+    // 头盾前段：横向放大 12%，让头盾更宽更扁
     const k = t / 0.15;
     const eased = Math.sin(k * Math.PI * 0.5);
-    return maxW * (0.50 + 0.50 * eased);
-  } else if (t < 0.45) {
-    // 头盾主体：到 0.45 时快速收窄到 48%
-    const k = (t - 0.15) / 0.30;
-    // 使用平方曲线：前慢后快，让收窄集中在后半段
-    const eased = k * k;
-    return maxW - (maxW - shieldBaseW) * eased;
+    result = maxW * (0.50 + 0.50 * eased) * 1.12;
+  } else if (t < 0.16) {
+    // 过渡：保持放大状态
+    result = maxW * 1.12;
+  } else if (t < 0.28) {
+    // 头后 pinch：额外压缩到 93%，形成颈缩感
+    const k = (t - 0.16) / 0.12;
+    const base = maxW - (maxW - shieldBaseW) * (k * k);
+    result = base * (1.0 - (1.0 - 0.93) * k);
+  } else if (t < 0.50) {
+    // 躯干前半段：从 pinch 后快速收细
+    const k = (t - 0.28) / 0.22;
+    const eased = 0.5 * (1 - Math.cos(k * Math.PI));
+    result = shieldBaseW - (shieldBaseW - bodyWidth * 0.28) * eased;
   } else if (t < 0.75) {
-    // 尾柄前半段：从 48% 继续收窄到 18%
-    const k = (t - 0.45) / 0.30;
-    const eased = 0.5 * (1 - Math.cos(k * Math.PI * 0.8));
-    return shieldBaseW - (shieldBaseW - tailBaseW) * eased;
+    // 尾柄后半段：继续收细到 16%
+    const k = (t - 0.50) / 0.25;
+    const eased = 0.5 * (1 - Math.cos(k * Math.PI * 0.9));
+    result = (bodyWidth * 0.28) - ((bodyWidth * 0.28) - tailBaseW) * eased;
   } else {
-    // 尾尖后半段：快速收细
+    // 尾尖：快速收细
     const k = (t - 0.75) / 0.25;
-    return tailBaseW * (1 - k * k) + tailTipW * (k * k);
+    result = tailBaseW * (1 - k * k) + tailTipW * (k * k);
   }
+  return result;
 }
 
 /**
- * 水滴形截面深度函数（z 方向：朝摄像机方向的深度，也决定屏幕上下高度）。
- * 以 bodyDepth 为基础尺寸，萨卡班甲鱼深度比宽度更小（更扁）。
+ * 水滴形截面深度函数（z 方向：比宽度更小，让头盾更扁平）。
+ * 前段纵向压缩 90%，让头部更扁。
  */
 function getBodyDepth(t, headR, bodyDepth, bodyLength) {
   const maxD = bodyDepth * 1.0;
-  const shieldBaseD = bodyDepth * 0.45; // 深度收得比宽度更快
-  const tailBaseD = bodyDepth * 0.15;
+  const shieldBaseD = bodyDepth * 0.42;
+  const tailBaseD = bodyDepth * 0.14;
   const tailTipD = bodyDepth * 0.04;
 
+  let result;
   if (t < 0.15) {
+    // 头盾前段：纵向压缩 90%，让头盾更扁
     const k = t / 0.15;
     const eased = Math.sin(k * Math.PI * 0.5);
-    return maxD * (0.50 + 0.50 * eased);
-  } else if (t < 0.45) {
-    const k = (t - 0.15) / 0.30;
-    const eased = k * k;
-    return maxD - (maxD - shieldBaseD) * eased;
+    result = maxD * (0.50 + 0.50 * eased) * 0.90;
+  } else if (t < 0.16) {
+    result = maxD * 0.90;
+  } else if (t < 0.28) {
+    // 头后 pinch：深度压缩更明显到 88%
+    const k = (t - 0.16) / 0.12;
+    const base = maxD - (maxD - shieldBaseD) * (k * k);
+    result = base * (1.0 - (1.0 - 0.88) * k);
+  } else if (t < 0.50) {
+    const k = (t - 0.28) / 0.22;
+    const eased = 0.5 * (1 - Math.cos(k * Math.PI));
+    result = shieldBaseD - (shieldBaseD - bodyDepth * 0.25) * eased;
   } else if (t < 0.75) {
-    const k = (t - 0.45) / 0.30;
-    const eased = 0.5 * (1 - Math.cos(k * Math.PI * 0.8));
-    return shieldBaseD - (shieldBaseD - tailBaseD) * eased;
+    const k = (t - 0.50) / 0.25;
+    const eased = 0.5 * (1 - Math.cos(k * Math.PI * 0.9));
+    result = (bodyDepth * 0.25) - ((bodyDepth * 0.25) - tailBaseD) * eased;
   } else {
     const k = (t - 0.75) / 0.25;
-    return tailBaseD * (1 - k * k) + tailTipD * (k * k);
+    result = tailBaseD * (1 - k * k) + tailTipD * (k * k);
   }
+  return result;
 }
 
 /**
@@ -139,7 +158,7 @@ export function createSpindleMesh(options = {}) {
     headR = 95,
     bodyLength = 150,
     bodyWidth = 52,
-    bodyDepth = 34,
+    bodyDepth = 31,
     columns = 26,
     rows = 14,
     topColor = '#bdb8aa',       // 背部/上半灰色

@@ -436,33 +436,31 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
   _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
     const anchors = this.getAnchors(np);
 
-    const drawEye = (anchor, openness, isLeft) => {
+    const drawEye = (anchor, openness, isNear) => {
       const local = computeSphereFaceAnchorXYZ(this.mesh, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
-      // 可见性：根据法线朝向摄像机 (+Z) 的程度
       const facing = clamp(t.nz, -0.2, 1.0);
-      if (facing <= 0) return; // 转到后面直接隐藏
-      // yaw 过大时压缩横向
+      if (facing <= 0) return;
+      // 远侧眼缩小到 76% 并向中线收 20%
+      const farScale = isNear ? 1.0 : 0.76;
+      const farYOffset = isNear ? 0 : -anchor.vertOffset * 0.20;
       const yawCompress = clamp(facing, 0.3, 1);
-      const rx = 10 * scale * yawCompress;
-      const ry = 10 * scale * (0.4 + 0.6 * openness);
+      const rx = 10 * scale * yawCompress * farScale;
+      const ry = 10 * scale * (0.4 + 0.6 * openness) * farScale;
       ctx.save();
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, rx, ry, 0, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY + farYOffset, rx, ry, 0, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.globalAlpha = facing;
       ctx.fill();
       ctx.lineWidth = 1.5 * (scale / 1.0);
       ctx.strokeStyle = '#222';
       ctx.stroke();
-
-      // 瞳孔：尺寸固定，不随 openness 缩放
-      // 眼睑开合通过裁剪眼白区域来实现，而不是缩放瞳孔
       if (openness > 0.1) {
         ctx.beginPath();
         const pupilRx = rx * 0.55;
-        const pupilRy = rx * 0.55;  // 固定尺寸，与 rx 成正比，不受 openness 影响
-        ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, 0, 0, Math.PI * 2);
+        const pupilRy = rx * 0.55;
+        ctx.ellipse(t.screenX, t.screenY + farYOffset, pupilRx, pupilRy, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#1f1f1f';
         ctx.fill();
       }
@@ -548,10 +546,10 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    // 左眼 & 右眼：镜像时对调"左右"，远侧眼缩小到 80% 并向中线收
+    // 左眼 & 右眼：镜像时对调"左右"，远侧眼缩小到 76% 并向中线收
     if (this.mirror) {
       drawEye(anchors.rightEye, np.eyeLeft, true);   // 近侧（屏幕左侧）：rightEye 锚点，左眼参数
-      drawEye(anchors.leftEye, np.eyeRight, false);   // 远侧（屏幕右侧）：leftEye 锚点，右眼参数
+      drawEye(anchors.leftEye, np.eyeRight, false);   // 远侧（屏幕右侧）：leftEye 锚点，右眼参数（缩小到 76%）
       drawBrow(anchors.browRight, np.browLeft, true);
       drawBrow(anchors.browLeft, np.browRight, false);
     } else {
@@ -618,10 +616,10 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     // 五官位置基于 bodyWidth（Y方向，屏幕上下），确保与身体宽度成比例
     const mesh = this.spindleMesh;
     const w = mesh.bodyWidth;
-    const eyeSpacing = w * 0.35;   // 两眼水平间距（稍微收窄，保证落在头盾轮廓内）
+    const eyeSpacing = w * 0.33;   // 两眼水平间距（再收一点，保证落在头盾轮廓内）
     const eyeHeight = -w * 0.10;   // 眼在中心略上（负 = 向上）
     const mouthHeight = w * 0.26;  // 嘴在中心下方（正 = 向下）
-    const mouthWidth = w * 0.18;   // 嘴宽：头宽的 18%
+    const mouthWidth = w * 0.16;   // 嘴宽：头宽的 16%（更小更像古鱼）
     const browOffset = -w * 0.18;  // 眉在眼上方（更靠近眼睛）
     const browSpacing = w * 0.28;  // 眉水平间距
 
@@ -697,9 +695,9 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
-      // 远侧眼（isNear=false）缩小并向中线收：scale=0.8，y向内移 15%
-      const farScale = isNear ? 1.0 : 0.80;
-      const farYOffset = isNear ? 0 : -anchor.vertOffset * 0.15;
+      // 远侧眼（isNear=false）缩小到 76% 并向中线收 20%
+      const farScale = isNear ? 1.0 : 0.76;
+      const farYOffset = isNear ? 0 : -anchor.vertOffset * 0.20;
       const yawCompress = clamp(facing, 0.3, 1);
       const rx = 10 * scale * yawCompress * farScale;
       const ry = 10 * scale * (0.4 + 0.6 * openness) * farScale;
