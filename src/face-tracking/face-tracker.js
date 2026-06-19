@@ -594,14 +594,35 @@ class FaceTracker {
     if (vcToggle) {
       vcToggle.addEventListener('change', async (e) => {
         this.voiceChangerEnabled = e.target.checked;
-        if (this.voiceChangerEnabled && !this.voiceChanger) {
-          const { VoiceChanger } = await import('./voice-changer.js');
-          this.voiceChanger = new VoiceChanger();
+        if (this.voiceChangerEnabled) {
+          if (!this.voiceChanger) {
+            const { VoiceChanger } = await import('./voice-changer.js');
+            this.voiceChanger = new VoiceChanger();
+          }
+          // 关键修复：真正调用 start() 来请求麦克风并启动音频处理
+          try {
+            await this.voiceChanger.start();
+            this.status.textContent = '变声已开启';
+          } catch (err) {
+            this.status.textContent = '变声启动失败: ' + err.message;
+            vcToggle.checked = false;
+            this.voiceChangerEnabled = false;
+            if (this.voiceChanger) {
+              this.voiceChanger.stop();
+            }
+            return;
+          }
+          // 显示变声控制面板
+          const panel = document.getElementById('voiceChangerPanel');
+          if (panel) panel.classList.remove('hidden');
+        } else {
+          if (this.voiceChanger) {
+            this.voiceChanger.stop();
+          }
+          const panel = document.getElementById('voiceChangerPanel');
+          if (panel) panel.classList.add('hidden');
+          this.status.textContent = '变声已关闭';
         }
-        // 显示/隐藏变声控制面板
-        const panel = document.getElementById('voiceChangerPanel');
-        if (panel) panel.classList.toggle('hidden', !this.voiceChangerEnabled);
-        this.status.textContent = this.voiceChangerEnabled ? '变声已开启' : '变声已关闭';
       });
     }
 
@@ -627,15 +648,25 @@ class FaceTracker {
     if (subToggle) {
       subToggle.addEventListener('change', async (e) => {
         this.subtitleEnabled = e.target.checked;
-        if (this.subtitleEnabled && !this.liveSubtitle) {
-          const { LiveSubtitle } = await import('./live-subtitle.js');
-          this.liveSubtitle = new LiveSubtitle();
-          this.liveSubtitle.onResult = (text) => this.updateSubtitle(text);
-        }
         if (this.subtitleEnabled) {
+          // 先检查浏览器支持
+          const supported =
+            'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+          if (!supported) {
+            this.status.textContent =
+              '字幕不可用: 当前浏览器不支持 Web Speech API（仅 Chrome/Edge/QQ浏览器 部分支持）';
+            subToggle.checked = false;
+            this.subtitleEnabled = false;
+            return;
+          }
+          if (!this.liveSubtitle) {
+            const { LiveSubtitle } = await import('./live-subtitle.js');
+            this.liveSubtitle = new LiveSubtitle();
+            this.liveSubtitle.onResult = (text) => this.updateSubtitle(text);
+          }
           try {
             this.liveSubtitle.start();
-            this.status.textContent = '字幕已开启';
+            this.status.textContent = '字幕已开启（基于浏览器语音识别服务）';
           } catch (err) {
             this.status.textContent = '字幕开启失败: ' + err.message;
             subToggle.checked = false;
@@ -688,18 +719,54 @@ class FaceTracker {
   async loadModel() {
     this.status.textContent = '正在加载 MediaPipe 模型...';
 
-    // 动态 import：仅在用户主动点击"启动摄像头"时加载 CDN 资源
-    const { FaceLandmarker, FilesetResolver } = await import(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm'
-    );
+    // 本地文件路径（与本 index.html 同目录的 mediapipe 子目录）
+    const localBase = './mediapipe';
+    const localWasmUrl = `${localBase}/wasm`;
+    const localModelUrl = `${localBase}/face_landmarker.task`;
 
-    const filesetResolver = await FilesetResolver.forVisionTasks(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
-    );
+    const resolveMod = (mod) => {
+      const m = mod || {};
+      return {
+        FaceLandmarker: m.FaceLandmarker || (m.default && m.default.FaceLandmarker),
+        FilesetResolver: m.FilesetResolver || (m.default && m.default.FilesetResolver),
+      };
+    };
+
+    let FaceLandmarker = null;
+    let FilesetResolver = null;
+    let wasmBaseUrl = '';
+    let modelAssetPath = '';
+
+    // 直接尝试从本地加载；如果本地文件不存在或无法识别，再回退到 CDN。
+    // 这样避免了 fetch HEAD/Range 对某些静态服务器或大文件的兼容性问题。
+    try {
+      const mod = resolveMod(await import('./mediapipe/vision_bundle.mjs'));
+      FaceLandmarker = mod.FaceLandmarker;
+      FilesetResolver = mod.FilesetResolver;
+      if (!FaceLandmarker || !FilesetResolver) {
+        throw new Error('本地模块缺少预期导出');
+      }
+      wasmBaseUrl = localWasmUrl;
+      modelAssetPath = localModelUrl;
+      this.status.textContent = '加载本地模型（不依赖 CDN）...';
+    } catch (err) {
+      console.warn('本地模型加载失败，回退到 CDN:', err);
+      this.status.textContent = '从 CDN 加载模型（首次加载较慢，约 12MB）...';
+      const mod = resolveMod(await import(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm'
+      ));
+      FaceLandmarker = mod.FaceLandmarker;
+      FilesetResolver = mod.FilesetResolver;
+      wasmBaseUrl = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm';
+      modelAssetPath =
+        'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+    }
+
+    const filesetResolver = await FilesetResolver.forVisionTasks(wasmBaseUrl);
 
     this.faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
       baseOptions: {
-        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        modelAssetPath: modelAssetPath,
         delegate: 'GPU',
       },
       outputFaceBlendshapes: true,
@@ -709,7 +776,7 @@ class FaceTracker {
     });
 
     this.loading.classList.add('hidden');
-    this.status.textContent = '模型加载完成，点击"启动摄像头"开始';
+    this.status.textContent = `模型加载完成，点击"启动摄像头"开始`;
   }
 
   async start() {
