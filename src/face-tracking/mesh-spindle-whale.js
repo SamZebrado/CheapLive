@@ -1,12 +1,17 @@
 /**
- * Mesh Spindle + Whale Tail - 纺锤体身体 + 鲸鱼尾巴网格生成器
+ * Mesh Sacabambaspis (萨卡班甲鱼) - 圆盾形头部 + 细尾网格生成器
  *
  * 语义约定：
  *   - 主轴沿 X 方向。
  *   - t=0 为鼻端（头部），t=1 为尾端。
  *   - 摄像机朝向 +Z，近侧表面法线指向 +Z。
  *   - angle=0 对应下方（肚子/底部），angle=±π 为上方（背）。
- *   - 面部区域位于 headT 区间的近侧 (angle 接近 0 的一个带)。
+ *   - 面部区域位于 headT 区间的近侧 (angle=PI/2)。
+ *
+ * 形状设计：
+ *   - 头部为大而扁平的圆盾形 / 水滴形（前宽后窄）
+ *   - Y 方向（半宽）显著大于 Z 方向（深度）→ 扁平椭圆截面
+ *   - 头部占身体约 55% 长度，尾部迅速收细
  *
  * 说明：不依赖 Live2D Cubism；为程序化 Canvas 2D 网格渲染。
  */
@@ -15,10 +20,11 @@
 
 function getSpineX(t, headR, bodyLength) {
   // 脊柱位置：头部在负数一侧（靠近摄像机负 X 端），尾部在 +X。
-  const p0 = -headR * 0.35;          // 鼻端
-  const p3 = bodyLength + 30;         // 尾端
-  const cp1 = headR * 0.4;
-  const cp2 = bodyLength * 0.7;
+  // 头盾占身体的大部分比例，萨卡班甲鱼以头部为主。
+  const p0 = -headR * 0.15;          // 鼻端（略向前凸）
+  const p3 = bodyLength + 20;         // 尾端
+  const cp1 = headR * 0.1;
+  const cp2 = bodyLength * 0.55;      // 头盾后缘在 55% 位置
   const mt = 1 - t;
   return (mt * mt * mt) * p0
        + 3 * (mt * mt) * t * cp1
@@ -27,48 +33,59 @@ function getSpineX(t, headR, bodyLength) {
 }
 
 /**
- * 身体横断面的半宽（y 方向）。
- * t 越小越靠前，越圆润；中段保持稳定，尾部收细。
+ * 圆形截面的半径函数。
+ * 设计目标：前大后小的水滴/圆盾形轮廓。
+ *   - t=0：鼻端（略小，圆润过渡）
+ *   - t≈0.15：达到最大半径（圆盾形头部的中心）
+ *   - t≈0.15-0.60：缓慢收窄（头盾主体，保持圆润）
+ *   - t≈0.60-1.0：快速收细为细尾
+ *
+ * 由于截面是圆形（y 方向半宽 = z 方向半深），
+ * getBodyWidth 和 getBodyDepth 都调用此函数。
  */
-function getBodyWidth(t, headR, bodyWidth, bodyLength) {
-  if (t < 0.25) {
-    // 萨卡班甲鱼头部：圆球形，前端较圆
-    const k = t / 0.25;
-    const fade = Math.sin(k * Math.PI * 0.5);
-    const minWidth = headR * 0.5;
-    return minWidth + (headR - minWidth) * fade;
+function getBodyRadius(t, headR, bodyWidth) {
+  const maxR = headR * 1.10;      // 头盾最大半径（圆盾又大又圆）
+  const shieldBaseR = headR * 0.55; // 头盾后缘半径
+  const tailBaseR = headR * 0.20;   // 尾基部半径
+  const tailTipR = headR * 0.05;    // 尾尖半径
+
+  if (t < 0.15) {
+    // 鼻端 -> 头盾最宽处：圆润地撑开
+    const k = t / 0.15;
+    // sin 缓出：从鼻端 60% 直径平滑增长到最大直径
+    const eased = Math.sin(k * Math.PI * 0.5);
+    return maxR * (0.60 + 0.40 * eased);
   } else if (t < 0.60) {
-    // 头部-身体过渡：略窄
-    return bodyWidth * (1 - (t - 0.25) / 0.35 * 0.15);
-  } else if (t < 0.85) {
-    // 身体中部，收细
-    return bodyWidth * (0.92 - (t - 0.60) * 0.3);
+    // 头盾主体：从最大半径缓慢收窄到盾基
+    const k = (t - 0.15) / 0.45;
+    // 余弦缓出：中段保持较圆，后段加速收窄
+    const eased = 0.5 * (1 - Math.cos(k * Math.PI));
+    return maxR - (maxR - shieldBaseR) * eased;
+  } else if (t < 0.90) {
+    // 尾柄：从盾基收窄到尾基
+    const k = (t - 0.60) / 0.30;
+    return shieldBaseR * (1 - k) + tailBaseR * k;
   } else {
-    // 尾柄快速收细
-    const tt = (t - 0.85) / 0.15;
-    return bodyWidth * 0.75 * (1 - tt) * (1 - tt * 0.5);
+    // 尾尖：快速收细
+    const k = (t - 0.90) / 0.10;
+    return tailBaseR * (1 - k) + tailTipR * k;
   }
 }
 
 /**
+ * 身体横断面的半宽（y 方向）。
+ * 圆形截面 → 与深度相同。
+ */
+function getBodyWidth(t, headR, bodyWidth, bodyLength) {
+  return getBodyRadius(t, headR, bodyWidth);
+}
+
+/**
  * 身体横断面的深度（z 方向）。
- * 与 bodyWidth 协同，使得正面看起来是圆形头部。
+ * 圆形截面 → 与宽度相同。
  */
 function getBodyDepth(t, headR, bodyDepth, bodyLength) {
-  if (t < 0.25) {
-    // 萨卡班甲鱼头部：圆球形，深度接近宽度
-    const k = t / 0.25;
-    const fade = Math.sin(k * Math.PI * 0.5);
-    const minDepth = headR * 0.45;
-    return minDepth + (headR * 0.95 - minDepth) * fade;
-  } else if (t < 0.60) {
-    return bodyDepth * (1 - (t - 0.25) / 0.35 * 0.12);
-  } else if (t < 0.85) {
-    return bodyDepth * (0.90 - (t - 0.60) * 0.25);
-  } else {
-    const tt = (t - 0.85) / 0.15;
-    return bodyDepth * 0.72 * (1 - tt) * (1 - tt * 0.5);
-  }
+  return getBodyRadius(t, headR, bodyDepth);
 }
 
 /**
