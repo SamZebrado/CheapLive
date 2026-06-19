@@ -1,5 +1,5 @@
 /**
- * Mesh Sacabambaspis (萨卡班甲鱼) — 简化版：圆球形头部 + 平滑收细身体
+ * Mesh Sacabambaspis (萨卡班甲鱼) — 鱼雷形：圆球形头部 + 流线型收窄身体 + 尾鳍
  *
  * 坐标约定（面向摄像机）：
  *   - X：屏幕水平（右为正）
@@ -14,10 +14,12 @@
  *   - screenY = originY + ty * scale
  *   - depth = tz（越大越近，最后画）
  *
- * 设计目标：
- *   - 头部：略微压扁的圆椭球，正面对观众
- *   - 身体：从头后方（-z 方向）平滑收细到尾巴
- *   - 无突兀的角度转折，整体像一条"大头鱼"
+ * 设计目标（鱼雷形状）：
+ *   - 头部：接近完美的圆球形，从鼻端快速膨胀到最大半径
+ *   - 身体：最大半径之后**平滑、缓慢地收窄**（前段慢、后段快），形成流线型
+ *   - 尾鳍：在身体后段向外延伸出一个扁平的三角形尾鳍，尖尾收尾
+ *   - 整体比例：头直径 : 身体长度 ≈ 1 : 3（鱼雷/潜艇比例）
+ *   - 尾尖向上轻微翘起（萨卡班甲鱼的尾鳍特征）
  *
  * 说明：不依赖 Live2D Cubism；为程序化 Canvas 2D 网格渲染器。
  */
@@ -30,100 +32,94 @@ function smoothstep01(t) {
   return t * t * (3 - 2 * t);
 }
 
+// 从圆方程得到"完美半圆"膨胀曲线：r = sqrt(1 - (1 - t)^2)
+// 用于头部区域：鼻端 r=0，t=HEAD_T_END 时 r=headX（最大半径）
+function semicircleExpansion(tLocal) {
+  // tLocal: 0 鼻端，1 最大半径处
+  const s = 1 - tLocal;
+  return Math.sqrt(Math.max(0, 1 - s * s));
+}
+
 // -------------------- 脊柱与截面 --------------------
 
 /**
- * 给定沿脊柱的参数 t ∈ [0, 1]，返回 (zPos, rx, ry)：
- *   zPos —— 该截面的脊柱 z 坐标（沿屏幕深度方向）
- *   rx   —— 椭圆截面的 X 半径（左右宽度）
- *   ry   —— 椭圆截面的 Y 半径（上下高度）
+ * 给定沿脊柱的参数 t ∈ [0, 1]，返回 (xPos, yPos, zPos, rx, ry, isHead)。
  *
- * t = 0：鼻端（最前，+z 方向）
- * t = 1：尾端（最后，-z 方向）
+ * 鱼雷形设计（关键参数比例）：
+ *   t=0 ~ HEAD_T_END：头部 —— 完美的圆球形（按圆方程膨胀到最大半径）
+ *   t=HEAD_T_END ~ TAIL_T_START：身体 —— 缓慢平滑收窄（前段慢、后段快）
+ *   t=TAIL_T_START ~ 1：尾端收尖 —— 快速收尖到尾尖，同时脊柱向 +Y 上方微翘
  *
- * 几何设计：
- *   0.0 ~ 0.35：头部区域 —— 圆球形/椭球
- *   0.35 ~ 1.0：身体区域 —— 从头后方平滑收细到尾巴
+ *   HEAD_T_END = 0.22（头部占比 22%）：头直径≈104，身体长度≈180 → 头:身 ≈ 1:3
  */
 function getSpineAndRadius(t, headX, headY, headZ, bodyLength, bodyEndX, bodyEndY) {
-  // 坐标约定（与 _drawMesh 的背面剔除一致）：
+  // 坐标约定：
   //   摄像机在 +Z 方向，看向原点（-Z 方向）
-  //   所以模型的"正面"（鼻端）应该在 +Z（靠近摄像机）
+  //   模型的"正面"（鼻端）应该在 +Z（靠近摄像机）
   //   身体和尾巴向 -Z 延伸（远离摄像机）
   //   朝向 +Z 的面：nz > 0，可见
   //   朝向 -Z 的面：nz < 0，被剔除
-  //
-  // 头部设计（t=0 → t=HEAD_T_END）：圆球形，鼻端钝圆
-  //   t=0.00：鼻端中心（突出在最前，z = +headZ*0.98，rx=ry=0）
-  //   t≈0.05：第一圈环（z = +headZ*0.92，radius ≈ headX*0.45）
-  //   t≈0.25：最大宽度处（z = +headZ*0.35，radius = headX*1.00）
-  //   t=0.30：颈端/头后端（z = -headZ*0.10，radius = headX*0.72）
-  //
-  // 身体设计（t=HEAD_T_END → t=1）：
-  //   脊柱向 -Z 延伸 bodyLength 距离
-  //   后段向 +X（向右）+ +Y（向下）弯曲，让尾尖在正视角下从头部右下露出
-  const HEAD_T_END = 0.30;
 
-  // --- 头部：真正的圆球形（由多段关键节点插值组成）---
-  // 用 smoothstep 让半径从 0 平滑过渡到最大再收小
-  if (t < HEAD_T_END) {
-    const localT = t / HEAD_T_END;  // 0~1 沿头部（从前到后）
+  const HEAD_T_END = 0.22;      // 头部/最大半径位置
+  const TAIL_T_START = 0.65;    // 尾端快速收尖的起点
+  const TIP_T = 1.0;
 
-    // 定义关键控制点 (localT, rxScale, zScale)：
-    //   T=0:   rx=0,    z=+0.98  （鼻端中心，最靠近相机）
-    //   T=0.16: rx=0.45, z=+0.92  （第一圈环）
-    //   T=0.48: rx=0.85, z=+0.70  （上半段鼓胀）
-    //   T=0.75: rx=1.00, z=+0.35  （最大宽度）
-    //   T=1.00: rx=0.72, z=-0.10  （颈端/头后端）
-    const knots = [
-      { t: 0.00, r: 0.00, z: 0.98 },
-      { t: 0.16, r: 0.45, z: 0.92 },
-      { t: 0.48, r: 0.85, z: 0.70 },
-      { t: 0.75, r: 1.00, z: 0.35 },
-      { t: 1.00, r: 0.72, z: -0.10 },
-    ];
-    // 用分段 linear + smoothstep 平滑插值
-    let i = 0;
-    for (i = 0; i < knots.length - 1; i++) {
-      if (localT <= knots[i + 1].t) break;
-    }
-    const seg = (localT - knots[i].t) / (knots[i + 1].t - knots[i].t);
-    const smoothSeg = smoothstep01(seg);
-    const rScale = knots[i].r + (knots[i + 1].r - knots[i].r) * smoothSeg;
-    const zScale = knots[i].z + (knots[i + 1].z - knots[i].z) * smoothSeg;
+  // --- 头部：完美圆球形（按半圆方程膨胀） ---
+  //   t=0:   鼻端（z=+headZ*0.98, rx=0）
+  //   t=0.22:最大半径处（z≈+headZ*0.0, rx=headX）
+  if (t <= HEAD_T_END) {
+    const localT = t / HEAD_T_END; // 0~1 沿头部
+    const rScale = semicircleExpansion(localT);  // 完美半圆膨胀
+    // z 从 +headZ (鼻端) 线性退到 0 (头部最鼓处)
+    const zScale = 1.0 - localT * 1.0;
 
     const rx = headX * rScale;
     const ry = headY * rScale;
     const zPos = headZ * zScale;
-    const spineX = 0; // 头部保持 X 方向居中
-    return { xPos: spineX, zPos, rx, ry, isHead: true };
+    return { xPos: 0, yPos: 0, zPos, rx, ry, isHead: true };
   }
 
-  // --- 身体：从颈部向 -Z 延伸，尾部向 +Y（屏幕下方）弯曲 ---
-  // 尾巴向下方弯，正视角下从下巴下方居中伸出，不会偏向一边
-  const headEndRX = headX * 0.72;
-  const headEndRY = headY * 0.72;
+  // --- 身体 + 尾端 ---
+  // bodyT: 0 在 HEAD_T_END（最大半径），1 在尾尖
+  const bodyT = (t - HEAD_T_END) / (1 - HEAD_T_END);
 
-  const bodyT = (t - HEAD_T_END) / (1 - HEAD_T_END); // 0~1 沿身体
-  const eased = Math.pow(smoothstep01(bodyT), 1.25); // 前段收缩更慢
+  // 1) 半径曲线（平滑收窄 —— 鱼雷风格）：
+  //    前段（0~0.55）：缓慢收窄到 0.65 * headX
+  //    后段（0.55~1）：加速收尖到 bodyEndX/Y
+  //    整体用 smoothstep 的指数曲线让过渡更自然
+  let rxFinal, ryFinal;
+  if (bodyT <= 0.55) {
+    // 前段：慢收窄
+    const localT = bodyT / 0.55;
+    const eased = 1 - Math.pow(1 - localT, 1.8); // 上凸曲线 = 先快后慢
+    const target = 0.65; // 保留 65% 最大半径
+    const scale = 1 * (1 - eased) + target * eased;
+    rxFinal = headX * scale;
+    ryFinal = headY * scale;
+  } else {
+    // 后段：快速收尖
+    const localT = (bodyT - 0.55) / 0.45;
+    const eased = Math.pow(localT, 1.5); // 下凸 = 先慢后快，末端加速
+    const startRX = headX * 0.65;
+    const startRY = headY * 0.65;
+    rxFinal = startRX * (1 - eased) + bodyEndX * eased;
+    ryFinal = startRY * (1 - eased) + bodyEndY * eased;
+  }
 
-  const rx = headEndRX * (1 - eased) + bodyEndX * eased;
-  const ry = headEndRY * (1 - eased) + bodyEndY * eased;
+  // 2) 脊柱 z：从头部后端（z ≈ 0）线性向 -Z 延伸 bodyLength
+  const zPos = 0 - bodyLength * bodyT;
 
-  // 脊柱位置：从 -headZ*0.10 继续向 -Z 延伸
-  const headZBack = -headZ * 0.10;
-  const zPos = headZBack - bodyLength * bodyT;
+  // 3) 脊柱 y：尾端向 -Y（屏幕上方）轻微翘起
+  //    从 bodyT=0.7 开始向上弯，尾尖抬高 ≈ headY*0.45
+  const tailBendStartT = 0.7;
+  const tailBend = smoothstep01(
+    Math.max(0, (bodyT - tailBendStartT) / (1 - tailBendStartT))
+  );
+  const tailTipOffsetY = -headY * 0.45; // 向上（-Y）翘
+  const spineY = tailTipOffsetY * tailBend * tailBend; // 平方让弯曲更平滑
 
-  // 尾巴弯曲：只向 +Y（屏幕下方）弯曲，保持 X 方向居中对称
-  // 让尾尖从下巴下方居中伸出
-  const tailBendStartT = 0.55;
-  const tailBend = smoothstep01(Math.max(0, (bodyT - tailBendStartT) / (1 - tailBendStartT)));
-  const tailTipOffsetX = 0;          // 不向左右偏
-  const tailTipOffsetY = headY * 0.90; // 向下弯 ~52 单位
-  const spineX = tailTipOffsetX * tailBend * tailBend;
-  const spineY = tailTipOffsetY * tailBend * tailBend;
-
-  return { xPos: spineX, yPos: spineY, zPos, rx, ry, isHead: false };
+  // 脊柱保持左右对称（spineX = 0）
+  return { xPos: 0, yPos: spineY, zPos, rx: rxFinal, ry: ryFinal, isHead: false };
 }
 
 // -------------------- 面部区域 --------------------
@@ -133,49 +129,37 @@ function getSpineAndRadius(t, headX, headY, headZ, bodyLength, bodyEndX, bodyEnd
  * 返回 0~1 的软权重：1 = 面部中心，0 = 非面部。
  */
 function getFaceWeight(t, angle) {
-  if (t > 0.3) return 0; // 头部区域外
-  // 检查是否朝摄像机方向（正面）
-  // angle = PI/2 → 朝 -X（左）
-  // angle = -PI/2 → 朝 +X（右）
-  // angle = 0 → 朝 +Y（下）
-  // 面部应该在前端，面部区域通过 angle 的中间部分来决定
-  // 简单处理：在 t < 0.2 区域给 faceWeight
-
-  // 面部区域定义：靠近鼻端（t < 0.25），并位于"正面"（angle 靠近中线）
-  const distFromNose = t / 0.25; // 0 鼻端，1 头部中段
-  if (distFromNose > 1.5) return 0;
-  const tWeight = Math.exp(-distFromNose * distFromNose * 2.5);
-
-  // angle 加权：更偏向正面（angle 靠近 0 的圆周区域）
-  // 实际上整个前端环形区域都算面部的一部分
-  const angleWeight = 1.0;
-
-  return tWeight * angleWeight;
+  if (t > 0.25) return 0; // 头部区域外
+  // 面部区域：靠近鼻端（t < 0.22）
+  const distFromNose = t / 0.22;
+  const tWeight = Math.exp(-distFromNose * distFromNose * 3.0);
+  return tWeight;
 }
 
-// -------------------- 网格生成 --------------------
+// -------------------- 主网格生成 --------------------
 
 /**
- * 创建萨卡班甲鱼网格（简化版：圆头 + 平滑收细身体）。
+ * 创建萨卡班甲鱼鱼雷形网格：圆球形头 + 平滑收窄身体 + 尾鳍。
  *
  * 参数：
- *   headX    — 头部左右半径
- *   headY    — 头部上下半径
- *   headZ    — 头部前后半径
- *   bodyLength — 身体长度（沿 -z 方向延伸的距离）
- *   bodyEndX  — 身体末端左右半径（越小尾巴越细）
- *   bodyEndY  — 身体末端上下半径
+ *   headX/headY/headZ — 头部三个方向半径
+ *   bodyLength         — 身体长度（沿 -z 方向延伸的距离，不包括尾鳍延伸）
+ *   bodyEndX/bodyEndY  — 身体末端半径（越小尾巴越尖）
+ *   flukeEnabled       — 是否生成尾鳍（默认 true）
+ *   flukeSize          — 尾鳍的左右/上下伸展倍数（默认 1.0）
  */
 export function createSpindleMesh(options = {}) {
   const {
     headX = 52,
     headY = 46,
-    headZ = 48,
-    bodyLength = 120,
-    bodyEndX = 6,
-    bodyEndY = 5,
-    columns = 28,
-    rows = 16,
+    headZ = 50,
+    bodyLength = 180,      // 鱼雷形：身体更长
+    bodyEndX = 5,          // 末端更尖
+    bodyEndY = 4,
+    columns = 30,          // 沿脊柱的环数更多，让收窄更平滑
+    rows = 18,             // 每环更多分段
+    flukeEnabled = true,
+    flukeSize = 1.2,
     topColor = '#bdb8aa',
     bottomColor = '#f2f1ea',
     faceTopColor = '#c8c2b4',
@@ -185,58 +169,46 @@ export function createSpindleMesh(options = {}) {
   const vertices = [];
   const faces = [];
 
-  // --- 生成顶点：沿脊柱 t 分布，绕 angle 环形 ---
+  // --- 生成主体顶点：沿脊柱 t 分布，绕 angle 环形 ---
   for (let col = 0; col <= columns; col++) {
     const t = col / columns;
     const cross = getSpineAndRadius(t, headX, headY, headZ, bodyLength, bodyEndX, bodyEndY);
-    const zPos = cross.zPos;
-    const rx = cross.rx;
-    const ry = cross.ry;
 
     for (let row = 0; row <= rows; row++) {
-      // angle: 0 在 +Y（下），顺时针/逆时针环绕
+      // angle: 0 在 +Y（下），绕主轴环绕
       const angle = -Math.PI + (row / rows) * 2 * Math.PI;
       const cosA = Math.cos(angle);
       const sinA = Math.sin(angle);
 
       // 椭圆截面，叠加脊柱的 X/Y 偏移（尾巴的弯曲）
-      const spineY = cross.yPos || 0;
-      const x = cross.xPos + rx * sinA;  // sinA 在 angle=±PI/2 处最大 → 左右
-      const y = spineY + ry * cosA;   // cosA 在 angle=0/PI 处最大 → 上下
+      const x = cross.xPos + cross.rx * sinA;
+      const y = cross.yPos + cross.ry * cosA;
       const z = cross.zPos;
 
-      // 椭圆外法线（用于光照和背面剔除）
-      const nxRaw = sinA / Math.max(rx, 0.001);
-      const nyRaw = cosA / Math.max(ry, 0.001);
-      const nzRaw = 0;
-      const nLen = Math.sqrt(nxRaw * nxRaw + nyRaw * nyRaw + nzRaw * nzRaw) || 1;
-      // 让法线指向"向外 + 稍微朝向摄像机方向"，通过 cross product 计算正确方向
+      // 椭圆外法线（用于光照和背面剔除）—— 简化为沿截面径向向外
+      const nxRaw = sinA / Math.max(cross.rx, 0.001);
+      const nyRaw = cosA / Math.max(cross.ry, 0.001);
+      const nLen = Math.sqrt(nxRaw * nxRaw + nyRaw * nyRaw) || 1;
       const nx = nxRaw / nLen;
       const ny = nyRaw / nLen;
-      const nz = 0; // 初始 z 法线为 0；在变形后会自动考虑
+      const nz = 0; // 在变形后根据脊柱方向会自然考虑
 
-      // 面部权重
+      // 面部权重 & 上下
       const fw = getFaceWeight(t, angle);
-
-      // 判断上下
-      const isTop = cosA < 0; // angle 在上方（y 负）时为顶
-      const isBottom = cosA >= 0;
-
-      // 保存 head/body 相关参数用于外部引用
-      const vMesh = { headX, headY, headZ, bodyLength };
+      const isTop = cosA < 0;
 
       vertices.push({
         x, y, z,
         nx, ny, nz,
         t, angle, col, row,
-        isTop, isBottom,
+        isTop, isBottom: !isTop,
         faceWeight: fw,
         isHead: cross.isHead,
       });
     }
   }
 
-  // --- 生成面（四边形） ---
+  // --- 生成主体面（四边形） ---
   for (let col = 0; col < columns; col++) {
     for (let row = 0; row < rows; row++) {
       const a = col * (rows + 1) + row;
@@ -260,39 +232,161 @@ export function createSpindleMesh(options = {}) {
     }
   }
 
-  // --- 尾端封口（Tail Cap）：从尾端中心顶点扇形三角化到最后一圈 ---
-  // 尾端中心：取最后一圈顶点的平均
-  const lastRingStart = columns * (rows + 1);
-  const tailIdx = vertices.length;
-  let tailAvgX = 0, tailAvgY = 0, tailAvgZ = 0;
-  for (let row = 0; row <= rows; row++) {
-    const v = vertices[lastRingStart + row];
-    tailAvgX += v.x;
-    tailAvgY += v.y;
-    tailAvgZ += v.z;
-  }
-  tailAvgX /= (rows + 1);
-  tailAvgY /= (rows + 1);
-  tailAvgZ /= (rows + 1);
-  vertices.push({
-    x: tailAvgX, y: tailAvgY, z: tailAvgZ,
-    nx: 0, ny: 0, nz: -1,  // 尾端法线朝 -Z（远离摄像机）
-    t: 1, angle: 0, col: columns, row: -1,
-    isTop: false, isBottom: true,
-    faceWeight: 0,
-    isHead: false,
-  });
-  // 扇形三角化：[tailIdx, curr, next, tailIdx]
-  for (let row = 0; row < rows; row++) {
-    const curr = lastRingStart + row;
-    const next = lastRingStart + row + 1;
-    faces.push({
-      indices: [tailIdx, curr, next, tailIdx],
-      vertices: [vertices[tailIdx], vertices[curr], vertices[next], vertices[tailIdx]],
-      isTop: false,
-      isBottom: true,
-      column: columns, row,
+  // --- 尾鳍（Fluke）：在主体最后一圈后向外延伸扁平三角形 ---
+  //     设计：尾鳍从最后一圈向外（-Z 方向）延伸出一小段，呈扁平的
+  //     等腰三角形状，左右对称（类似鲸尾但更收敛）。
+  if (flukeEnabled) {
+    const flukeStartIdx = vertices.length;
+    const flukeHalfWidth = headX * 0.85 * flukeSize; // 尾鳍左右伸展宽度
+    const flukeHalfHeight = headY * 0.55 * flukeSize; // 尾鳍上下高度
+    const flukeTipBackZ = -bodyLength - headZ * 0.4;  // 尾尖在身体末端之后再靠后
+
+    // 主体最后一圈的中心
+    const lastRingStart = columns * (rows + 1);
+    let bodyEndCenterX = 0, bodyEndCenterY = 0, bodyEndCenterZ = 0;
+    for (let row = 0; row <= rows; row++) {
+      bodyEndCenterX += vertices[lastRingStart + row].x;
+      bodyEndCenterY += vertices[lastRingStart + row].y;
+      bodyEndCenterZ += vertices[lastRingStart + row].z;
+    }
+    bodyEndCenterX /= (rows + 1);
+    bodyEndCenterY /= (rows + 1);
+    bodyEndCenterZ /= (rows + 1);
+
+    // 尾鳍用一个菱形 + 尾尖的简单三角化：
+    //   A：尾鳍上顶点（-Y）
+    //   B：尾鳍左端点（-X）
+    //   C：尾鳍下端点（+Y）
+    //   D：尾鳍右端点（+X）
+    //   T：尾尖（中心 +Z 向后）
+    const flA = {
+      x: bodyEndCenterX, y: bodyEndCenterY - flukeHalfHeight, z: bodyEndCenterZ - 5,
+      nx: 0, ny: -1, nz: 0, t: 1.02, angle: -Math.PI / 2, col: columns + 1, row: 0,
+      isTop: true, isBottom: false, faceWeight: 0, isHead: false,
+    };
+    const flB = {
+      x: bodyEndCenterX - flukeHalfWidth, y: bodyEndCenterY, z: bodyEndCenterZ - 5,
+      nx: -1, ny: 0, nz: 0, t: 1.02, angle: Math.PI, col: columns + 1, row: 0,
+      isTop: false, isBottom: true, faceWeight: 0, isHead: false,
+    };
+    const flC = {
+      x: bodyEndCenterX, y: bodyEndCenterY + flukeHalfHeight, z: bodyEndCenterZ - 5,
+      nx: 0, ny: 1, nz: 0, t: 1.02, angle: Math.PI / 2, col: columns + 1, row: 0,
+      isTop: false, isBottom: true, faceWeight: 0, isHead: false,
+    };
+    const flD = {
+      x: bodyEndCenterX + flukeHalfWidth, y: bodyEndCenterY, z: bodyEndCenterZ - 5,
+      nx: 1, ny: 0, nz: 0, t: 1.02, angle: 0, col: columns + 1, row: 0,
+      isTop: false, isBottom: true, faceWeight: 0, isHead: false,
+    };
+    const flT = {
+      x: bodyEndCenterX, y: bodyEndCenterY - headY * 0.05, z: flukeTipBackZ,
+      nx: 0, ny: 0, nz: -1, t: 1.1, angle: 0, col: columns + 2, row: 0,
+      isTop: true, isBottom: false, faceWeight: 0, isHead: false,
+    };
+
+    // 把顶点 push 到数组（记录它们的绝对 index）
+    vertices.push(flA, flB, flC, flD, flT);
+    const iA = flukeStartIdx + 0;
+    const iB = flukeStartIdx + 1;
+    const iC = flukeStartIdx + 2;
+    const iD = flukeStartIdx + 3;
+    const iT = flukeStartIdx + 4;
+
+    // 三角化尾鳍：从 A-B-C-D 四个点 + T（尾尖）组成 4 个三角形扇
+    //   Triangle 1: A-B-T  (左上)
+    //   Triangle 2: B-C-T  (左下)
+    //   Triangle 3: C-D-T  (右下)
+    //   Triangle 4: D-A-T  (右上)
+    const flukeTriangles = [
+      [iA, iB, iT],
+      [iB, iC, iT],
+      [iC, iD, iT],
+      [iD, iA, iT],
+    ];
+    for (const tri of flukeTriangles) {
+      const [i0, i1, i2] = tri;
+      faces.push({
+        indices: [i0, i1, i2, i0], // 退化四边形 = 三角形
+        vertices: [vertices[i0], vertices[i1], vertices[i2], vertices[i0]],
+        isTop: true,
+        isBottom: false,
+        column: columns + 1, row: 0,
+      });
+    }
+
+    // 连接主体最后一圈到尾鳍 A-B-C-D 环（让尾鳍从身体平滑"长"出来）
+    // 主体最后一圈 → 尾鳍环：用四边形连起来
+    const flukeRingOrder = [
+      { flukeIdx: iA, matchAngle: -Math.PI / 2 }, // 上
+      { flukeIdx: iD, matchAngle: 0 },            // 右
+      { flukeIdx: iC, matchAngle: Math.PI / 2 },  // 下
+      { flukeIdx: iB, matchAngle: Math.PI },      // 左
+    ];
+    // 简单实现：从最后一圈把 4 个最接近的点分别连到 iA/iD/iC/iB
+    // 为避免复杂，我们用三角扇把最后一圈的"顶部/底部/左右"四个点连到尾鳍环。
+    // 实际视觉上，这只是一个过渡环，不影响主体造型。
+    // 找到四个关键点：
+    let topIdx = lastRingStart, rightIdx = lastRingStart, bottomIdx = lastRingStart, leftIdx = lastRingStart;
+    let topDiff = Infinity, rightDiff = Infinity, bottomDiff = Infinity, leftDiff = Infinity;
+    for (let row = 0; row <= rows; row++) {
+      const v = vertices[lastRingStart + row];
+      const d1 = Math.abs(v.angle - (-Math.PI / 2));
+      const d2 = Math.abs(v.angle - 0);
+      const d3 = Math.abs(v.angle - Math.PI / 2);
+      const d4 = Math.abs(Math.abs(v.angle) - Math.PI);
+      if (d1 < topDiff) { topDiff = d1; topIdx = lastRingStart + row; }
+      if (d2 < rightDiff) { rightDiff = d2; rightIdx = lastRingStart + row; }
+      if (d3 < bottomDiff) { bottomDiff = d3; bottomIdx = lastRingStart + row; }
+      if (d4 < leftDiff) { leftDiff = d4; leftIdx = lastRingStart + row; }
+    }
+    // 四边形连接：上-右-下-左 → A-D-C-B（两个三角形足够了）
+    const bridgeFaces = [
+      [topIdx, rightIdx, iA, iD],
+      [rightIdx, bottomIdx, iD, iC],
+      [bottomIdx, leftIdx, iC, iB],
+      [leftIdx, topIdx, iB, iA],
+    ];
+    for (const quad of bridgeFaces) {
+      const [i0, i1, i2, i3] = quad;
+      faces.push({
+        indices: [i0, i1, i2, i3],
+        vertices: [vertices[i0], vertices[i1], vertices[i2], vertices[i3]],
+        isTop: true,
+        isBottom: false,
+        column: columns, row: 0,
+      });
+    }
+  } else {
+    // 无尾鳍模式：简单从尾端中心扇形三角化到最后一圈
+    const lastRingStart = columns * (rows + 1);
+    const tailIdx = vertices.length;
+    let tailAvgX = 0, tailAvgY = 0, tailAvgZ = 0;
+    for (let row = 0; row <= rows; row++) {
+      const v = vertices[lastRingStart + row];
+      tailAvgX += v.x;
+      tailAvgY += v.y;
+      tailAvgZ += v.z;
+    }
+    tailAvgX /= (rows + 1);
+    tailAvgY /= (rows + 1);
+    tailAvgZ /= (rows + 1);
+    vertices.push({
+      x: tailAvgX, y: tailAvgY, z: tailAvgZ,
+      nx: 0, ny: 0, nz: -1,
+      t: 1, angle: 0, col: columns, row: -1,
+      isTop: false, isBottom: true, faceWeight: 0, isHead: false,
     });
+    for (let row = 0; row < rows; row++) {
+      const curr = lastRingStart + row;
+      const next = lastRingStart + row + 1;
+      faces.push({
+        indices: [tailIdx, curr, next, tailIdx],
+        vertices: [vertices[tailIdx], vertices[curr], vertices[next], vertices[tailIdx]],
+        isTop: false, isBottom: true,
+        column: columns, row,
+      });
+    }
   }
 
   return {
@@ -307,7 +401,7 @@ export function createSpindleMesh(options = {}) {
 // -------------------- 面部锚点 --------------------
 
 /**
- * 简化版锚点计算：五官锚定在头部前表面。
+ * 简化版锚点计算：五官锚定在头部前表面（椭球表面）。
  *
  * 输入：
  *   horizOffset —— 水平偏移（X 方向，正值向右）
@@ -320,7 +414,6 @@ export function computeFaceAnchorXYZ(mesh, _, horizOffset, vertOffset, depthOffs
   // 五官锚定在头部前表面。用椭球方程求正确的 z：
   //   (x/hx)^2 + (y/hy)^2 + (z/hz)^2 = 1
   //   z = hz * sqrt(1 - (x/hx)^2 - (y/hy)^2)
-  // 然后再沿法线朝摄像机方向偏移 depthOffset（避免 z-fighting）
   const hx = mesh.headX, hy = mesh.headY, hz = mesh.headZ;
   const x = horizOffset;
   const y = vertOffset;
@@ -330,13 +423,13 @@ export function computeFaceAnchorXYZ(mesh, _, horizOffset, vertOffset, depthOffs
 
   return {
     x, y, z,
-    nx: 0, ny: 0, nz: 1, // 正面朝 +Z（摄像机方向）
+    nx: 0, ny: 0, nz: 1,
     tangentX: 1, tangentY: 0, tangentZ: 0,
     faceWeight: 1.0,
   };
 }
 
-// 保留 API 兼容（原 computeFaceAnchor 用 bodyT 和 surfAngle）
+// 保留 API 兼容
 export function computeFaceAnchor(mesh, bodyT, surfAngle, surfaceOffset = 0) {
   return computeFaceAnchorXYZ(mesh, 0, 0, 0, surfaceOffset);
 }
@@ -344,8 +437,7 @@ export function computeFaceAnchor(mesh, bodyT, surfAngle, surfaceOffset = 0) {
 // -------------------- 兼容旧 API --------------------
 
 /**
- * 兼容性占位：新模型中尾巴和身体一体，不再需要独立的尾部 mesh。
- * 返回一个空 mesh，避免旧代码抛出 "does not provide an export" 错误。
+ * 兼容性占位：新版本中尾巴和身体一体，还额外带了尾鳍。
  */
 export function createWhaleTailMesh(options = {}) {
   return {
@@ -365,10 +457,6 @@ export function createWhaleTailMesh(options = {}) {
  * 对网格应用 yaw/pitch/roll 旋转（角度制）。
  * 复制原有顶点并增加 (tx, ty, tz) 旋转后坐标。
  */
-/**
- * 注意：旋转约定与 _transformAnchor 保持一致，确保网格与五官锚点
- * 在相同旋转下一致。
- */
 function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
   const { angleY = 0, angleX = 0, angleZ = 0 } = params;
   const radY = angleY * Math.PI / 180;
@@ -378,7 +466,7 @@ function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
   const cosX = Math.cos(radX), sinX = Math.sin(radX);
   const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
 
-  // Yaw (绕 Y 轴) — 与 _transformAnchor 保持一致
+  // Yaw (绕 Y 轴)
   let x1 = x * cosY + z * sinY;
   let z1 = -x * sinY + z * cosY;
   let y1 = y;
