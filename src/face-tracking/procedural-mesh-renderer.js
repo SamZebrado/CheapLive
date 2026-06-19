@@ -22,7 +22,6 @@ import {
 } from './mesh-sphere.js';
 import {
   createSpindleMesh,
-  createWhaleTailMesh,
   deformSpindle,
   computeFaceAnchor,
   computeFaceAnchorXYZ,
@@ -568,92 +567,72 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
   constructor(canvasId) {
     super(canvasId);
     this.spindleMesh = createSpindleMesh({
-      headR: 95,
-      bodyLength: 120,
-      bodyWidth: 70,
-      bodyDepth: 55,
-      columns: 26,
-      rows: 18,
+      headX: 60,
+      headY: 52,
+      headZ: 50,
+      bodyLength: 105,
+      bodyEndX: 3,
+      bodyEndY: 3,
+      columns: 28,
+      rows: 16,
       topColor: '#bdb8aa',
       bottomColor: '#f2f0e6',
       faceTopColor: '#c8c2b4',
       faceBottomColor: '#fffaf0',
     });
-    this.tailMesh = createWhaleTailMesh({
-      tailLength: 60,
-      tailWidth: 70,
-      flukeSegments: 6,
-      color: '#bdb8aa',
-    });
+    // 默认轻微 3/4 视角，让身体从头后方微露
+    this.baseYaw = -12;
     this.draw();
   }
 
   /**
-   * 参数坐标：
-   *   bodyT 沿脊柱：0 鼻端，1 尾端
-   *   surfAngle 环绕角度：0 指向 Y 正方向（身体侧面偏前），
-   *     angle = PI/2 指向 +Z（朝摄像机），
-   *     angle = PI   指向 Y 负方向（身体另一侧）
-   *
-   * 面部区域在 bodyT ≈ 0.1~0.2，surfAngle 接近 PI/2（朝摄像机）。
-   * 约定：摄像机方向 +Z；angle = PI/2 时 z = depth * sin(PI/2) = depth > 0。
-   */
-  /**
-   * 面部局部坐标系参数（萨卡班甲鱼）。
-   *   faceCenter = (spineX(faceT), 0, bodyDepth(faceT)) —— 朝 +z
-   *   horizontal = (1, 0, 0) —— 屏幕水平
-   *   vertical = (0, 1, 0) —— 屏幕垂直
-   *
-   * 视觉不变量：
-   *   - 左右眼 |horizOffset| 相同 → screenX 有明确间距
-   *   - 左右眼 vertOffset 相同 → screenY 等高
-   *   - 嘴 vertOffset > 眼 vertOffset → 嘴在眼下
-   *   - 眉 vertOffset < 眼 vertOffset → 眉在眼上
+   * 五官锚点：基于头部椭球前表面的 (x, y) 偏移，z 固定在头部前方。
+   *   - 左右眼：x = ±headX * 0.30
+   *   - 嘴：在两眼下方中央
+   *   - 眉：在两眼上方，略宽于眼间距
    */
   getAnchors(params) {
-    const faceT = 0.08;
-
-    // 五官位置基于 bodyWidth（Y方向，屏幕上下），确保与身体宽度成比例
     const mesh = this.spindleMesh;
-    const w = mesh.bodyWidth;
-    const eyeSpacing = w * 0.33;   // 两眼水平间距（再收一点，保证落在头盾轮廓内）
-    const eyeHeight = -w * 0.10;   // 眼在中心略上（负 = 向上）
-    const mouthHeight = w * 0.26;  // 嘴在中心下方（正 = 向下）
-    const mouthWidth = w * 0.16;   // 嘴宽：头宽的 16%（更小更像古鱼）
-    const browOffset = -w * 0.18;  // 眉在眼上方（更靠近眼睛）
-    const browSpacing = w * 0.28;  // 眉水平间距
+    const hx = mesh.headX;   // 左右半径
+    const hy = mesh.headY;   // 上下半径
+
+    const eyeSpacing = hx * 0.30;    // 眼左右位置
+    const eyeHeight = -hy * 0.10;   // 眼上下位置（负 = 向上）
+    const mouthHeight = hy * 0.30;  // 嘴在眼下
+    const mouthWidth = hx * 0.28;   // 嘴宽
+    const browOffset = -hy * 0.28;  // 眉在眼上方
+    const browSpacing = hx * 0.25;  // 眉间距比眼略宽
 
     return {
-      leftEye:  { bodyT: faceT, horizOffset: -eyeSpacing, vertOffset: eyeHeight, surfaceOffset: 1.5 },
-      rightEye: { bodyT: faceT, horizOffset:  eyeSpacing, vertOffset: eyeHeight, surfaceOffset: 1.5 },
-      mouth:    { bodyT: faceT, horizOffset: 0,           vertOffset: mouthHeight, surfaceOffset: 1.5, mouthWidth: mouthWidth },
-      browLeft: { bodyT: faceT, horizOffset: -browSpacing, vertOffset: browOffset, surfaceOffset: 2 },
-      browRight:{ bodyT: faceT, horizOffset:  browSpacing, vertOffset: browOffset, surfaceOffset: 2 },
+      leftEye:  { bodyT: 0, horizOffset: -eyeSpacing, vertOffset: eyeHeight, surfaceOffset: 2 },
+      rightEye: { bodyT: 0, horizOffset:  eyeSpacing, vertOffset: eyeHeight, surfaceOffset: 2 },
+      mouth:    { bodyT: 0, horizOffset: 0,            vertOffset: mouthHeight, surfaceOffset: 2, mouthWidth: mouthWidth },
+      browLeft: { bodyT: 0, horizOffset: -browSpacing, vertOffset: browOffset, surfaceOffset: 3 },
+      browRight:{ bodyT: 0, horizOffset:  browSpacing, vertOffset: browOffset, surfaceOffset: 3 },
     };
   }
 
   _render(ctx, w, h) {
     const np = normalizeParams(this.params);
-    const rot = { angleY: np.headYaw, angleX: np.headPitch, angleZ: np.headRoll };
+    // 在用户头摆基础上叠加上默认的 3/4 视角
+    const rot = {
+      angleY: np.headYaw + this.baseYaw,
+      angleX: np.headPitch,
+      angleZ: np.headRoll,
+    };
 
     const minSide = Math.min(w, h);
-    // scale：整体身体长度约 bodyLength + tailLength（主身体），按此决定像素缩放
-    const totalLen = this.spindleMesh.bodyLength + this.tailMesh.tailLength + this.spindleMesh.headR * 0.2;
-    const margin = 0.10;
-    const scale = (minSide * (1 - margin * 2)) / totalLen * 1.1;
+    // scale：以头部左右直径为基准，占画面 ~55%
+    const headDiameter = this.spindleMesh.headX * 2;
+    const margin = 0.18;
+    const scale = (minSide * (1 - margin * 2)) / headDiameter;
 
-    // 让鲸鱼整体在画布中居中，鼻端偏左一点
-    const originX = w * 0.5 - (this.spindleMesh.headR * 0.2) * scale + (np.headX - 0.5) * minSide * 0.25;
-    const originY = h * 0.5 + (np.headY - 0.5) * minSide * 0.18;
+    // 头部中心稍微向上偏移，让下方有空间展示身体
+    const originX = w * 0.5 + (np.headX - 0.5) * minSide * 0.22;
+    const originY = h * 0.48 + (np.headY - 0.5) * minSide * 0.18;
 
-    // 先画尾巴（更远离摄像机的一端），再画身体，最后画头部五官
+    // 单 mesh 渲染：头部 + 身体 + 尾巴都已经在 spindleMesh 中
     const lightDir = { x: -0.3, y: -0.5, z: 0.8 };
-
-    // 尾巴整体沿 +X，先整体位移到脊柱末端附近再旋转
-    const tailOffsetX = this.spindleMesh.headR * 0.2 + this.spindleMesh.bodyLength;
-    const tailRot = { angleY: rot.angleY + 8 * Math.sin(Date.now() * 0.002), angleX: rot.angleX, angleZ: rot.angleZ };
-    this._drawTranslatedTail(ctx, originX, originY, scale, tailOffsetX, tailRot, lightDir);
-
     const deformedBody = deformSpindle(this.spindleMesh, rot);
     this._drawMesh(ctx, deformedBody, {
       w, h, scale, originX, originY,
@@ -667,43 +646,27 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     this._drawFaceFeatures(ctx, np, rot, originX, originY, scale);
   }
 
-  _drawTranslatedTail(ctx, originX, originY, scale, offsetX, rot, lightDir) {
-    // 将尾巴 mesh 的每个顶点沿 +X 平移 offsetX，再按 rot 旋转。
-    // 直接克隆顶点数组会很浪费；这里通过在 deform 后再修改 tx/ty/tz 不现实。
-    // 简化：临时构造一个"平移后"mesh 委托 deform。
-    const translatedVerts = this.tailMesh.vertices.map((v) => ({
-      ...v,
-      x: v.x + offsetX,
-    }));
-    const translated = { ...this.tailMesh, vertices: translatedVerts };
-    const deformed = deformSpindle(translated, rot);
-    this._drawMesh(ctx, deformed, {
-      w: 0, h: 0, scale, originX, originY,
-      baseColorTop: this.tailMesh.color,
-      baseColorBottom: '#d6d1c3',
-      faceTopColor: null,
-      faceBottomColor: null,
-      lightDir,
-    });
-  }
-
   _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
     const anchors = this.getAnchors(np);
+    const mesh = this.spindleMesh;
+
+    // 眼睛椭圆尺寸随头部大小变化
+    const eyeBase = Math.max(6, mesh.headX * 0.18);
 
     const drawEye = (anchor, openness, isNear) => {
-      const local = computeFaceAnchorXYZ(this.spindleMesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
+      const local = computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
-      // 远侧眼（isNear=false）缩小到 76% 并向中线收 20%
-      const farScale = isNear ? 1.0 : 0.76;
-      const farYOffset = isNear ? 0 : -anchor.vertOffset * 0.20;
+      // 远侧眼缩小并向中线收
+      const farScale = isNear ? 1.0 : 0.75;
+      const farHorizShift = isNear ? 0 : anchor.horizOffset * 0.22;
       const yawCompress = clamp(facing, 0.3, 1);
-      const rx = 10 * scale * yawCompress * farScale;
-      const ry = 10 * scale * (0.4 + 0.6 * openness) * farScale;
+      const rx = eyeBase * scale * yawCompress * farScale;
+      const ry = eyeBase * scale * (0.4 + 0.6 * openness) * farScale;
       ctx.save();
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY + farYOffset, rx, ry, 0, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX - farHorizShift * scale, t.screenY, rx, ry, 0, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.globalAlpha = facing;
       ctx.fill();
@@ -713,8 +676,8 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       if (openness > 0.1) {
         ctx.beginPath();
         const pupilRx = rx * 0.55;
-        const pupilRy = rx * 0.55;  // 固定尺寸，不随 openness 缩放
-        ctx.ellipse(t.screenX, t.screenY + farYOffset, pupilRx, pupilRy, 0, 0, Math.PI * 2);
+        const pupilRy = rx * 0.55;
+        ctx.ellipse(t.screenX - farHorizShift * scale, t.screenY, pupilRx, pupilRy, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#1f1f1f';
         ctx.fill();
       }
@@ -722,12 +685,12 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     };
 
     const drawBrow = (anchor, raise, isLeft) => {
-      const local = computeFaceAnchorXYZ(this.spindleMesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
+      const local = computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
       const yawCompress = clamp(facing, 0.3, 1);
-      const len = 18 * scale * yawCompress;
+      const len = mesh.headX * 0.32 * scale * yawCompress;
       const up = -raise * 6 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
@@ -742,15 +705,14 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     };
 
     const drawMouth = (anchor, open, smile) => {
-      const local = computeFaceAnchorXYZ(this.spindleMesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
+      const local = computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
       const yawCompress = clamp(facing, 0.3, 1);
       // 微笑：嘴角上扬 + 嘴宽增加；张开：高度增加
-      const smileWiden = 1 + smile * 0.35;
-      // 嘴宽基于 bodyWidth 的 18%，比原来更小更像古鱼
-      const halfW = (anchor.mouthWidth || 20 * scale) * yawCompress * smileWiden;
+      const smileWiden = 1 + smile * 0.40;
+      const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * yawCompress * smileWiden;
       const openH = 3 * scale + 12 * scale * open;
       const cornerUp = -smile * 7 * scale;
       const centerUp = -smile * 3 * scale;
