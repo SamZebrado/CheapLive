@@ -3,7 +3,8 @@
  * 基于 MediaPipe Face Landmarker 的浏览器端面部捕捉
  */
 
-import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm';
+// 注意：MediaPipe 改为动态 import，仅在用户点击"启动摄像头"时加载。
+// 这样程序化 Avatar 在无网络环境（CI/离线）下仍可渲染。
 import { DebugAvatar } from './debug-avatar.js';
 import { createAvatar, AVATAR_VERSIONS } from './avatar-versions.js';
 
@@ -249,15 +250,6 @@ class FaceTracker {
     const live2dImport = document.getElementById('live2dImport');
     const modelFolder = document.getElementById('modelFolder');
     const modelStatus = document.getElementById('modelStatus');
-    const avatarVersionSelect = document.getElementById('avatarVersion');
-
-    // 萨卡班甲鱼版本选择
-    if (avatarVersionSelect) {
-      avatarVersionSelect.addEventListener('change', async (e) => {
-        const version = e.target.value;
-        await this.switchAvatarVersion(version);
-      });
-    }
 
     tabs.forEach(tab => {
       tab.addEventListener('click', () => {
@@ -266,10 +258,8 @@ class FaceTracker {
 
         const model = tab.dataset.model;
         if (model === 'sphere') {
-          avatarVersionSelect.value = 'mesh-sphere';
           this.switchAvatarVersion('mesh-sphere');
         } else {
-          avatarVersionSelect.value = 'mesh-spindle-whale';
           this.switchAvatarVersion('mesh-spindle-whale');
         }
       });
@@ -596,6 +586,11 @@ class FaceTracker {
 
   async loadModel() {
     this.status.textContent = '正在加载 MediaPipe 模型...';
+
+    // 动态 import：仅在用户主动点击"启动摄像头"时加载 CDN 资源
+    const { FaceLandmarker, FilesetResolver } = await import(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm'
+    );
 
     const filesetResolver = await FilesetResolver.forVisionTasks(
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
