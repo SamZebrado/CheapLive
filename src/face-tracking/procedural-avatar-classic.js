@@ -820,7 +820,7 @@ class ProceduralMeshRenderer {
       headYaw: 0.5, headPitch: 0.5, headRoll: 0.5,
       headX: 0.5, headY: 0.5,
     };
-    this.mirror = false;
+    this.mirror = true;
     this.appMode = false;
 
     // 调试网格显示（默认关闭，不展示给用户）
