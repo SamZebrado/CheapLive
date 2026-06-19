@@ -3,6 +3,11 @@ test-results/
 .DS_Store
 *.log
 
+# 敏感协作规则文件：仅本地保留，不上传开源
+AGENTS.md
+rules/chatgpt-bridge-collaboration.md
+.local_sensitive/
+
 # Playwright test artifacts (randomly named, non-deterministic)
 artifacts/**/*.webm
 artifacts/**/page@*.webm
