@@ -102,9 +102,15 @@ class VoiceChanger {
     });
   }
 
-  async start(stream) {
+  async start(existingStream) {
     if (this.started) return;
     await this.init();
+
+    // 如果传入了已有流则复用，否则主动请求麦克风
+    let stream = existingStream;
+    if (!stream) {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
     this.stream = stream;
 
     // 断开旧的 source（如果有）
