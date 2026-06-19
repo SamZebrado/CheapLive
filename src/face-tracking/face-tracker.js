@@ -35,21 +35,45 @@ class FaceTracker {
     this.renderInterval = 0;  // 渲染间隔（ms）
     this.lastRenderTime = 0;  // 上次渲染时间
 
-    // 灵敏度（0~200，100=默认）
-    this.sensitivity = {
-      eye: 100,
-      mouth: 100,
-      brow: 100,
-      head: 100,
-      pos: 100,
+    // 放大系数（0.5~3.0，1.0=默认，不缩放）
+    // 用于增强或减弱各参数的动态范围
+    this.scale = {
+      eye: 1.5,      // 眼睛开合：放大以使更明显
+      mouth: 1.5,    // 嘴开合：放大
+      smile: 1.5,    // 微笑：放大
+      brow: 1.8,     // 眉毛：放大
+      head: 1.0,     // 头姿态：1.0
+      pos: 1.0,      // 头位置：1.0
     };
+
+    // 校准值（中性姿态，作为中心基准）
+    // 使用校准按钮采集，而非固定 0.5
+    this.calibration = {
+      eyeLeft: 0.7,      // 眼睛开合的"自然睁眼"基准（高值）
+      eyeRight: 0.7,
+      mouthOpen: 0.0,    // 嘴的"闭合"基准
+      mouthSmile: 0.0,   // 微笑的"中性"基准
+      browLeft: 0.0,     // 眉的"自然"基准
+      browRight: 0.0,
+      headYaw: 0.5,      // 头姿态中心
+      headPitch: 0.5,
+      headRoll: 0.5,
+      headX: 0.5,
+      headY: 0.5,
+    };
+
+    // 校准状态
+    this.calibrating = false;
+    this.calibBuffer = [];       // 采集的原始值样本
+    this.calibDuration = 3000;   // 3 秒
+    this.calibStartTime = 0;
 
     // 平滑值（用于嘴部等需要平滑的参数）
     this.smoothed = {
       mouthOpen: 0,
       mouthSmile: 0,
     };
-    this.smoothFactor = 0.35; // 0=不平滑, 1=完全平滑（不更新）
+    this.smoothFactor = 0.25; // 0=不平滑, 1=完全平滑（不更新）
 
     // 调试小人
     this.avatar = null;
@@ -74,34 +98,98 @@ class FaceTracker {
     this.avatar = await createAvatar(this.avatarVersion);
   }
 
-  // 灵敏度控制
+  // 灵敏度/放大系数 UI 控制
   setupSensitivityControls() {
     const sliders = [
-      { id: 'sensEye', key: 'eye' },
-      { id: 'sensMouth', key: 'mouth' },
-      { id: 'sensBrow', key: 'brow' },
-      { id: 'sensHead', key: 'head' },
-      { id: 'sensPos', key: 'pos' },
+      { id: 'sensEye', key: 'eye', label: '眼' },
+      { id: 'sensMouth', key: 'mouth', label: '嘴' },
+      { id: 'sensSmile', key: 'smile', label: '笑' },
+      { id: 'sensBrow', key: 'brow', label: '眉' },
+      { id: 'sensHead', key: 'head', label: '头' },
+      { id: 'sensPos', key: 'pos', label: '位' },
     ];
-    sliders.forEach(({ id, key }) => {
+    sliders.forEach(({ id, key, label }) => {
       const slider = document.getElementById(id);
       const valEl = document.getElementById(id + 'Val');
       if (slider) {
         slider.addEventListener('input', () => {
-          this.sensitivity[key] = Number(slider.value);
-          if (valEl) valEl.textContent = slider.value + '%';
+          // 将 50~300 的滑块值映射到 0.5~3.0 的 scale 系数
+          this.scale[key] = Number(slider.value) / 100;
+          if (valEl) valEl.textContent = this.scale[key].toFixed(1) + 'x';
           this.saveSettings();
         });
       }
     });
+
+    // 校准按钮
+    const calibBtn = document.getElementById('calibBtn');
+    if (calibBtn) {
+      calibBtn.addEventListener('click', () => this.startCalibration());
+    }
   }
 
-  // 应用灵敏度：将原始值（0~1）通过灵敏度映射到输出值（0~1）
-  // sens: 0~200，100=默认（线性映射），<100=钝化，>100=放大
-  applySensitivity(rawValue, sensKey) {
-    const sens = this.sensitivity[sensKey] / 100; // 0~2
-    // 以 0.5 为中心进行缩放
-    return 0.5 + (rawValue - 0.5) * sens;
+  // 启动 3 秒校准：采集中性姿态平均值
+  startCalibration() {
+    if (!this.running) {
+      const statusEl = document.getElementById('status');
+      if (statusEl) statusEl.textContent = '请先启动摄像头再校准';
+      return;
+    }
+    this.calibrating = true;
+    this.calibBuffer = [];
+    this.calibStartTime = performance.now();
+    const statusEl = document.getElementById('status');
+    if (statusEl) statusEl.textContent = '校准中...请保持自然姿态 3 秒';
+    const btn = document.getElementById('calibBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '校准中...'; }
+  }
+
+  // finishCalibration: 对采集的样本取平均，作为新的校准基准
+  finishCalibration(sample) {
+    // sample: { eyeLeft, eyeRight, mouthOpen, mouthSmile, browLeft, browRight, headYaw, headPitch, headRoll, headX, headY }
+    if (!sample) return;
+    for (const k in sample) {
+      if (k in this.calibration) {
+        this.calibration[k] = sample[k];
+      }
+    }
+    this.calibrating = false;
+    const statusEl = document.getElementById('status');
+    if (statusEl) statusEl.textContent = '校准完成';
+    const btn = document.getElementById('calibBtn');
+    if (btn) { btn.disabled = false; btn.textContent = '重新校准'; }
+    this.saveSettings();
+  }
+
+  // 程度型参数缩放：从 0 开始的量（嘴开合、微笑、眉毛抬起、眼睛开合从闭合态算）
+  // raw: 原始值；calib: 中性基准值；scaleFactor: 放大系数；invert: 是否反转方向
+  applyMagnitudeScale(raw, calib, scaleFactor, invert = false) {
+    let delta;
+    if (invert) {
+      // 对于眼睛，calib 是"自然睁眼"的高值，值低于 calib 表示闭眼程度
+      delta = calib - raw;  // >0 表示闭眼程度
+    } else {
+      // 对于嘴/眉/微笑，calib 是"放松"的低值，值高于 calib 表示程度
+      delta = raw - calib;  // >0 表示动作程度
+    }
+    // 放大偏差后映射回 0~1
+    const scaledDelta = delta * scaleFactor;
+    let result;
+    if (invert) {
+      // 输出：1 = 完全睁眼, 0 = 完全闭眼
+      result = 1.0 - Math.max(0, scaledDelta);
+    } else {
+      // 输出：0 = 中性, 1 = 完全动作
+      result = Math.max(0, Math.min(1, scaledDelta));
+    }
+    return result;
+  }
+
+  // 位置型参数缩放：围绕中心值的量（头姿态、位置）
+  applyCenterScale(raw, center, scaleFactor) {
+    const delta = raw - center;
+    const scaled = delta * scaleFactor;
+    return Math.max(0, Math.min(1, center + scaled));
   }
 
   // 平滑插值：避免嘴部动作跳变
@@ -139,19 +227,31 @@ class FaceTracker {
         }
       }
 
-      // 恢复灵敏度
-      if (settings.sensitivity) {
-        Object.assign(this.sensitivity, settings.sensitivity);
-        const sliderMap = {
-          eye: 'sensEye', mouth: 'sensMouth', brow: 'sensBrow',
-          head: 'sensHead', pos: 'sensPos',
-        };
-        for (const [key, id] of Object.entries(sliderMap)) {
-          const slider = document.getElementById(id);
-          const valEl = document.getElementById(id + 'Val');
-          if (slider) slider.value = this.sensitivity[key];
-          if (valEl) valEl.textContent = this.sensitivity[key] + '%';
+      // 恢复放大系数（替代旧的 sensitivity）
+      if (settings.scale) {
+        Object.assign(this.scale, settings.scale);
+      } else if (settings.sensitivity) {
+        // 兼容旧版：sensitivity 百分比转换为 scale 系数
+        for (const k in settings.sensitivity) {
+          if (this.scale[k] !== undefined) {
+            this.scale[k] = settings.sensitivity[k] / 100;
+          }
         }
+      }
+      const sliderMap = {
+        eye: 'sensEye', mouth: 'sensMouth', smile: 'sensSmile',
+        brow: 'sensBrow', head: 'sensHead', pos: 'sensPos',
+      };
+      for (const [key, id] of Object.entries(sliderMap)) {
+        const slider = document.getElementById(id);
+        const valEl = document.getElementById(id + 'Val');
+        if (slider) slider.value = Math.round(this.scale[key] * 100);
+        if (valEl) valEl.textContent = this.scale[key].toFixed(1) + 'x';
+      }
+
+      // 恢复校准值
+      if (settings.calibration) {
+        Object.assign(this.calibration, settings.calibration);
       }
 
       // 恢复性能模式
@@ -171,7 +271,8 @@ class FaceTracker {
         privacyMode: this.privacyMode,
         mirrorData: this.mirrorData,
         appMode: this.avatar ? this.avatar.appMode : false,
-        sensitivity: this.sensitivity,
+        scale: this.scale,
+        calibration: this.calibration,
         perfMode: this.perfMode,
       };
       localStorage.setItem('cheaplive_settings', JSON.stringify(settings));
@@ -787,36 +888,66 @@ class FaceTracker {
       map[cat.categoryName] = cat.score;
     }
 
-    // 眼睛：eyeBlinkLeft 是眨眼程度（0=睁眼，1=闭眼），需要反转成睁眼度
-    // 镜像模式下交换左右眼数据
+    // === 眼睛：eyeBlinkLeft/Right 是眨眼程度（0=睁眼，1=闭眼），需要反转成睁眼度
     const eyeLeftRaw = 1 - (map['eyeBlinkLeft'] || 0);
     const eyeRightRaw = 1 - (map['eyeBlinkRight'] || 0);
-    // 应用眼睛灵敏度
-    const eyeLeftSens = this.applySensitivity(eyeLeftRaw, 'eye');
-    const eyeRightSens = this.applySensitivity(eyeRightRaw, 'eye');
-    this.setParam('eyeLeft', this.mirrorData ? eyeRightSens : eyeLeftSens);
-    this.setParam('eyeRight', this.mirrorData ? eyeLeftSens : eyeRightSens);
+    // 以"自然睁眼"的校准值为基准，低于此值表示闭眼
+    const eyeLeftOut = this.applyMagnitudeScale(eyeLeftRaw, this.calibration.eyeLeft, this.scale.eye, true);
+    const eyeRightOut = this.applyMagnitudeScale(eyeRightRaw, this.calibration.eyeRight, this.scale.eye, true);
+    this.setParam('eyeLeft', this.mirrorData ? eyeRightOut : eyeLeftOut);
+    this.setParam('eyeRight', this.mirrorData ? eyeLeftOut : eyeRightOut);
 
-    // 嘴巴：应用灵敏度 + 平滑插值
+    // === 嘴巴：jawOpen 是嘴张开程度（0=闭合，1=最大）
     const mouthRaw = map['jawOpen'] || 0;
-    const mouthSens = this.applySensitivity(mouthRaw, 'mouth');
-    const mouthSmoothed = this.smoothValue('mouthOpen', mouthSens);
+    const mouthOut = this.applyMagnitudeScale(mouthRaw, this.calibration.mouthOpen, this.scale.mouth, false);
+    const mouthSmoothed = this.smoothValue('mouthOpen', mouthOut);
     this.setParam('mouthOpen', mouthSmoothed);
 
+    // === 微笑：mouthSmileLeft/Right （0=中性，1=大笑）
     const smileLeft = map['mouthSmileLeft'] || 0;
     const smileRight = map['mouthSmileRight'] || 0;
     const smileRaw = (smileLeft + smileRight) / 2;
-    const smileSens = this.applySensitivity(smileRaw, 'mouth');
-    const smileSmoothed = this.smoothValue('mouthSmile', smileSens);
+    const smileOut = this.applyMagnitudeScale(smileRaw, this.calibration.mouthSmile, this.scale.smile, false);
+    const smileSmoothed = this.smoothValue('mouthSmile', smileOut);
     this.setParam('mouthSmile', smileSmoothed);
 
-    // 眉毛：镜像模式下交换 + 应用灵敏度
-    const browLeftRaw = map['browInnerUp'] || 0;
-    const browRightRaw = map['browOuterUpLeft'] || 0;
-    const browLeftSens = this.applySensitivity(browLeftRaw, 'brow');
-    const browRightSens = this.applySensitivity(browRightRaw, 'brow');
-    this.setParam('browLeft', this.mirrorData ? browRightSens : browLeftSens);
-    this.setParam('browRight', this.mirrorData ? browLeftSens : browRightSens);
+    // === 眉毛：browInnerUpLeft/Right + browOuterUpLeft/Right （0=放松，1=抬起）
+    // MediaPipe 使用明确的 Left/Right 后缀
+    const browLeftInner = map['browInnerUpLeft'] || 0;
+    const browLeftOuter = map['browOuterUpLeft'] || 0;
+    const browRightInner = map['browInnerUpRight'] || 0;
+    const browRightOuter = map['browOuterUpRight'] || 0;
+    const browLeftRaw = (browLeftInner + browLeftOuter) / 2;
+    const browRightRaw = (browRightInner + browRightOuter) / 2;
+    const browLeftOut = this.applyMagnitudeScale(browLeftRaw, this.calibration.browLeft, this.scale.brow, false);
+    const browRightOut = this.applyMagnitudeScale(browRightRaw, this.calibration.browRight, this.scale.brow, false);
+    // 镜像：用户抬起他的左眉 → 在屏幕右侧，对应头像的右眉
+    this.setParam('browLeft', this.mirrorData ? browRightOut : browLeftOut);
+    this.setParam('browRight', this.mirrorData ? browLeftOut : browRightOut);
+
+    // === 校准：如果在校准模式，记录原始数据并在超时后取平均
+    if (this.calibrating) {
+      this.calibBuffer.push({
+        eyeLeft: eyeLeftRaw,
+        eyeRight: eyeRightRaw,
+        mouthOpen: mouthRaw,
+        mouthSmile: smileRaw,
+        browLeft: browLeftRaw,
+        browRight: browRightRaw,
+        headYaw: 0.5, headPitch: 0.5, headRoll: 0.5,
+        headX: 0.5, headY: 0.5,
+      });
+      const elapsed = performance.now() - this.calibStartTime;
+      if (elapsed >= this.calibDuration && this.calibBuffer.length > 0) {
+        const avg = {};
+        const keys = ['eyeLeft', 'eyeRight', 'mouthOpen', 'mouthSmile', 'browLeft', 'browRight',
+                      'headYaw', 'headPitch', 'headRoll', 'headX', 'headY'];
+        for (const k of keys) {
+          avg[k] = this.calibBuffer.reduce((s, v) => s + (v[k] || 0), 0) / this.calibBuffer.length;
+        }
+        this.finishCalibration(avg);
+      }
+    }
   }
 
   updateHeadPose(matrix, landmarks) {
@@ -849,22 +980,33 @@ class FaceTracker {
       headYawNorm = 1 - headYawNorm;
       headRollNorm = 1 - headRollNorm;
     }
-    // 应用头部姿态灵敏度
-    this.setParam('headYaw', this.applySensitivity(headYawNorm, 'head'));
-    this.setParam('headPitch', this.applySensitivity(headPitchNorm, 'head'));
-    // roll 直接传递原始值（灵敏度对 roll 效果不明显，直接放大更直观）
-    this.setParam('headRoll', headRollNorm);
+
+    // 应用头部姿态：围绕校准中心值放大
+    this.setParam('headYaw', this.applyCenterScale(headYawNorm, this.calibration.headYaw, this.scale.head));
+    this.setParam('headPitch', this.applyCenterScale(headPitchNorm, this.calibration.headPitch, this.scale.head));
+    this.setParam('headRoll', this.applyCenterScale(headRollNorm, this.calibration.headRoll, this.scale.head));
 
     // 头部在画面中的位置（基于 landmarks 的鼻子中心点）
+    let headXRaw = 0.5, headYRaw = 0.5;
     if (landmarks && landmarks.length > 0) {
-      // 鼻子中心点索引 1（MediaPipe Face Landmarker）
       const nose = landmarks[1];
-      // 镜像模式下水平位置翻转
-      const headXRaw = this.mirrorData ? (1 - nose.x) : nose.x;
-      const headYRaw = nose.y;
-      // 应用位置灵敏度
-      this.setParam('headX', this.applySensitivity(headXRaw, 'pos'));
-      this.setParam('headY', this.applySensitivity(headYRaw, 'pos'));
+      headXRaw = this.mirrorData ? (1 - nose.x) : nose.x;
+      headYRaw = nose.y;
+    }
+    // 应用位置缩放：围绕校准中心
+    this.setParam('headX', this.applyCenterScale(headXRaw, this.calibration.headX, this.scale.pos));
+    this.setParam('headY', this.applyCenterScale(headYRaw, this.calibration.headY, this.scale.pos));
+
+    // 校准：记录头部姿态原始值（用于下次 finishCalibration 时合并）
+    if (this.calibrating) {
+      const lastSample = this.calibBuffer[this.calibBuffer.length - 1];
+      if (lastSample) {
+        lastSample.headYaw = headYawNorm;
+        lastSample.headPitch = headPitchNorm;
+        lastSample.headRoll = headRollNorm;
+        lastSample.headX = headXRaw;
+        lastSample.headY = headYRaw;
+      }
     }
   }
 

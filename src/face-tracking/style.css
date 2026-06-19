@@ -578,6 +578,29 @@ body.app-mode .avatar-wrapper {
   text-align: right;
 }
 
+/* 校准 */
+.calib-group {
+  border-top: 1px solid var(--rule);
+  padding-top: 16px;
+  margin-top: 8px;
+}
+
+.calib-desc {
+  font-size: 0.8rem;
+  color: var(--ink-2);
+  margin: 0 0 10px 0;
+  line-height: 1.5;
+}
+
+#calibBtn {
+  width: 100%;
+}
+
+#calibBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* 性能模式 */
 .perf-group {
   border-top: 1px solid var(--rule);
