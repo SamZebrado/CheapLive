@@ -271,32 +271,43 @@
         </div>
 
         <div class="param-group sensitivity-group">
-          <h3>灵敏度控制</h3>
+          <h3>参数放大系数</h3>
           <div class="sensitivity-row">
             <span class="sensitivity-label">眼睛</span>
-            <input type="range" id="sensEye" class="sensitivity-slider" min="0" max="200" value="100">
-            <span id="sensEyeVal" class="sensitivity-value">100%</span>
+            <input type="range" id="sensEye" class="sensitivity-slider" min="50" max="300" value="150">
+            <span id="sensEyeVal" class="sensitivity-value">1.5x</span>
           </div>
           <div class="sensitivity-row">
             <span class="sensitivity-label">嘴巴</span>
-            <input type="range" id="sensMouth" class="sensitivity-slider" min="0" max="200" value="100">
-            <span id="sensMouthVal" class="sensitivity-value">100%</span>
+            <input type="range" id="sensMouth" class="sensitivity-slider" min="50" max="300" value="150">
+            <span id="sensMouthVal" class="sensitivity-value">1.5x</span>
+          </div>
+          <div class="sensitivity-row">
+            <span class="sensitivity-label">微笑</span>
+            <input type="range" id="sensSmile" class="sensitivity-slider" min="50" max="300" value="150">
+            <span id="sensSmileVal" class="sensitivity-value">1.5x</span>
           </div>
           <div class="sensitivity-row">
             <span class="sensitivity-label">眉毛</span>
-            <input type="range" id="sensBrow" class="sensitivity-slider" min="0" max="200" value="100">
-            <span id="sensBrowVal" class="sensitivity-value">100%</span>
+            <input type="range" id="sensBrow" class="sensitivity-slider" min="50" max="300" value="180">
+            <span id="sensBrowVal" class="sensitivity-value">1.8x</span>
           </div>
           <div class="sensitivity-row">
             <span class="sensitivity-label">头部姿态</span>
-            <input type="range" id="sensHead" class="sensitivity-slider" min="0" max="200" value="100">
-            <span id="sensHeadVal" class="sensitivity-value">100%</span>
+            <input type="range" id="sensHead" class="sensitivity-slider" min="50" max="300" value="100">
+            <span id="sensHeadVal" class="sensitivity-value">1.0x</span>
           </div>
           <div class="sensitivity-row">
             <span class="sensitivity-label">头部位置</span>
-            <input type="range" id="sensPos" class="sensitivity-slider" min="0" max="200" value="100">
-            <span id="sensPosVal" class="sensitivity-value">100%</span>
+            <input type="range" id="sensPos" class="sensitivity-slider" min="50" max="300" value="100">
+            <span id="sensPosVal" class="sensitivity-value">1.0x</span>
           </div>
+        </div>
+
+        <div class="param-group calib-group">
+          <h3>中性姿态校准</h3>
+          <p class="calib-desc">保持自然表情 3 秒钟，以您的中性表情为基准来计算各参数的动态范围。</p>
+          <button id="calibBtn" class="btn btn-primary">开始校准</button>
         </div>
 
         <div class="param-group perf-group">

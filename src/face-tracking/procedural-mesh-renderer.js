@@ -495,28 +495,53 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
       const yawCompress = clamp(facing, 0.3, 1);
-      const halfW = 22 * scale * yawCompress;
-      const openH = 4 * scale + 14 * scale * open;
-      const smileUp = -smile * 5 * scale;
+      // 微笑：嘴角上扬 + 嘴宽增加；张开：高度增加
+      const smileWiden = 1 + smile * 0.4;     // 最大加宽 40%
+      const halfW = 22 * scale * yawCompress * smileWiden;
+      const openH = 3 * scale + 14 * scale * open;
+      const cornerUp = -smile * 8 * scale;    // 嘴角上移
+      const centerUp = -smile * 3 * scale;     // 中心轻微上移
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1, 2.2 * scale);
-      if (open < 0.05) {
-        // 闭合成一条上扬曲线
+      if (open < 0.05 && smile < 0.1) {
+        // 平静闭合嘴
         ctx.beginPath();
-        ctx.moveTo(t.screenX - halfW, t.screenY + smileUp);
+        ctx.moveTo(t.screenX - halfW, t.screenY);
+        ctx.lineTo(t.screenX + halfW, t.screenY);
+        ctx.stroke();
+      } else if (open < 0.05) {
+        // 闭嘴上扬（纯微笑）
+        ctx.beginPath();
+        ctx.moveTo(t.screenX - halfW, t.screenY + cornerUp);
         ctx.quadraticCurveTo(
           t.screenX,
-          t.screenY + smileUp + 4 * scale * (1 - smile),
+          t.screenY + centerUp + 2 * scale,
           t.screenX + halfW,
-          t.screenY + smileUp
+          t.screenY + cornerUp
         );
         ctx.stroke();
       } else {
+        // 张嘴（可能带微笑）：上唇弧 + 下唇弧 + 口腔填充
         ctx.fillStyle = '#4a2020';
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY + smileUp * 0.5, halfW * 0.7, openH * 0.5, 0, 0, Math.PI * 2);
+        // 上唇：从左嘴角到右嘴角，向上弧
+        ctx.moveTo(t.screenX - halfW, t.screenY + cornerUp);
+        ctx.quadraticCurveTo(
+          t.screenX,
+          t.screenY + centerUp - openH * 0.35,
+          t.screenX + halfW,
+          t.screenY + cornerUp
+        );
+        // 下唇：从右嘴角到左嘴角，向下弧
+        ctx.quadraticCurveTo(
+          t.screenX,
+          t.screenY + centerUp + openH * 0.55,
+          t.screenX - halfW,
+          t.screenY + cornerUp
+        );
+        ctx.closePath();
         ctx.fill();
         ctx.stroke();
       }
@@ -721,27 +746,51 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
       const yawCompress = clamp(facing, 0.3, 1);
-      const halfW = 20 * scale * yawCompress;
+      // 微笑：嘴角上扬 + 嘴宽增加；张开：高度增加
+      const smileWiden = 1 + smile * 0.4;
+      const halfW = 20 * scale * yawCompress * smileWiden;
       const openH = 3 * scale + 12 * scale * open;
-      const smileUp = -smile * 5 * scale;
+      const cornerUp = -smile * 7 * scale;
+      const centerUp = -smile * 3 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1, 2 * scale);
-      if (open < 0.05) {
+      if (open < 0.05 && smile < 0.1) {
+        // 平静闭合嘴
         ctx.beginPath();
-        ctx.moveTo(t.screenX - halfW, t.screenY + smileUp);
+        ctx.moveTo(t.screenX - halfW, t.screenY);
+        ctx.lineTo(t.screenX + halfW, t.screenY);
+        ctx.stroke();
+      } else if (open < 0.05) {
+        // 闭嘴上扬（纯微笑）
+        ctx.beginPath();
+        ctx.moveTo(t.screenX - halfW, t.screenY + cornerUp);
         ctx.quadraticCurveTo(
           t.screenX,
-          t.screenY + smileUp + 3 * scale * (1 - smile),
+          t.screenY + centerUp + 2 * scale,
           t.screenX + halfW,
-          t.screenY + smileUp
+          t.screenY + cornerUp
         );
         ctx.stroke();
       } else {
+        // 张嘴（可能带微笑）：上唇弧 + 下唇弧 + 口腔填充
         ctx.fillStyle = '#4a2020';
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY + smileUp * 0.5, halfW * 0.7, openH * 0.5, 0, 0, Math.PI * 2);
+        ctx.moveTo(t.screenX - halfW, t.screenY + cornerUp);
+        ctx.quadraticCurveTo(
+          t.screenX,
+          t.screenY + centerUp - openH * 0.35,
+          t.screenX + halfW,
+          t.screenY + cornerUp
+        );
+        ctx.quadraticCurveTo(
+          t.screenX,
+          t.screenY + centerUp + openH * 0.55,
+          t.screenX - halfW,
+          t.screenY + cornerUp
+        );
+        ctx.closePath();
         ctx.fill();
         ctx.stroke();
       }
