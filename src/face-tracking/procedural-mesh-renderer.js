@@ -567,21 +567,23 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
   constructor(canvasId) {
     super(canvasId);
     this.spindleMesh = createSpindleMesh({
-      headX: 60,
-      headY: 52,
-      headZ: 50,
-      bodyLength: 105,
-      bodyEndX: 3,
-      bodyEndY: 3,
-      columns: 28,
-      rows: 16,
-      topColor: '#bdb8aa',
-      bottomColor: '#f2f0e6',
-      faceTopColor: '#c8c2b4',
-      faceBottomColor: '#fffaf0',
-    });
-    // 默认轻微 3/4 视角，让身体从头后方微露
-    this.baseYaw = -12;
+        headX: 70,
+        headY: 58,
+        headZ: 54,
+        bodyLength: 102,
+        bodyEndX: 9,
+        bodyEndY: 5,
+        columns: 30,
+        rows: 35,
+        topColor: '#c3b681',
+        bottomColor: '#eee1bc',
+        faceTopColor: '#d1c394',
+        faceBottomColor: '#f4e8c8',
+      });
+    // 真正正面视角，没有 3/4 视图的不对称
+    this.baseYaw = 0;
+    this.basePitch = 0;
+    this.baseRoll = 0;
     this.draw();
   }
 
@@ -596,29 +598,30 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const hx = mesh.headX;   // 左右半径
     const hy = mesh.headY;   // 上下半径
 
-    const eyeSpacing = hx * 0.30;    // 眼左右位置
-    const eyeHeight = -hy * 0.10;   // 眼上下位置（负 = 向上）
-    const mouthHeight = hy * 0.30;  // 嘴在眼下
-    const mouthWidth = hx * 0.28;   // 嘴宽
-    const browOffset = -hy * 0.28;  // 眉在眼上方
-    const browSpacing = hx * 0.25;  // 眉间距比眼略宽
+    // 卡通版：大圆眼、适中眼距、眼睛在脸部上部
+    const eyeSpacing = hx * 0.31;    // 眼左右位置（放宽眼距，避免两眼挤在一起）
+    const eyeHeight = -hy * 0.15;   // 眼上下位置（脸的上半部分）
+    const mouthHeight = hy * 0.30;  // 嘴在眼下稍远的位置（GPT 建议：避免张嘴时上缘碰到眼睛）
+    const mouthHalfWidth = hx * 0.22; // 嘴的半宽，约占头部宽度 44%
+    const browOffset = -hy * 0.48;  // 眉在眼上方（相对中心）
+    const browSpacing = hx * 0.31;  // 眉水平间距与眼一致
 
     return {
-      leftEye:  { bodyT: 0, horizOffset: -eyeSpacing, vertOffset: eyeHeight, surfaceOffset: 2 },
-      rightEye: { bodyT: 0, horizOffset:  eyeSpacing, vertOffset: eyeHeight, surfaceOffset: 2 },
-      mouth:    { bodyT: 0, horizOffset: 0,            vertOffset: mouthHeight, surfaceOffset: 2, mouthWidth: mouthWidth },
-      browLeft: { bodyT: 0, horizOffset: -browSpacing, vertOffset: browOffset, surfaceOffset: 3 },
-      browRight:{ bodyT: 0, horizOffset:  browSpacing, vertOffset: browOffset, surfaceOffset: 3 },
+      leftEye:  { bodyT: 0, horizOffset: -eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0.5 },
+      rightEye: { bodyT: 0, horizOffset:  eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0.5 },
+      mouth:    { bodyT: 0, horizOffset: 0,            vertOffset: mouthHeight, surfaceOffset: 0.5, mouthWidth: mouthHalfWidth },
+      browLeft: { bodyT: 0, horizOffset: -browSpacing, vertOffset: browOffset, surfaceOffset: 0.8 },
+      browRight:{ bodyT: 0, horizOffset:  browSpacing, vertOffset: browOffset, surfaceOffset: 0.8 },
     };
   }
 
   _render(ctx, w, h) {
     const np = normalizeParams(this.params);
-    // 在用户头摆基础上叠加上默认的 3/4 视角
+    // 用户头摆 + 默认正面视角（无旋转）
     const rot = {
       angleY: np.headYaw + this.baseYaw,
-      angleX: np.headPitch,
-      angleZ: np.headRoll,
+      angleX: np.headPitch + this.basePitch,
+      angleZ: np.headRoll + this.baseRoll,
     };
 
     const minSide = Math.min(w, h);
@@ -650,56 +653,51 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const anchors = this.getAnchors(np);
     const mesh = this.spindleMesh;
 
-    // 眼睛椭圆尺寸随头部大小变化
-    const eyeBase = Math.max(6, mesh.headX * 0.18);
+    // 卡通版：大圆眼，半径约占头部宽度 25%
+    const eyeRadius = Math.max(8, mesh.headX * 0.25);
 
-    const drawEye = (anchor, openness, isNear) => {
+    const drawEye = (anchor, openness) => {
       const local = computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
-      // 远侧眼缩小并向中线收
-      const farScale = isNear ? 1.0 : 0.75;
-      const farHorizShift = isNear ? 0 : anchor.horizOffset * 0.22;
-      const yawCompress = clamp(facing, 0.3, 1);
-      const rx = eyeBase * scale * yawCompress * farScale;
-      const ry = eyeBase * scale * (0.4 + 0.6 * openness) * farScale;
+      // 正面视角：两眼完全等大，没有远侧/近侧的不对称
+      const rx = eyeRadius * scale;
+      const ry = eyeRadius * scale * (0.75 + 0.25 * openness);  // 圆眼睛
       ctx.save();
       ctx.beginPath();
-      ctx.ellipse(t.screenX - farHorizShift * scale, t.screenY, rx, ry, 0, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, rx, ry, 0, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.globalAlpha = facing;
       ctx.fill();
-      ctx.lineWidth = Math.max(1, 1.8 * scale);
+      ctx.lineWidth = Math.max(1, 2.0 * scale);
       ctx.strokeStyle = '#222';
       ctx.stroke();
       if (openness > 0.1) {
         ctx.beginPath();
-        const pupilRx = rx * 0.55;
-        const pupilRy = rx * 0.55;
-        ctx.ellipse(t.screenX - farHorizShift * scale, t.screenY, pupilRx, pupilRy, 0, 0, Math.PI * 2);
+        const pupilRx = rx * 0.53;
+        const pupilRy = ry * 0.53;
+        ctx.ellipse(t.screenX, t.screenY + 1.5, pupilRx, pupilRy, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#1f1f1f';
         ctx.fill();
       }
       ctx.restore();
     };
 
-    const drawBrow = (anchor, raise, isLeft) => {
+    const drawBrow = (anchor, raise) => {
       const local = computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      const yawCompress = clamp(facing, 0.3, 1);
-      const len = mesh.headX * 0.32 * scale * yawCompress;
+      const len = mesh.headX * 0.26 * scale;
       const up = -raise * 6 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
-      ctx.lineWidth = Math.max(1, 2 * scale);
+      ctx.lineWidth = Math.max(1.5, 2.5 * scale);
       ctx.beginPath();
-      const tilt = isLeft ? -0.1 : 0.1;
       ctx.moveTo(t.screenX - len * 0.5, t.screenY + up);
-      ctx.lineTo(t.screenX + len * 0.5, t.screenY + up + tilt * len);
+      ctx.lineTo(t.screenX + len * 0.5, t.screenY + up);
       ctx.stroke();
       ctx.restore();
     };
@@ -709,17 +707,16 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      const yawCompress = clamp(facing, 0.3, 1);
       // 微笑：嘴角上扬 + 嘴宽增加；张开：高度增加
       const smileWiden = 1 + smile * 0.40;
-      const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * yawCompress * smileWiden;
+      const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden;
       const openH = 3 * scale + 12 * scale * open;
       const cornerUp = -smile * 7 * scale;
       const centerUp = -smile * 3 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
-      ctx.lineWidth = Math.max(1, 2 * scale);
+      ctx.lineWidth = Math.max(1.5, 2.5 * scale);
       if (open < 0.05 && smile < 0.1) {
         // 平静闭合嘴
         ctx.beginPath();
@@ -761,17 +758,11 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    if (this.mirror) {
-      drawEye(anchors.rightEye, np.eyeLeft, true);
-      drawEye(anchors.leftEye, np.eyeRight, false);
-      drawBrow(anchors.browRight, np.browLeft, true);
-      drawBrow(anchors.browLeft, np.browRight, false);
-    } else {
-      drawEye(anchors.leftEye, np.eyeLeft, true);
-      drawEye(anchors.rightEye, np.eyeRight, false);
-      drawBrow(anchors.browLeft, np.browLeft, true);
-      drawBrow(anchors.browRight, np.browRight, false);
-    }
+    // 正面视角：两眼完全对称，没有远近侧的差异
+    drawEye(anchors.leftEye, np.eyeLeft);
+    drawEye(anchors.rightEye, np.eyeRight);
+    drawBrow(anchors.browLeft, np.browLeft);
+    drawBrow(anchors.browRight, np.browRight);
     drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile);
   }
 }
