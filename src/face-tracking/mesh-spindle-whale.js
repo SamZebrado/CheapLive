@@ -42,51 +42,58 @@ function getSpineX(t, headR, bodyLength) {
  */
 function getBodyWidth(t, headR, bodyWidth, bodyLength) {
   const maxW = bodyWidth * 1.0;
-  const shieldBaseW = bodyWidth * 0.55;
-  const tailBaseW = bodyWidth * 0.20;
-  const tailTipW = bodyWidth * 0.05;
+  const shieldBaseW = bodyWidth * 0.48; // 头盾后缘比原来更细
+  const tailBaseW = bodyWidth * 0.18;
+  const tailTipW = bodyWidth * 0.04;
 
   if (t < 0.15) {
+    // 鼻端到头盾最宽处：快速撑开到最大
     const k = t / 0.15;
     const eased = Math.sin(k * Math.PI * 0.5);
-    return maxW * (0.55 + 0.45 * eased);
-  } else if (t < 0.60) {
-    const k = (t - 0.15) / 0.45;
-    const eased = 0.5 * (1 - Math.cos(k * Math.PI));
+    return maxW * (0.50 + 0.50 * eased);
+  } else if (t < 0.45) {
+    // 头盾主体：到 0.45 时快速收窄到 48%
+    const k = (t - 0.15) / 0.30;
+    // 使用平方曲线：前慢后快，让收窄集中在后半段
+    const eased = k * k;
     return maxW - (maxW - shieldBaseW) * eased;
-  } else if (t < 0.90) {
-    const k = (t - 0.60) / 0.30;
-    return shieldBaseW * (1 - k) + tailBaseW * k;
+  } else if (t < 0.75) {
+    // 尾柄前半段：从 48% 继续收窄到 18%
+    const k = (t - 0.45) / 0.30;
+    const eased = 0.5 * (1 - Math.cos(k * Math.PI * 0.8));
+    return shieldBaseW - (shieldBaseW - tailBaseW) * eased;
   } else {
-    const k = (t - 0.90) / 0.10;
-    return tailBaseW * (1 - k) + tailTipW * k;
+    // 尾尖后半段：快速收细
+    const k = (t - 0.75) / 0.25;
+    return tailBaseW * (1 - k * k) + tailTipW * (k * k);
   }
 }
 
 /**
  * 水滴形截面深度函数（z 方向：朝摄像机方向的深度，也决定屏幕上下高度）。
- * 以 bodyDepth 为基础尺寸，萨卡班甲鱼的深度略小于宽度（略扁）。
+ * 以 bodyDepth 为基础尺寸，萨卡班甲鱼深度比宽度更小（更扁）。
  */
 function getBodyDepth(t, headR, bodyDepth, bodyLength) {
   const maxD = bodyDepth * 1.0;
-  const shieldBaseD = bodyDepth * 0.55;
-  const tailBaseD = bodyDepth * 0.20;
-  const tailTipD = bodyDepth * 0.05;
+  const shieldBaseD = bodyDepth * 0.45; // 深度收得比宽度更快
+  const tailBaseD = bodyDepth * 0.15;
+  const tailTipD = bodyDepth * 0.04;
 
   if (t < 0.15) {
     const k = t / 0.15;
     const eased = Math.sin(k * Math.PI * 0.5);
-    return maxD * (0.55 + 0.45 * eased);
-  } else if (t < 0.60) {
-    const k = (t - 0.15) / 0.45;
-    const eased = 0.5 * (1 - Math.cos(k * Math.PI));
+    return maxD * (0.50 + 0.50 * eased);
+  } else if (t < 0.45) {
+    const k = (t - 0.15) / 0.30;
+    const eased = k * k;
     return maxD - (maxD - shieldBaseD) * eased;
-  } else if (t < 0.90) {
-    const k = (t - 0.60) / 0.30;
-    return shieldBaseD * (1 - k) + tailBaseD * k;
+  } else if (t < 0.75) {
+    const k = (t - 0.45) / 0.30;
+    const eased = 0.5 * (1 - Math.cos(k * Math.PI * 0.8));
+    return shieldBaseD - (shieldBaseD - tailBaseD) * eased;
   } else {
-    const k = (t - 0.90) / 0.10;
-    return tailBaseD * (1 - k) + tailTipD * k;
+    const k = (t - 0.75) / 0.25;
+    return tailBaseD * (1 - k * k) + tailTipD * (k * k);
   }
 }
 
@@ -129,11 +136,11 @@ function getFaceWeight(t, angle) {
 
 export function createSpindleMesh(options = {}) {
   const {
-    headR = 85,
-    bodyLength = 130,
-    bodyWidth = 65,
-    bodyDepth = 50,
-    columns = 24,
+    headR = 95,
+    bodyLength = 150,
+    bodyWidth = 52,
+    bodyDepth = 34,
+    columns = 26,
     rows = 14,
     topColor = '#bdb8aa',       // 背部/上半灰色
     bottomColor = '#f2f1ea',    // 腹部/下半白色
