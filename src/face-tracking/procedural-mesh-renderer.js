@@ -950,7 +950,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const hx = mesh.headX, hy = mesh.headY;
     const nostrilHoriz = hx * 0.06;
     const nostrilVert = -hy * 0.06;
-    const nostrilSize = Math.max(1.8, hx * 0.022);
+    const nostrilSize = Math.max(2.0, hx * 0.045);
     const drawNostril = (hSign) => {
       const local = computeFaceAnchorXYZ(mesh, 0, nostrilHoriz * hSign, nostrilVert, 0.2);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
