@@ -190,25 +190,30 @@ function deformSphere(mesh, params = {}) {
 
   const transformed = mesh.vertices.map((v) => {
     const x = v.x * bs, y = v.y * bs, z = v.z * bs;
-    const x1 = x * cosY + z * sinY;
-    const z1 = -x * sinY + z * cosY;
-    const y1 = y;
-    const y2 = y1 * cosX - z1 * sinX;
-    const z2 = y1 * sinX + z1 * cosX;
-    const x2 = x1;
-    const x3 = x2 * cosZ - y2 * sinZ;
-    const y3 = x2 * sinZ + y2 * cosZ;
-    const z3 = z2;
+    // 旋转顺序: Z → X → Y (先 roll, 再 pitch, 最后 yaw)
+    // Z (roll):
+    let x1 = x * cosZ - y * sinZ;
+    let y1 = x * sinZ + y * cosZ;
+    let z1 = z;
+    // X (pitch):
+    let y2 = y1 * cosX - z1 * sinX;
+    let z2 = y1 * sinX + z1 * cosX;
+    let x2 = x1;
+    // Y (yaw):
+    let x3 = x2 * cosY + z2 * sinY;
+    let z3 = -x2 * sinY + z2 * cosY;
+    let y3 = y2;
 
-    const nx1 = v.nx * cosY + v.nz * sinY;
-    const nz1 = -v.nx * sinY + v.nz * cosY;
-    const ny1 = v.ny;
-    const ny2 = ny1 * cosX - nz1 * sinX;
-    const nz2 = ny1 * sinX + nz1 * cosX;
-    const nx2 = nx1;
-    const nx3 = nx2 * cosZ - ny2 * sinZ;
-    const ny3 = nx2 * sinZ + ny2 * cosZ;
-    const nz3 = nz2;
+    // 法线也用相同的顺序
+    let nx1 = v.nx * cosZ - v.ny * sinZ;
+    let ny1 = v.nx * sinZ + v.ny * cosZ;
+    let nz1 = v.nz;
+    let ny2 = ny1 * cosX - nz1 * sinX;
+    let nz2 = ny1 * sinX + nz1 * cosX;
+    let nx2 = nx1;
+    let nx3 = nx2 * cosY + nz2 * sinY;
+    let nz3 = -nx2 * sinY + nz2 * cosY;
+    let ny3 = ny2;
 
     return { ...v, tx: x3, ty: y3, tz: z3, nx: nx3, ny: ny3, nz: nz3 };
   });
@@ -687,15 +692,16 @@ function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
   const cosX = Math.cos(radX), sinX = Math.sin(radX);
   const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
 
-  // Yaw (绕 Y)
-  let x1 = x * cosY + z * sinY;
-  let z1 = -x * sinY + z * cosY;
-  let y1 = y;
-  let nx1 = nx * cosY + nz * sinY;
-  let nz1 = -nx * sinY + nz * cosY;
-  let ny1 = ny;
+  // 旋转顺序: Z → X → Y (先 roll, 再 pitch, 最后 yaw)
+  // Z (roll):
+  let x1 = x * cosZ - y * sinZ;
+  let y1 = x * sinZ + y * cosZ;
+  let z1 = z;
+  let nx1 = nx * cosZ - ny * sinZ;
+  let ny1 = nx * sinZ + ny * cosZ;
+  let nz1 = nz;
 
-  // Pitch (绕 X)
+  // X (pitch):
   let y2 = y1 * cosX - z1 * sinX;
   let z2 = y1 * sinX + z1 * cosX;
   let x2 = x1;
@@ -703,13 +709,13 @@ function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
   let nz2 = ny1 * sinX + nz1 * cosX;
   let nx2 = nx1;
 
-  // Roll (绕 Z)
-  let x3 = x2 * cosZ - y2 * sinZ;
-  let y3 = x2 * sinZ + y2 * cosZ;
-  let z3 = z2;
-  let nx3 = nx2 * cosZ - ny2 * sinZ;
-  let ny3 = nx2 * sinZ + ny2 * cosZ;
-  let nz3 = nz2;
+  // Y (yaw):
+  let x3 = x2 * cosY + z2 * sinY;
+  let z3 = -x2 * sinY + z2 * cosY;
+  let y3 = y2;
+  let nx3 = nx2 * cosY + nz2 * sinY;
+  let nz3 = -nx2 * sinY + nz2 * cosY;
+  let ny3 = ny2;
 
   return { x: x3, y: y3, z: z3, nx: nx3, ny: ny3, nz: nz3 };
 }
@@ -1044,15 +1050,16 @@ class ProceduralMeshRenderer {
     let x = local.x, y = local.y, z = local.z;
     let nx = local.nx, ny = local.ny, nz = local.nz;
 
-    // Yaw (Y)
-    let x1 = x * cosY + z * sinY;
-    let z1 = -x * sinY + z * cosY;
-    let y1 = y;
-    let nx1 = nx * cosY + nz * sinY;
-    let nz1 = -nx * sinY + nz * cosY;
-    let ny1 = ny;
+    // 旋转顺序: Z → X → Y (先 roll, 再 pitch, 最后 yaw)
+    // Z (roll):
+    let x1 = x * cosZ - y * sinZ;
+    let y1 = x * sinZ + y * cosZ;
+    let z1 = z;
+    let nx1 = nx * cosZ - ny * sinZ;
+    let ny1 = nx * sinZ + ny * cosZ;
+    let nz1 = nz;
 
-    // Pitch (X)
+    // X (pitch):
     let y2 = y1 * cosX - z1 * sinX;
     let z2 = y1 * sinX + z1 * cosX;
     let x2 = x1;
@@ -1060,13 +1067,13 @@ class ProceduralMeshRenderer {
     let nz2 = ny1 * sinX + nz1 * cosX;
     let nx2 = nx1;
 
-    // Roll (Z)
-    let x3 = x2 * cosZ - y2 * sinZ;
-    let y3 = x2 * sinZ + y2 * cosZ;
-    let z3 = z2;
-    let nx3 = nx2 * cosZ - ny2 * sinZ;
-    let ny3 = nx2 * sinZ + ny2 * cosZ;
-    let nz3 = nz2;
+    // Y (yaw):
+    let x3 = x2 * cosY + z2 * sinY;
+    let z3 = -x2 * sinY + z2 * cosY;
+    let y3 = y2;
+    let nx3 = nx2 * cosY + nz2 * sinY;
+    let nz3 = -nx2 * sinY + nz2 * cosY;
+    let ny3 = ny2;
 
     return {
       worldX: x3, worldY: y3, worldZ: z3,

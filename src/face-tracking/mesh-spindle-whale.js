@@ -271,99 +271,126 @@ export function createSpindleMesh(options = {}) {
     }
   }
 
-  // --- 尾鳍（Tail）：萨卡班甲鱼式细长尾 + 小三角形尾鳍叶 ---
-  //     萨卡班甲鱼特征：
-  //     1. 身体逐渐变细成长尾巴
-  //     2. 尾巴上有对称的三角形尾鳍叶
-  //     3. 尾巴末端有很小的尾鳍
-  //     参考：https://m.baike.com/wiki/fossil/23417395
+  // --- 尾鳍（Tail）：萨卡班甲鱼式对称尾鳍叶 ---
+  //     设计（GPT审阅后修正）：
+  //       R：尾柄中心（主体最后一圈的中心）
+  //       A：尾鳍上顶点（-Y）
+  //       C：尾鳍下端点（+Y）
+  //       BL：尾鳍左边缘（-X）
+  //       BR：尾鳍右边缘（+X）
+  //       T：尾尖（向 -Z 延伸）
+  //     上下尾叶是真正对称的：R-A-T（上）和 R-C-T（下）
+  //     尾鳍是薄鳍结构（doubleSided），从左右两侧都可见
+  //     尾鳍是三角面原生表示，不是退化四边形
   if (flukeEnabled) {
     const flukeStartIdx = vertices.length;
-    // 萨卡班甲鱼的尾鳍较小，不再是鲸鱼式大扇形
-    const flukeHalfWidth = headX * 0.25 * flukeSize;  // 尾鳍左右伸展宽度（缩小）
-    const flukeHalfHeight = headY * 0.35 * flukeSize; // 尾鳍上下高度（略大，上下对称）
-    const tailExtensionZ = 30;  // 尾巴延伸长度
-    const flukeTipBackZ = -bodyLength - headZ * 0.2;  // 尾尖在身体末端之后再靠后
+    const flukeHalfWidth = headX * 0.18 * flukeSize;   // 尾鳍左右宽度（较窄）
+    const flukeHalfHeight = headY * 0.22 * flukeSize;  // 尾鳍上下高度
+    const tailExtensionZ = 30;                         // 尾巴延伸长度（实际使用）
+    const flukeTipBackZ = -bodyLength - headZ * 0.2 - tailExtensionZ; // 尾尖最终位置
 
-    // 主体最后一圈的中心
+    // 主体最后一圈的中心（不重复计算 seam 端点）
     const lastRingStart = columns * (rows + 1);
     let bodyEndCenterX = 0, bodyEndCenterY = 0, bodyEndCenterZ = 0;
-    for (let row = 0; row <= rows; row++) {
+    for (let row = 0; row < rows; row++) {
       bodyEndCenterX += vertices[lastRingStart + row].x;
       bodyEndCenterY += vertices[lastRingStart + row].y;
       bodyEndCenterZ += vertices[lastRingStart + row].z;
     }
-    bodyEndCenterX /= (rows + 1);
-    bodyEndCenterY /= (rows + 1);
-    bodyEndCenterZ /= (rows + 1);
+    bodyEndCenterX /= rows;
+    bodyEndCenterY /= rows;
+    bodyEndCenterZ /= rows;
 
-    // 萨卡班甲鱼尾鳍设计：小三角形尾鳍叶 + 细长尾柄
-    //   A：尾鳍上顶点（-Y）
-    //   B：尾鳍左端点（-X）
-    //   C：尾鳍下端点（+Y）
-    //   D：尾鳍右端点（+X）
-    //   T：尾尖（中心 +Z 向后）
-    // 尾鳍起点比身体末端稍后
-    const flukeBaseZ = bodyEndCenterZ - 5;
-    const flA = {
-      x: bodyEndCenterX, y: bodyEndCenterY - flukeHalfHeight, z: flukeBaseZ,
-      nx: 0, ny: -1, nz: 0.5, t: 1.02, angle: -Math.PI / 2, col: columns + 1, row: 0,
+    // 尾柄中心 R（基础位置 = 主体末端后 3 单位）
+    const flukeBaseZ = bodyEndCenterZ - 3;
+    const vR = {
+      x: bodyEndCenterX, y: bodyEndCenterY, z: flukeBaseZ,
+      nx: 0, ny: 0, nz: -1, t: 1.03, angle: 0, col: columns + 1, row: 0,
+      isTop: false, isBottom: false, faceWeight: 0, isHead: false,
+    };
+    // 上顶点 A
+    const vA = {
+      x: bodyEndCenterX, y: bodyEndCenterY - flukeHalfHeight, z: flukeBaseZ - 10,
+      nx: 0, ny: -1, nz: 0, t: 1.04, angle: -Math.PI / 2, col: columns + 1, row: 0,
       isTop: true, isBottom: false, faceWeight: 0, isHead: false,
     };
-    const flB = {
+    // 下顶点 C
+    const vC = {
+      x: bodyEndCenterX, y: bodyEndCenterY + flukeHalfHeight, z: flukeBaseZ - 10,
+      nx: 0, ny: 1, nz: 0, t: 1.04, angle: Math.PI / 2, col: columns + 1, row: 0,
+      isTop: false, isBottom: true, faceWeight: 0, isHead: false,
+    };
+    // 左边缘 BL
+    const vBL = {
       x: bodyEndCenterX - flukeHalfWidth, y: bodyEndCenterY, z: flukeBaseZ,
-      nx: -1, ny: 0, nz: 0, t: 1.02, angle: Math.PI, col: columns + 1, row: 0,
+      nx: -1, ny: 0, nz: 0, t: 1.03, angle: Math.PI, col: columns + 1, row: 0,
       isTop: false, isBottom: true, faceWeight: 0, isHead: false,
     };
-    const flC = {
-      x: bodyEndCenterX, y: bodyEndCenterY + flukeHalfHeight, z: flukeBaseZ,
-      nx: 0, ny: 1, nz: 0.5, t: 1.02, angle: Math.PI / 2, col: columns + 1, row: 0,
-      isTop: false, isBottom: true, faceWeight: 0, isHead: false,
-    };
-    const flD = {
+    // 右边缘 BR
+    const vBR = {
       x: bodyEndCenterX + flukeHalfWidth, y: bodyEndCenterY, z: flukeBaseZ,
-      nx: 1, ny: 0, nz: 0, t: 1.02, angle: 0, col: columns + 1, row: 0,
+      nx: 1, ny: 0, nz: 0, t: 1.03, angle: 0, col: columns + 1, row: 0,
       isTop: false, isBottom: true, faceWeight: 0, isHead: false,
     };
-    // 尾尖：萨卡班甲鱼的尾巴末端有很小的尾鳍
-    const flT = {
-      x: bodyEndCenterX, y: bodyEndCenterY, z: flukeTipBackZ,  // 尾尖略微偏下
+    // 尾尖 T（向 -Z 延伸，略上翘）
+    const vT = {
+      x: bodyEndCenterX, y: bodyEndCenterY - headY * 0.05, z: flukeTipBackZ,
       nx: 0, ny: 0, nz: -1, t: 1.1, angle: 0, col: columns + 2, row: 0,
       isTop: true, isBottom: false, faceWeight: 0, isHead: false,
     };
 
-    // 把顶点 push 到数组（记录它们的绝对 index）
-    vertices.push(flA, flB, flC, flD, flT);
-    const iA = flukeStartIdx + 0;
-    const iB = flukeStartIdx + 1;
+    // 顶点 push 顺序：R, A, C, BL, BR, T
+    vertices.push(vR, vA, vC, vBL, vBR, vT);
+    const iR = flukeStartIdx + 0;
+    const iA = flukeStartIdx + 1;
     const iC = flukeStartIdx + 2;
-    const iD = flukeStartIdx + 3;
-    const iT = flukeStartIdx + 4;
+    const iBL = flukeStartIdx + 3;
+    const iBR = flukeStartIdx + 4;
+    const iT = flukeStartIdx + 5;
 
-    // 三角化尾鳍：萨卡班甲鱼式上下三角形尾鳍叶
-    //   上三角形：A-B-T（上尾鳍叶）
-    //   下三角形：C-D-T（下尾鳍叶）
-    // 注意：萨卡班甲鱼的尾鳍是对称的三角形，不是菱形
-    const flukeTriangles = [
-      [iA, iB, iT],  // 上三角形
-      [iC, iD, iT],  // 下三角形
-    ];
-    for (const tri of flukeTriangles) {
-      const [i0, i1, i2] = tri;
-      faces.push({
-        indices: [i0, i1, i2, i0], // 退化四边形 = 三角形
-        vertices: [vertices[i0], vertices[i1], vertices[i2], vertices[i0]],
-        isTop: i0 === iA,
-        isBottom: i0 === iC,
-        column: columns + 1, row: 0,
-      });
-    }
+    // --- 真正对称的上下尾鳍叶（原生三角面，非退化四边形） ---
+    // 上尾叶：R -> A -> T（从尾柄到上顶点到尾尖）
+    faces.push({
+      indices: [iR, iA, iT],
+      vertices: [vR, vA, vT],
+      isTop: true, isBottom: false,
+      column: columns + 1, row: 0,
+      doubleSided: true,
+    });
 
-    // 连接主体最后一圈到尾鳍：只用上下的过渡四边形
-    // 找到四个关键点：
+    // 下尾叶：R -> T -> C（从尾柄到尾尖到下顶点）
+    faces.push({
+      indices: [iR, iT, iC],
+      vertices: [vR, vT, vC],
+      isTop: false, isBottom: true,
+      column: columns + 1, row: 0,
+      doubleSided: true,
+    });
+
+    // 左右侧尾鳍连接（薄鳍的左右边缘补充）
+    // 左尾叶：R -> BL -> T
+    faces.push({
+      indices: [iR, iBL, iT],
+      vertices: [vR, vBL, vT],
+      isTop: false, isBottom: false,
+      column: columns + 1, row: 0,
+      doubleSided: true,
+    });
+
+    // 右尾叶：R -> T -> BR
+    faces.push({
+      indices: [iR, iT, iBR],
+      vertices: [vR, vT, vBR],
+      isTop: false, isBottom: false,
+      column: columns + 1, row: 0,
+      doubleSided: true,
+    });
+
+    // --- 连接主体最后一圈到尾鳍边缘：非交叉顺序 ---
+    // 找到主体最后一圈的四个关键点（top/bottom/left/right）
     let topIdx = lastRingStart, bottomIdx = lastRingStart, leftIdx = lastRingStart, rightIdx = lastRingStart;
     let topDiff = Infinity, bottomDiff = Infinity, leftDiff = Infinity, rightDiff = Infinity;
-    for (let row = 0; row <= rows; row++) {
+    for (let row = 0; row < rows; row++) {
       const v = vertices[lastRingStart + row];
       const d1 = Math.abs(v.angle - (-Math.PI / 2));
       const d2 = Math.abs(v.angle - Math.PI / 2);
@@ -374,31 +401,34 @@ export function createSpindleMesh(options = {}) {
       if (d3 < leftDiff) { leftDiff = d3; leftIdx = lastRingStart + row; }
       if (d4 < rightDiff) { rightDiff = d4; rightIdx = lastRingStart + row; }
     }
-    // 上部连接：topIdx -> A
+
+    // 连接四边形（绕序正确，避免 bowtie）
+    // 上-右连接：主体上 -> 主体右 -> BR -> R
     faces.push({
-      indices: [topIdx, rightIdx, iA, iD],
-      vertices: [vertices[topIdx], vertices[rightIdx], vertices[iA], vertices[iD]],
+      indices: [topIdx, rightIdx, iBR, iR],
+      vertices: [vertices[topIdx], vertices[rightIdx], vBR, vR],
       isTop: true, isBottom: false,
       column: columns, row: 0,
     });
-    // 下部连接：bottomIdx -> C
+    // 右-下连接：主体右 -> 主体下 -> C -> R
     faces.push({
-      indices: [bottomIdx, rightIdx, iC, iD],
-      vertices: [vertices[bottomIdx], vertices[rightIdx], vertices[iC], vertices[iD]],
+      indices: [rightIdx, bottomIdx, iC, iR],
+      vertices: [vertices[rightIdx], vertices[bottomIdx], vC, vR],
       isTop: false, isBottom: true,
       column: columns, row: 0,
     });
-    // 左右侧面：连接 leftIdx 和 rightIdx 到尾鳍起点
+    // 下-左连接：主体下 -> 主体左 -> BL -> R
     faces.push({
-      indices: [leftIdx, topIdx, iB, iA],
-      vertices: [vertices[leftIdx], vertices[topIdx], vertices[iB], vertices[iA]],
+      indices: [bottomIdx, leftIdx, iBL, iR],
+      vertices: [vertices[bottomIdx], vertices[leftIdx], vBL, vR],
+      isTop: false, isBottom: true,
+      column: columns, row: 0,
+    });
+    // 左-上连接：主体左 -> 主体上 -> A -> R
+    faces.push({
+      indices: [leftIdx, topIdx, iA, iR],
+      vertices: [vertices[leftIdx], vertices[topIdx], vA, vR],
       isTop: true, isBottom: false,
-      column: columns, row: 0,
-    });
-    faces.push({
-      indices: [leftIdx, bottomIdx, iB, iC],
-      vertices: [vertices[leftIdx], vertices[bottomIdx], vertices[iB], vertices[iC]],
-      isTop: false, isBottom: true,
       column: columns, row: 0,
     });
   } else {
@@ -543,15 +573,17 @@ function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
   const cosX = Math.cos(radX), sinX = Math.sin(radX);
   const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
 
-  // Yaw (绕 Y 轴)
-  let x1 = x * cosY + z * sinY;
-  let z1 = -x * sinY + z * cosY;
-  let y1 = y;
-  let nx1 = nx * cosY + nz * sinY;
-  let nz1 = -nx * sinY + nz * cosY;
-  let ny1 = ny;
+  // 旋转顺序: Z → X → Y (先 roll, 再 pitch, 最后 yaw)
+  // 与 _transformVec 保持一致，避免 yaw+pitch 组合时五官横过来
+  // Z (roll):
+  let x1 = x * cosZ - y * sinZ;
+  let y1 = x * sinZ + y * cosZ;
+  let z1 = z;
+  let nx1 = nx * cosZ - ny * sinZ;
+  let ny1 = nx * sinZ + ny * cosZ;
+  let nz1 = nz;
 
-  // Pitch (绕 X 轴)
+  // X (pitch):
   let y2 = y1 * cosX - z1 * sinX;
   let z2 = y1 * sinX + z1 * cosX;
   let x2 = x1;
@@ -559,13 +591,13 @@ function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
   let nz2 = ny1 * sinX + nz1 * cosX;
   let nx2 = nx1;
 
-  // Roll (绕 Z 轴)
-  let x3 = x2 * cosZ - y2 * sinZ;
-  let y3 = x2 * sinZ + y2 * cosZ;
-  let z3 = z2;
-  let nx3 = nx2 * cosZ - ny2 * sinZ;
-  let ny3 = nx2 * sinZ + ny2 * cosZ;
-  let nz3 = nz2;
+  // Y (yaw):
+  let x3 = x2 * cosY + z2 * sinY;
+  let z3 = -x2 * sinY + z2 * cosY;
+  let y3 = y2;
+  let nx3 = nx2 * cosY + nz2 * sinY;
+  let nz3 = -nx2 * sinY + nz2 * cosY;
+  let ny3 = ny2;
 
   return { x: x3, y: y3, z: z3, nx: nx3, ny: ny3, nz: nz3 };
 }
