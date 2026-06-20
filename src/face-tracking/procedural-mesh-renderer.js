@@ -237,8 +237,10 @@ class ProceduralMeshRenderer {
       const nLen = Math.sqrt(avgNx * avgNx + avgNy * avgNy + avgNz * avgNz) || 1;
 
       // 背面剔除：摄像机朝 +Z，所以 -Z 方向的面不画
+      // 对于卡通风格的萨卡班甲鱼，放宽阈值到 -0.25，让更多侧面可见
+      // 萨卡班甲鱼是扁平椭球体，旋转 60° 时侧面仍应可见
       const facing = avgNz / nLen;
-      if (facing < -0.05) continue;
+      if (facing < -0.25) continue;
 
       // 选择颜色：使用原始坐标判断上下，不随旋转变化
       // 对于球体：y < 0 为上半（灰），y >= 0 为下半（白）
