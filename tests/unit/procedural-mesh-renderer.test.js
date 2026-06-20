@@ -29,9 +29,11 @@ const SRC = path.join(REPO_ROOT, 'src', 'face-tracking');
 // === 动态 import ESM 源码 ===
 const meshSphere = await import(`file://${path.join(SRC, 'mesh-sphere.js')}`);
 const meshWhale = await import(`file://${path.join(SRC, 'mesh-spindle-whale.js')}`);
+const rendererModule = await import(`file://${path.join(SRC, 'procedural-mesh-renderer.js')}`);
 
 const { createSphereMesh, deformSphere, computeSphereFaceAnchor } = meshSphere;
 const { createSpindleMesh, createWhaleTailMesh, deformSpindle, computeFaceAnchor } = meshWhale;
+const { buildFaceBasisTest } = rendererModule;
 
 // ========== 几何辅助 ==========
 function approx(a, b, eps = 1e-6) {
@@ -502,5 +504,41 @@ describe('瞳孔尺寸不变量', () => {
     assert.ok(pupilRx > 0 && pupilRy > 0, '瞳孔尺寸必须为正');
     // 关键：ry 不再像旧实现那样乘以 openness
     assert.ok(!(pupilRy === rx * 0.55 * 0.5), '瞳孔不应随 openness 缩放（旧 bug）');
+  });
+});
+
+// ========== buildFaceBasis 退化分支测试 ==========
+// ChatGPT 要求的构造性反例：当 n = (1,1,1)/sqrt(3) 且 rawT = n 时
+// Gram-Schmidt 应给出零向量，退化处理应选择单一轴并用双重叉积恢复正交基
+describe('buildFaceBasis 退化分支', () => {
+  function length(v) {
+    return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  }
+  function dot(a, b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+  }
+
+  it('n=(1,1,1)/sqrt(3) 且 rawT=n 时应返回单位正交基', () => {
+    const invSqrt3 = 1 / Math.sqrt(3);
+    const local = {
+      nx: invSqrt3,
+      ny: invSqrt3,
+      nz: invSqrt3,
+      tx: invSqrt3,
+      ty: invSqrt3,
+      tz: invSqrt3,
+    };
+
+    const basis = buildFaceBasisTest(local);
+
+    // 验证 n, t, b 都是单位向量
+    assert.ok(Math.abs(length(basis.n) - 1) < 1e-6, `|n| should be 1, got ${length(basis.n)}`);
+    assert.ok(Math.abs(length(basis.t) - 1) < 1e-6, `|t| should be 1, got ${length(basis.t)}`);
+    assert.ok(Math.abs(length(basis.b) - 1) < 1e-6, `|b| should be 1, got ${length(basis.b)}`);
+
+    // 验证 n, t, b 两两正交
+    assert.ok(Math.abs(dot(basis.n, basis.t)) < 1e-6, `n·t should be 0, got ${dot(basis.n, basis.t)}`);
+    assert.ok(Math.abs(dot(basis.n, basis.b)) < 1e-6, `n·b should be 0, got ${dot(basis.n, basis.b)}`);
+    assert.ok(Math.abs(dot(basis.t, basis.b)) < 1e-6, `t·b should be 0, got ${dot(basis.t, basis.b)}`);
   });
 });

@@ -84,12 +84,16 @@ function buildFaceBasis(local) {
   // 检查 t 是否退化（与 n 平行导致 Gram-Schmidt 给出零向量）
   const tLen = Math.sqrt(t.x * t.x + t.y * t.y + t.z * t.z);
   if (tLen < BASIS_EPSILON) {
-    // 选择与 n 最不平行的参考轴，投影到切平面
-    const refX = Math.abs(n.x) < 0.9 ? 1 : 0;
-    const refY = Math.abs(n.y) < 0.9 ? 1 : 0;
-    const refZ = Math.abs(n.z) < 0.9 ? 1 : 0;
-    const ref = { x: refX, y: refY, z: refZ };
-    // 投影到 n 的法平面
+    // 选择与 n 的最小绝对分量对应的坐标轴（最不同于 n 的轴），作为参考向量
+    let ref;
+    if (Math.abs(n.x) <= Math.abs(n.y) && Math.abs(n.x) <= Math.abs(n.z)) {
+      ref = { x: 1, y: 0, z: 0 };
+    } else if (Math.abs(n.y) <= Math.abs(n.z)) {
+      ref = { x: 0, y: 1, z: 0 };
+    } else {
+      ref = { x: 0, y: 0, z: 1 };
+    }
+    // 将参考轴投影到 n 的法平面得到 t
     const refDotN = dotVec3(ref, n);
     t = {
       x: ref.x - refDotN * n.x,
@@ -98,13 +102,20 @@ function buildFaceBasis(local) {
     };
   }
 
+  // 确保 t 单位长
   t = normVec3(t, { x: 1, y: 0, z: 0 });
 
-  // b = n × t，保证正交
-  const bRaw = crossVec3(n, t);
-  const b = normVec3(bRaw, { x: 0, y: 1, z: 0 });
+  // 用双重叉积确保 t 与 n 正交：b = n × t，然后 t = b × n
+  let b = normVec3(crossVec3(n, t), { x: 0, y: 1, z: 0 });
+  t = normVec3(crossVec3(b, n), { x: 1, y: 0, z: 0 });
+  b = normVec3(crossVec3(n, t), { x: 0, y: 1, z: 0 });
 
   return { n, t, b };
+}
+
+// 导出用于测试（仅限测试使用）
+export function buildFaceBasisTest(local) {
+  return buildFaceBasis(local);
 }
 
 function computeProjectedEllipse(rx, ry, bx, by, halfWidth, halfHeight) {
