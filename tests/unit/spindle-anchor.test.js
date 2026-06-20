@@ -92,3 +92,43 @@ test('nose-tip: 鼻端顶点 nz 全部为正（朝摄像机）', () => {
   assert.ok(total > 0, 'nose-zone vertices exist');
   assert.equal(posCount, total, 'all nose-zone vertices face +Z');
 });
+
+test('computeFaceAnchorXYZ: local basis (n,t,b) is orthogonal and unit-length', () => {
+  const mesh = createSpindleMesh();
+  // Test left eye anchor
+  const leftEye = computeFaceAnchorXYZ(mesh, 0, -52 * 0.31, -46 * 0.15, 0.5);
+  const nLen = Math.sqrt(leftEye.nx ** 2 + leftEye.ny ** 2 + leftEye.nz ** 2);
+  const tLen = Math.sqrt(leftEye.tx ** 2 + leftEye.ty ** 2 + leftEye.tz ** 2);
+  const bLen = Math.sqrt(leftEye.bx ** 2 + leftEye.by ** 2 + leftEye.bz ** 2);
+  // Length should be ~1
+  assert.ok(Math.abs(nLen - 1) < 1e-6, '|n| ≈ 1, got ' + nLen);
+  assert.ok(Math.abs(tLen - 1) < 1e-6, '|t| ≈ 1, got ' + tLen);
+  assert.ok(Math.abs(bLen - 1) < 1e-6, '|b| ≈ 1, got ' + bLen);
+  // Dot products should be ~0 (orthogonal)
+  const nDotT = leftEye.nx * leftEye.tx + leftEye.ny * leftEye.ty + leftEye.nz * leftEye.tz;
+  const nDotB = leftEye.nx * leftEye.bx + leftEye.ny * leftEye.by + leftEye.nz * leftEye.bz;
+  const tDotB = leftEye.tx * leftEye.bx + leftEye.ty * leftEye.by + leftEye.tz * leftEye.bz;
+  assert.ok(Math.abs(nDotT) < 1e-6, 'n·t ≈ 0, got ' + nDotT);
+  assert.ok(Math.abs(nDotB) < 1e-6, 'n·b ≈ 0, got ' + nDotB);
+  assert.ok(Math.abs(tDotB) < 1e-6, 't·b ≈ 0, got ' + tDotB);
+});
+
+test('computeFaceAnchorXYZ: right eye and mouth anchors also have orthogonal unit basis', () => {
+  const mesh = createSpindleMesh();
+  const rightEye = computeFaceAnchorXYZ(mesh, 0, 52 * 0.31, -46 * 0.15, 0.5);
+  const mouth = computeFaceAnchorXYZ(mesh, 0, 0, -46 * 0.35, 0.5);
+  for (const anchor of [rightEye, mouth]) {
+    const nLen = Math.sqrt(anchor.nx ** 2 + anchor.ny ** 2 + anchor.nz ** 2);
+    const tLen = Math.sqrt(anchor.tx ** 2 + anchor.ty ** 2 + anchor.tz ** 2);
+    const bLen = Math.sqrt(anchor.bx ** 2 + anchor.by ** 2 + anchor.bz ** 2);
+    assert.ok(Math.abs(nLen - 1) < 1e-6, '|n| ≈ 1');
+    assert.ok(Math.abs(tLen - 1) < 1e-6, '|t| ≈ 1');
+    assert.ok(Math.abs(bLen - 1) < 1e-6, '|b| ≈ 1');
+    const nDotT = anchor.nx * anchor.tx + anchor.ny * anchor.ty + anchor.nz * anchor.tz;
+    const nDotB = anchor.nx * anchor.bx + anchor.ny * anchor.by + anchor.nz * anchor.bz;
+    const tDotB = anchor.tx * anchor.bx + anchor.ty * anchor.by + anchor.tz * anchor.bz;
+    assert.ok(Math.abs(nDotT) < 1e-6, 'n·t ≈ 0');
+    assert.ok(Math.abs(nDotB) < 1e-6, 'n·b ≈ 0');
+    assert.ok(Math.abs(tDotB) < 1e-6, 't·b ≈ 0');
+  }
+});
