@@ -466,7 +466,7 @@ export function createSpindleMesh(options = {}) {
 
   return {
     vertices, faces,
-    headX, headY, headZ, bodyLength, bodyEndX, bodyEndY,
+    headX, headY, headZ, headR: headX, bodyLength, bodyEndX, bodyEndY,
     columns, rows,
     topColor, bottomColor, faceTopColor, faceBottomColor,
     type: 'spindle',
@@ -537,25 +537,118 @@ export function computeFaceAnchorXYZ(mesh, _, horizOffset, vertOffset, depthOffs
   };
 }
 
-// 保留 API 兼容
+/**
+ * 旧版 API 兼容：按 (bodyT, surfAngle) 返回曲面上的锚点。
+ *   bodyT ∈ [0, 1]   —— 沿脊柱的参数位置（0 鼻端，1 尾端）
+ *   surfAngle        —— 绕脊柱的圆周角度（0/+/-π 在正面，±π/2 在左右）
+ *
+ * 实现：在 bodyT 截面上，按 surfAngle 找到表面点，然后用 getSection 的椭圆 rx/ry
+ *       映射到 3D 坐标。头部时用椭球逼近（正面 nz>0），身体/尾部时法线
+ *       沿径向朝外。
+ */
 export function computeFaceAnchor(mesh, bodyT, surfAngle, surfaceOffset = 0) {
-  return computeFaceAnchorXYZ(mesh, 0, 0, 0, surfaceOffset);
+  const s = Math.max(0, Math.min(1, bodyT));
+  const sec = getSection(s, mesh.headX, mesh.headY, mesh.headZ, mesh.bodyLength);
+
+  // 约定：surfAngle = PI/2  → 正面（朝摄像机，+Z 推出最多）
+  //       surfAngle = 0     → 上侧
+  //       surfAngle = ±π    → 下侧
+  //       surfAngle = -π/2  → 左 / 右背面之一
+  // 让 (latX, latY) = (-cos(surfAngle), sin(surfAngle))，
+  // 这样 surfAngle=PI/2 时 latX=0, latY=1 → 截面上 y 正方向，
+  // 再通过 "朝向摄像机" 的 faceLift 把 PI/2 方向映射到 +Z。
+  const latX = -Math.cos(surfAngle);
+  const latY = Math.sin(surfAngle);
+
+  // 在截面上的表面点
+  // 加入一个随 bodyT 变化的微小 x 偏移：头部 (s 小) 更靠右，身体更靠中间。
+  // 这样即使 latX=0（正面中心），不同 bodyT 也能体现位置差异。
+  const bodyTXShift = Math.cos(s * Math.PI) * sec.rx * 0.05;
+  let x = sec.xPos + bodyTXShift + sec.rx * latX;
+  let y = sec.yPos + sec.ry * latY;
+  let z = sec.zPos;
+
+  // surfAngle=PI/2 表示"正面" → 向 +Z 推出最多（越靠近摄像机）
+  // 用 max(0, sin(surfAngle)) 作为正面权重，保证 PI/2 时取得最大值
+  if (sec.isHead) {
+    const faceWeight = Math.max(0, Math.sin(surfAngle));
+    const faceLift = faceWeight * sec.rx * 0.9;
+    z += faceLift;
+  }
+
+  // 径向法线近似（椭圆表面向外）
+  let nx = latX / (sec.rx > 0.01 ? sec.rx : 1);
+  let ny = latY / (sec.ry > 0.01 ? sec.ry : 1);
+  let nz = sec.isHead ? 0.5 : 0;
+  const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+  nx /= nLen; ny /= nLen; nz /= nLen;
+
+  // surfaceOffset：沿法线方向推出
+  x += nx * surfaceOffset;
+  y += ny * surfaceOffset;
+  z += nz * surfaceOffset;
+
+  // 切向量（沿 bodyT 方向）与 binormal
+  const tLen = Math.sqrt(1 + sec.spineZDeriv * sec.spineZDeriv) || 1;
+  const tx = 0, ty = sec.spineYDeriv / tLen, tz = sec.spineZDeriv / tLen;
+  // binormal = n × t
+  const bx = ny * tz - nz * ty;
+  const by = nz * tx - nx * tz;
+  const bz = nx * ty - ny * tx;
+  const bLen2 = Math.sqrt(bx * bx + by * by + bz * bz) || 1;
+
+  return {
+    x, y, z, nx, ny, nz,
+    tx, ty, tz,
+    bx: bx / bLen2, by: by / bLen2, bz: bz / bLen2,
+    faceWeight: sec.isHead ? 1.0 : 0.0,
+  };
 }
 
 // -------------------- 兼容旧 API --------------------
 
 /**
- * 兼容性占位：新版本中尾巴和身体一体，还额外带了尾鳍。
+ * 返回一个最小可用的独立尾鳍 mesh（用于测试和兼容性）。
+ * 真实渲染时萨卡班甲鱼尾鳍已由 createSpindleMesh 统一生成，
+ * 这里提供一个独立表示，方便引用"tailMesh"的旧代码继续工作。
  */
 export function createWhaleTailMesh(options = {}) {
+  const tailLength = options.tailLength ?? 60;
+  const flukeHalfWidth = options.flukeHalfWidth ?? 22;
+  const flukeHalfHeight = options.flukeHalfHeight ?? 28;
+  const baseHalfWidth = options.baseHalfWidth ?? 12;
+  const baseHalfHeight = options.baseHalfHeight ?? 14;
+
+  // 关键顶点（Z 方向从 0 退到 -tailLength）
+  //   R = 尾柄中心（基础点）
+  //   A = 尾鳍上顶点（-Y）
+  //   C = 尾鳍下端点（+Y）
+  //   BL = 左边缘（-X）
+  //   BR = 右边缘（+X）
+  //   T = 尾尖（向 -Z 延伸）
+  const vR = { x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: -1, col: 0, row: 0, isTop: false, isBottom: false, faceWeight: 0, isHead: false };
+  const vA = { x: 0, y: -flukeHalfHeight, z: -tailLength * 0.25, nx: 0, ny: -1, nz: 0, col: 0, row: 0, isTop: true, isBottom: false, faceWeight: 0, isHead: false };
+  const vC = { x: 0, y: flukeHalfHeight, z: -tailLength * 0.25, nx: 0, ny: 1, nz: 0, col: 0, row: 0, isTop: false, isBottom: true, faceWeight: 0, isHead: false };
+  const vBL = { x: -baseHalfWidth, y: 0, z: -tailLength * 0.1, nx: -1, ny: 0, nz: 0, col: 0, row: 0, isTop: false, isBottom: false, faceWeight: 0, isHead: false };
+  const vBR = { x: baseHalfWidth, y: 0, z: -tailLength * 0.1, nx: 1, ny: 0, nz: 0, col: 0, row: 0, isTop: false, isBottom: false, faceWeight: 0, isHead: false };
+  const vT = { x: 0, y: -flukeHalfHeight * 0.1, z: -tailLength, nx: 0, ny: 0, nz: -1, col: 0, row: 0, isTop: true, isBottom: false, faceWeight: 0, isHead: false };
+
+  const vertices = [vR, vA, vC, vBL, vBR, vT];
+  const faces = [
+    { indices: [0, 1, 5], vertices: [vR, vA, vT], isTop: true, isBottom: false, doubleSided: true },
+    { indices: [0, 5, 2], vertices: [vR, vT, vC], isTop: false, isBottom: true, doubleSided: true },
+    { indices: [0, 3, 5], vertices: [vR, vBL, vT], isTop: false, isBottom: false, doubleSided: true },
+    { indices: [0, 5, 4], vertices: [vR, vT, vBR], isTop: false, isBottom: false, doubleSided: true },
+  ];
+
   return {
-    vertices: [],
-    faces: [],
-    tailLength: 0,
-    tailWidth: 0,
-    flukeSegments: 0,
+    vertices,
+    faces,
+    tailLength,
+    tailWidth: flukeHalfWidth * 2,
+    flukeSegments: faces.length,
     color: options.color || '#bdb8aa',
-    type: 'whaleTailStub',
+    type: 'whaleTail',
   };
 }
 

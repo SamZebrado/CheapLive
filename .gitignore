@@ -12,7 +12,9 @@ rules/chatgpt-bridge-collaboration.md
 artifacts/**/*.webm
 artifacts/**/page@*.webm
 
-# Android build output
+# Android APP 已冻结（2026-06-20），功能由参赛项目独立开发接管
+# 以下目录保留在 Git 追踪中作为历史快照，但主项目不再更新
+# 如无意中需要修改请先确认：这会违反冻结决策
 android-capture/build/
 android-capture/app/build/
 android-capture/.gradle/

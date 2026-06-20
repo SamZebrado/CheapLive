@@ -85,7 +85,7 @@ CheapLive/
 │       ├── face-tracker.js    # 面部捕捉核心逻辑
 │       ├── debug-avatar.js    # 程序化 Avatar（萨卡班甲鱼基础）
 │       └── style.css
-├── android-capture/           # CheapLive Capture Android App（开发中）
+├── android-capture/           # CheapLive Capture Android App（⏸️ 暂停开发，已由参赛项目接管）
 └── README.md                  # 本文件
 ```
 
@@ -105,9 +105,11 @@ CheapLive/
 - **实时变声**：基于 Web Audio API，功能存在但听感和跨浏览器兼容仍待验证
 - **网页旧多端模式**：保留在 `src/multi-device/`，依赖本地局域网信令服务；作为开发者实验入口保留，不作为当前推荐用户路径
 
-### 🔵 开发中：CheapLive Capture Android App
+### ⏸️ 暂停开发：CheapLive Capture Android App
 
-目标：在面捕手机上运行轻量 Android App，通过局域网向直播端浏览器发送面捕参数。目前 APK 未发布，真机链路未验证。
+该功能已由参赛项目独立开发接管，主项目不再更新。比赛结束后根据代码质量和结果酌情回灌。
+
+**开发中**的说明（快照，仅供参考）：目标是在面捕手机上运行轻量 Android App，通过局域网向直播端浏览器发送面捕参数。目前 APK 未发布，真机链路未验证。
 
 ### 🔴 规划中：Live2D Cubism / 透明悬浮浏览器
 
@@ -121,7 +123,7 @@ CheapLive/
 - **面部捕捉数据**：由 MediaPipe 模型在你的设备本地实时计算，所有数据（关键点、表情参数）留在浏览器中，不会上传到服务器
 - **摄像头画面**：仅在本地显示；单机模式不主动上传摄像头画面
 - **实验性功能**（变声、旧多端模式）可能触发额外的浏览器内处理，但不会向云端上传原始音频或视频流
-- **Android Capture**（开发中）未来在局域网内仅传输少量面捕参数，不传输摄像头视频
+- **Android Capture**（⏸️ 暂停开发）未来在局域网内仅传输少量面捕参数，不传输摄像头视频
 
 ---
 
@@ -154,5 +156,3 @@ CheapLive 是为 TRAE AI 创造力大赛开发的项目，欢迎提交 Issue 和
 ---
 
 > **CheapLive** - 让每个人都能成为虚拟主播。
-
-CheapLive Capture Android App：Phase 1 可构建骨架已完成；真实设备和多端链路尚未验证；后续阶段继续开发。
