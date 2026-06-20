@@ -30,8 +30,8 @@ function meshSummary(mesh) {
 
 function countVisibleAfterDeform(mesh, yawDeg, pitchDeg) {
   const params = {
-    angleY: (yawDeg * Math.PI) / 180,
-    angleX: (pitchDeg * Math.PI) / 180,
+    angleY: yawDeg,
+    angleX: pitchDeg,
     angleZ: 0,
   };
   const deformed = deformSpindle(mesh, params);
@@ -100,11 +100,34 @@ console.log('\n--- face polygon diversity (triangle support hint) ---');
 // 统计 3 顶点 / 4 顶点 / 其他面数
 let tri = 0, quad = 0, other = 0;
 for (const f of mesh.faces) {
-  const n = f.vertices.length;
+  const n = f.indices.length;
   if (n === 3) tri++;
   else if (n === 4) quad++;
   else other++;
 }
 console.log(' triangle faces:', tri, 'quad faces:', quad, 'other:', other);
+assert(tri === 4, 'default mesh has 4 tail triangles');
+assert(quad === mesh.faces.length - 4, 'remaining faces are quads');
+
+console.log('\n--- flukeEnabled=false: tail ring uses native triangles ---');
+const noFluke = createSpindleMesh({ flukeEnabled: false });
+let tri2 = 0, quad2 = 0;
+for (const f of noFluke.faces) {
+  if (f.indices.length === 3) tri2++;
+  else if (f.indices.length === 4) quad2++;
+}
+console.log(' triangle faces:', tri2, 'quad faces:', quad2);
+assert(tri2 > 0, 'fluke-disabled mode has native triangles');
+// 每一个三角面必须索引不重复且面积>0（边长平方和>0）
+for (const f of noFluke.faces) {
+  if (f.indices.length !== 3) continue;
+  const [a, b, c] = f.indices;
+  assert(a !== b && b !== c && a !== c, 'triangle indices unique');
+  const va = noFluke.vertices[a], vb = noFluke.vertices[b], vc = noFluke.vertices[c];
+  const dab = (va.x - vb.x) ** 2 + (va.y - vb.y) ** 2 + (va.z - vb.z) ** 2;
+  const dbc = (vb.x - vc.x) ** 2 + (vb.y - vc.y) ** 2 + (vb.z - vc.z) ** 2;
+  const dac = (va.x - vc.x) ** 2 + (va.y - vc.y) ** 2 + (va.z - vc.z) ** 2;
+  assert(dab > 0 && dbc > 0 && dac > 0, 'triangle edges non-degenerate');
+}
 
 console.log('\n=== done ===');
