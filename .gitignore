@@ -8,6 +8,9 @@ AGENTS.md
 rules/chatgpt-bridge-collaboration.md
 .local_sensitive/
 
+# 含 ChatGPT 引用的 Prompt 文件：永远禁止推到公共仓库
+docs/cheaplive-scheduler-aggressive.md
+
 # Playwright test artifacts (randomly named, non-deterministic)
 artifacts/**/*.webm
 artifacts/**/page@*.webm
