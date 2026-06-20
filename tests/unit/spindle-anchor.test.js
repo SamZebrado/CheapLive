@@ -25,19 +25,19 @@ function classifyFaces(mesh) {
   return { tri, quad, other, indexOutOfRange };
 }
 
-test('createSpindleMesh: 默认含尾鳍，含 4 个原生三角形面', () => {
+test('createSpindleMesh: 默认含尾鳍，鼻端扇形 + fluke 三角面共 28，退化 0', () => {
   const m = createSpindleMesh();
   const c = classifyFaces(m);
-  assert.equal(c.tri, 4, 'exactly 4 triangle faces with fluke enabled');
+  // col=0 的退化 quad 已替换为单顶点 apex + 24 三角扇；fluke 内部 4 三角 + 主体-fluke 连接 4 四角
+  assert.equal(c.tri, 28, 'expected 28 triangle faces (nose fan 24 + fluke inner 4)');
   assert.ok(c.quad > 0, 'quad faces present');
   assert.equal(c.other, 0, 'no unexpected polygon sizes');
   assert.equal(c.indexOutOfRange, 0, 'indices in range');
 });
 
-test('createSpindleMesh: flukeEnabled=false 使用原生三角形环，不含四边形 tail', () => {
+test('createSpindleMesh: flukeEnabled=false 使用尾端三角扇 + 鼻端三角扇，无退化', () => {
   const m = createSpindleMesh({ flukeEnabled: false });
   const c = classifyFaces(m);
-  // 列数 columns=34, rows=24 默认：最后一环用三角扇
   assert.ok(c.tri > 0, 'triangle faces exist in fluke-disabled mode');
   assert.equal(c.other, 0, 'no unexpected polygon sizes');
   assert.equal(c.indexOutOfRange, 0, 'indices in range');

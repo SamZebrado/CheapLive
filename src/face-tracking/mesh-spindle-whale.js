@@ -178,9 +178,21 @@ export function createSpindleMesh(options = {}) {
   const vertices = [];
   const faces = [];
 
+  // 鼻端 apex（单独一个顶点，避免 col=0 的 25 个重复点）
+  vertices.push({
+    x: 0, y: 0, z: headZ,
+    nx: 0, ny: 0, nz: 1,
+    t: 0, angle: 0, col: 0, row: 0,
+    isTop: false, isBottom: false,
+    faceWeight: 1.0,
+    isHead: true,
+  });
+  const APEX_IDX = 0;
+
   // --- 主体顶点：参数化曲面 ---
-  // angle 约定：angle = -π 开始绕一整圈，使 row=0 位于 -Y（上方背面），row=rows/2 位于 +Y（下方正面）
-  for (let col = 0; col <= columns; col++) {
+  // col 从 1 开始（s ≈ 1/columns），到 columns（s=1，尾端）
+  // 每列 rows+1 个顶点，angle ∈ [-π, π]
+  for (let col = 1; col <= columns; col++) {
     const s = col / columns;
     const sec = getSection(s, headX, headY, headZ, bodyLength);
     const rx = sec.rx;
@@ -247,27 +259,47 @@ export function createSpindleMesh(options = {}) {
     }
   }
 
-  // --- 生成主体面（四边形）：与旧版同逻辑 ---
-  for (let col = 0; col < columns; col++) {
+  // --- 主体面 ---
+  // col 1 → col 2：每相邻两列构成 rows 个四边形面
+  for (let col = 1; col < columns; col++) {
+    const colA = 1 + (col - 1) * (rows + 1); // col 顶点起始：col=1 → idx 1
+    const colB = colA + (rows + 1);
     for (let row = 0; row < rows; row++) {
-      const a = col * (rows + 1) + row;
+      const a = colA + row;
       const b = a + 1;
-      const c = (col + 1) * (rows + 1) + row;
+      const c = colB + row;
       const d = c + 1;
-
       const va = vertices[a];
       const vb = vertices[b];
       const vc = vertices[c];
       const vd = vertices[d];
-
-      const avgSin = (va.angle !== undefined) ?
-        (Math.sin(va.angle) + Math.sin(vb.angle) + Math.sin(vc.angle) + Math.sin(vd.angle)) * 0.25 : 0;
+      const avgSin = (Math.sin(va.angle) + Math.sin(vb.angle) + Math.sin(vc.angle) + Math.sin(vd.angle)) * 0.25;
       faces.push({
         indices: [a, b, d, c],
         vertices: [va, vb, vd, vc],
-        isTop: avgSin < 0,   // 上方 = -Y
+        isTop: avgSin < 0,
         isBottom: avgSin >= 0,
         column: col, row,
+      });
+    }
+  }
+
+  // 鼻端连接：apex → col=1 环，构成 rows 个三角面
+  {
+    const ringStart = 1; // col=1 顶点起始
+    for (let row = 0; row < rows; row++) {
+      const a = ringStart + row;
+      const b = ringStart + row + 1;
+      const va = vertices[a];
+      const vb = vertices[b];
+      const vApex = vertices[APEX_IDX];
+      const avgSin = (Math.sin(va.angle) + Math.sin(vb.angle)) * 0.5;
+      faces.push({
+        indices: [APEX_IDX, a, b],
+        vertices: [vApex, va, vb],
+        isTop: avgSin < 0,
+        isBottom: avgSin >= 0,
+        column: 0, row,
       });
     }
   }
@@ -290,8 +322,9 @@ export function createSpindleMesh(options = {}) {
     const tailExtensionZ = 30;                         // 尾巴延伸长度（实际使用）
     const flukeTipBackZ = -bodyLength - headZ * 0.2 - tailExtensionZ; // 尾尖最终位置
 
-    // 主体最后一圈的中心（不重复计算 seam 端点）
-    const lastRingStart = columns * (rows + 1);
+    // 主体最后一圈的中心（不含 seam 端点重复）
+    // 顶点布局：[0]=apex，然后 col=1..columns，每列 rows+1 个顶点
+    const lastRingStart = 1 + (columns - 1) * (rows + 1);
     let bodyEndCenterX = 0, bodyEndCenterY = 0, bodyEndCenterZ = 0;
     for (let row = 0; row < rows; row++) {
       bodyEndCenterX += vertices[lastRingStart + row].x;
@@ -434,7 +467,8 @@ export function createSpindleMesh(options = {}) {
     });
   } else {
     // 无尾鳍模式：简单从尾端中心扇形三角化到最后一圈
-    const lastRingStart = columns * (rows + 1);
+    // 顶点布局：[0]=apex，然后 col=1..columns，每列 rows+1 个顶点
+    const lastRingStart = 1 + (columns - 1) * (rows + 1);
     const tailIdx = vertices.length;
     let tailAvgX = 0, tailAvgY = 0, tailAvgZ = 0;
     for (let row = 0; row <= rows; row++) {
