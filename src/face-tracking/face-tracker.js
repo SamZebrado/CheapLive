@@ -394,8 +394,6 @@ class FaceTracker {
         const model = tab.dataset.model;
         if (model === 'sphere') {
           this.switchAvatarVersion('mesh-sphere');
-        } else if (model === 'spindle') {
-          this.switchAvatarVersion('mesh-spindle-whale');
         } else {
           this.switchAvatarVersion('mesh-spindle-whale');
         }

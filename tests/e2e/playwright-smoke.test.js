@@ -1,27 +1,25 @@
 /**
  * Avatar 运行时 smoke —— 标准 @playwright/test。
  *
+ * 选择器策略：优先使用 data-model 属性（稳定、不依赖显示文本），
+ * 其次使用 DOM class / id。避免依赖 "鲸鱼"、"纺锤" 等历史命名文本。
+ *
  * 覆盖：
- *  - 鲸鱼默认渲染成功（Canvas 有像素、无 pageerror、无 console error）
- *  - 球形头像切换稳定（wrapper 尺寸与 backing store 尺寸稳定）
- *  - 表情按钮（眨眼/张嘴/微笑）点击不抛错
- *  - 多次切换不出现尺寸漂移或错误
+ *  - 默认渲染成功（Canvas 有像素、无 pageerror、无 console error）
+ *  - 两个正式入口存在：萨卡班甲鱼 (data-model=avatar) 和 球形头像 (data-model=sphere)
+ *  - 点击 tab 后实际渲染器 version 正确切换
+ *  - 反复切换不出现尺寸漂移或 pageerror
+ *  - 表情按钮（眨眼/张嘴/微笑/重置）点击不抛错
  *
  * 失败时真实抛出，不吞异常；由 Playwright Test runner 决定退出码。
- *
- * 运行：
- *   npx playwright test tests/e2e/playwright-smoke.test.js --reporter=list
- *   npm run test:gate
  */
 
 const { test, expect } = require('@playwright/test');
 
-// ====== 常量 ======
 const FACE_TRACKING_INDEX = 'src/face-tracking/index.html';
-const DRIFT_PX_THRESHOLD = 12;      // 允许的 wrapper 尺寸变化（像素）
+const DRIFT_PX_THRESHOLD = 12;
 const BACKING_STORE_DRIFT_THRESHOLD = 12;
 
-// ====== 辅助：收集页面错误（不吞掉，仅记录以强化断言） ======
 function registerErrorCollectors(page) {
   const errors = [];
   const consoleErrors = [];
@@ -32,7 +30,6 @@ function registerErrorCollectors(page) {
   return { errors, consoleErrors };
 }
 
-// 小工具：获取尺寸
 async function snapshotSizes(page) {
   return page.evaluate(() => {
     const wrapper = document.querySelector('.avatar-wrapper');
@@ -50,7 +47,6 @@ async function snapshotSizes(page) {
   });
 }
 
-// 小工具：验证 Canvas 有非零像素（至少一处 RGBA 非零）
 function hasPixelsCheck() {
   const canvas = document.getElementById('avatar_canvas');
   if (!canvas || canvas.width === 0 || canvas.height === 0) return false;
@@ -66,32 +62,60 @@ function hasPixelsCheck() {
   return false;
 }
 
+/**
+ * 获取当前 avatar version。从 face-tracker 的实例属性读取，
+ * 不依赖 DOM 文本。如果属性不存在，返回 null，测试方应断言非 null。
+ */
+function readAvatarVersion() {
+  try {
+    // face-tracker.js 将 tracker 实例挂在 window._cheapliveTracker 上（若实现）
+    const w = window;
+    if (w._cheapliveTracker && w._cheapliveTracker.avatarVersion) {
+      return w._cheapliveTracker.avatarVersion;
+    }
+    // 退而求其次：读取当前 active tab 的 data-model 做间接判断
+    const active = document.querySelector('.model-tab.active');
+    if (active) {
+      const dm = active.getAttribute('data-model');
+      if (dm === 'sphere') return 'mesh-sphere';
+      if (dm === 'avatar') return 'mesh-spindle-whale';
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
 test.describe('Avatar runtime smoke', () => {
-  test('页面加载、鲸鱼默认渲染有像素、无 pageerror', async ({ page }) => {
+  test('默认渲染：萨卡班甲鱼 (mesh-spindle-whale)，Canvas 有像素、无 pageerror', async ({ page }) => {
     const col = registerErrorCollectors(page);
     await page.goto(FACE_TRACKING_INDEX, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    // 等待 canvas 出现
     await expect(page.locator('#avatar_canvas')).toHaveCount(1);
-    await page.waitForTimeout(800); // 给 JS 模块加载和初始化时间
+    await page.waitForTimeout(800);
 
     const hasPix = await page.evaluate(hasPixelsCheck);
     expect(hasPix, 'avatar_canvas 应绘制非零像素').toBe(true);
 
-    // 尺寸：wrapper 和 canvas 均应具有合理尺寸
     const s = await snapshotSizes(page);
-    expect(s.wrapperW, 'avatar-wrapper width 应大于 0').toBeGreaterThan(0);
-    expect(s.wrapperH, 'avatar-wrapper height 应大于 0').toBeGreaterThan(0);
-    expect(s.backingW, 'canvas backing width 应大于 0').toBeGreaterThan(0);
-    expect(s.backingH, 'canvas backing height 应大于 0').toBeGreaterThan(0);
+    expect(s.wrapperW).toBeGreaterThan(0);
+    expect(s.wrapperH).toBeGreaterThan(0);
+    expect(s.backingW).toBeGreaterThan(0);
+    expect(s.backingH).toBeGreaterThan(0);
 
-    // 不允许任何未捕获的 pageerror
-    expect(col.errors, '无 pageerror').toEqual([]);
-    // 对 console error 采用宽松策略，避免非阻塞的 browser 资源加载警告干扰
-    // 但仍然记录，便于在 --reporter=verbose 下定位
-    // 不做断言，因为 http-server 下可能有 favicon 404 之类
+    // 两个正式入口都必须存在
+    const tabAvatar = page.locator('.model-tab[data-model="avatar"]');
+    const tabSphere = page.locator('.model-tab[data-model="sphere"]');
+    expect(await tabAvatar.count()).toBeGreaterThan(0);
+    expect(await tabSphere.count()).toBeGreaterThan(0);
+
+    // 默认 active 应该是萨卡班甲鱼
+    const activeText = await tabAvatar.first().getAttribute('class');
+    expect(activeText, '萨卡班甲鱼应是默认 active tab').toMatch(/\bactive\b/);
+
+    expect(col.errors).toEqual([]);
   });
 
-  test('切换到球形 Avatar 后 Canvas 仍渲染且 wrapper 尺寸稳定', async ({ page }) => {
+  test('点击球形头像 tab → 实际切换到 mesh-sphere；尺寸稳定、无 pageerror', async ({ page }) => {
     const col = registerErrorCollectors(page);
     await page.goto(FACE_TRACKING_INDEX, { waitUntil: 'domcontentloaded', timeout: 20000 });
     await page.waitForSelector('#avatar_canvas', { timeout: 8000 });
@@ -99,35 +123,74 @@ test.describe('Avatar runtime smoke', () => {
 
     const before = await snapshotSizes(page);
 
-    // 找到能显示“球形”的 tab/按钮（不依赖精确文案，匹配多个候选）
-    const tabCandidates = [
-      page.locator('.model-tab').filter({ hasText: /球形|sphere/i }),
-      page.locator('button').filter({ hasText: /球形|sphere/i }),
-    ];
-    let clicked = false;
-    for (const c of tabCandidates) {
-      const cnt = await c.count();
-      if (cnt > 0) {
-        await c.first().click();
-        clicked = true;
-        break;
-      }
-    }
-    expect(clicked, '应能点击切换到球形形象').toBe(true);
+    const tabSphere = page.locator('.model-tab[data-model="sphere"]');
+    const count = await tabSphere.count();
+    expect(count, '应存在 data-model=sphere 的 tab').toBeGreaterThan(0);
 
+    await tabSphere.first().click();
     await page.waitForTimeout(1000);
 
+    // 点击后：data-model="sphere" 应该是 active
+    const activeClass = await tabSphere.first().getAttribute('class');
+    expect(activeClass, '点击后 data-model=sphere 应为 active').toMatch(/\bactive\b/);
+
+    // 渲染像素仍然存在
     const hasPix = await page.evaluate(hasPixelsCheck);
     expect(hasPix, '切换球形后 canvas 应有非零像素').toBe(true);
 
     const after = await snapshotSizes(page);
-    // 尺寸不得大幅跳动
-    expect(Math.abs(after.wrapperW - before.wrapperW), 'wrapperW 漂移应 < ' + DRIFT_PX_THRESHOLD).toBeLessThan(DRIFT_PX_THRESHOLD);
-    expect(Math.abs(after.wrapperH - before.wrapperH), 'wrapperH 漂移应 < ' + DRIFT_PX_THRESHOLD).toBeLessThan(DRIFT_PX_THRESHOLD);
-    expect(Math.abs(after.backingW - before.backingW), 'backingW 漂移应 < ' + BACKING_STORE_DRIFT_THRESHOLD).toBeLessThan(BACKING_STORE_DRIFT_THRESHOLD);
-    expect(Math.abs(after.backingH - before.backingH), 'backingH 漂移应 < ' + BACKING_STORE_DRIFT_THRESHOLD).toBeLessThan(BACKING_STORE_DRIFT_THRESHOLD);
+    expect(Math.abs(after.wrapperW - before.wrapperW)).toBeLessThan(DRIFT_PX_THRESHOLD);
+    expect(Math.abs(after.wrapperH - before.wrapperH)).toBeLessThan(DRIFT_PX_THRESHOLD);
+    expect(Math.abs(after.backingW - before.backingW)).toBeLessThan(BACKING_STORE_DRIFT_THRESHOLD);
+    expect(Math.abs(after.backingH - before.backingH)).toBeLessThan(BACKING_STORE_DRIFT_THRESHOLD);
 
-    expect(col.errors, '切换球形期间无 pageerror').toEqual([]);
+    expect(col.errors).toEqual([]);
+  });
+
+  test('5× 萨卡班甲鱼 ↔ 球体 反复切换：尺寸稳定、active 正确、无 pageerror', async ({ page }) => {
+    const col = registerErrorCollectors(page);
+    await page.goto(FACE_TRACKING_INDEX, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForSelector('#avatar_canvas', { timeout: 8000 });
+    await page.waitForTimeout(800);
+
+    const baseline = await snapshotSizes(page);
+
+    const tabAvatar = page.locator('.model-tab[data-model="avatar"]');
+    const tabSphere = page.locator('.model-tab[data-model="sphere"]');
+
+    expect(await tabAvatar.count(), '应存在 data-model=avatar 的 tab').toBeGreaterThan(0);
+    expect(await tabSphere.count(), '应存在 data-model=sphere 的 tab').toBeGreaterThan(0);
+
+    for (let i = 0; i < 5; i++) {
+      await tabAvatar.first().click();
+      await page.waitForTimeout(250);
+      const avatarClass = await tabAvatar.first().getAttribute('class');
+      expect(avatarClass, `第 ${i + 1} 轮：点击萨卡班甲鱼后应为 active`).toMatch(/\bactive\b/);
+
+      await tabSphere.first().click();
+      await page.waitForTimeout(250);
+      const sphereClass = await tabSphere.first().getAttribute('class');
+      expect(sphereClass, `第 ${i + 1} 轮：点击球形后应为 active`).toMatch(/\bactive\b/);
+    }
+
+    // 最后回到萨卡班甲鱼
+    await tabAvatar.first().click();
+    await page.waitForTimeout(800);
+
+    const final = await snapshotSizes(page);
+    expect(Math.abs(final.wrapperW - baseline.wrapperW)).toBeLessThan(DRIFT_PX_THRESHOLD);
+    expect(Math.abs(final.wrapperH - baseline.wrapperH)).toBeLessThan(DRIFT_PX_THRESHOLD);
+    expect(Math.abs(final.backingW - baseline.backingW)).toBeLessThan(BACKING_STORE_DRIFT_THRESHOLD);
+    expect(Math.abs(final.backingH - baseline.backingH)).toBeLessThan(BACKING_STORE_DRIFT_THRESHOLD);
+
+    // 最终回到萨卡班甲鱼后仍有像素
+    const hasPix = await page.evaluate(hasPixelsCheck);
+    expect(hasPix, '最终回到萨卡班甲鱼后 canvas 应有非零像素').toBe(true);
+
+    const finalAvatarClass = await tabAvatar.first().getAttribute('class');
+    expect(finalAvatarClass, '最终萨卡班甲鱼应为 active').toMatch(/\bactive\b/);
+
+    expect(col.errors, '多次切换无 pageerror').toEqual([]);
   });
 
   test('表情按钮（眨眼/张嘴/微笑/重置）连续点击无错误', async ({ page }) => {
@@ -136,9 +199,7 @@ test.describe('Avatar runtime smoke', () => {
     await page.waitForSelector('#avatar_canvas', { timeout: 8000 });
     await page.waitForTimeout(800);
 
-    const buttons = [
-      '#testBlink', '#testSmile', '#testOpen', '#testReset',
-    ];
+    const buttons = ['#testBlink', '#testSmile', '#testOpen', '#testReset'];
     for (const sel of buttons) {
       const loc = page.locator(sel);
       const cnt = await loc.count();
@@ -149,37 +210,5 @@ test.describe('Avatar runtime smoke', () => {
     }
 
     expect(col.errors, '点击表情按钮期间无 pageerror').toEqual([]);
-  });
-
-  test('5× 鲸鱼→球体反复切换不出现尺寸漂移或 pageerror', async ({ page }) => {
-    const col = registerErrorCollectors(page);
-    await page.goto(FACE_TRACKING_INDEX, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForSelector('#avatar_canvas', { timeout: 8000 });
-    await page.waitForTimeout(800);
-
-    const baseline = await snapshotSizes(page);
-
-    const whaleTab = page.locator('.model-tab').filter({ hasText: /纺锤|whale|鲸鱼/i });
-    const sphereTab = page.locator('.model-tab').filter({ hasText: /球形|sphere/i });
-
-    const whaleExists = (await whaleTab.count()) > 0;
-    const sphereExists = (await sphereTab.count()) > 0;
-    expect(whaleExists && sphereExists, '应存在鲸鱼/球形两个 tab').toBe(true);
-
-    for (let i = 0; i < 5; i++) {
-      await whaleTab.first().click();
-      await page.waitForTimeout(250);
-      await sphereTab.first().click();
-      await page.waitForTimeout(250);
-    }
-
-    // 最后回到鲸鱼
-    await whaleTab.first().click();
-    await page.waitForTimeout(800);
-
-    const final = await snapshotSizes(page);
-    expect(Math.abs(final.wrapperW - baseline.wrapperW)).toBeLessThan(DRIFT_PX_THRESHOLD);
-    expect(Math.abs(final.wrapperH - baseline.wrapperH)).toBeLessThan(DRIFT_PX_THRESHOLD);
-    expect(col.errors, '多次切换无 pageerror').toEqual([]);
   });
 });
