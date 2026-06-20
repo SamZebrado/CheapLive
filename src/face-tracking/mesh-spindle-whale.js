@@ -162,6 +162,8 @@ export function createSpindleMesh(options = {}) {
     headY = 46,
     headZ = 50,
     bodyLength = 180,
+    bodyEndX = 0,    // 保留命名但不再参与形状（曲线决定收窄）
+    bodyEndY = 0,
     columns = 34,
     rows = 24,
     flukeEnabled = true,
@@ -198,7 +200,8 @@ export function createSpindleMesh(options = {}) {
       const y = sec.yPos + ry * sinA;
       const z = sec.zPos;
 
-      // --- 曲面法线：T_θ × T_s ---
+      // --- 曲面法线：T_s × T_θ（务必先沿 s 的切向量，再叉 θ 切向量）---
+      // 目的：让头部正面半球（鼻端附近 +Z 附近）法线 nz > 0（朝向摄像机）
       // T_θ = (-rx·sinθ,  ry·cosθ,  0)
       const tthX = -rx * sinA;
       const tthY = ry * cosA;
@@ -208,14 +211,24 @@ export function createSpindleMesh(options = {}) {
       const tsY = yBendDeriv + ryDeriv * sinA;
       const tsZ = zDeriv;
 
-      // 叉乘 n = T_θ × T_s
-      let nx = tthY * tsZ - tthZ * tsY;
-      let ny = tthZ * tsX - tthX * tsZ;
-      let nz = tthX * tsY - tthY * tsX;
+      // n = T_s × T_θ （注意顺序！——必须先 T_s 后 T_θ）
+      let nx = tsY * tthZ - tsZ * tthY;
+      let ny = tsZ * tthX - tsX * tthZ;
+      let nz = tsX * tthY - tsY * tthX;
 
-      // 归一化
-      const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-      nx /= nLen; ny /= nLen; nz /= nLen;
+      // 鼻端（s→0）处 rx→ry→0，导致 T_θ→0，叉乘结果为零向量；
+      // 给这些顶点一个默认朝外的法线（鼻端朝 +Z）
+      if (s < 0.02) {
+        nx = 0; ny = 0; nz = 1;
+      }
+
+      // 归一化（保证有限值）
+      const nLenRaw = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (nLenRaw > 1e-6) {
+        nx /= nLenRaw; ny /= nLenRaw; nz /= nLenRaw;
+      } else {
+        nx = 0; ny = 0; nz = 1; // 兜底：朝摄像机
+      }
 
       // 面部权重 & 上下：sinA > 0 → +Y → 下方；sinA < 0 → 上方
       const fw = getFaceWeight(s, angle);
