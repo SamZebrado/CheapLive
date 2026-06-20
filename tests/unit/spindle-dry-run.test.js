@@ -45,10 +45,22 @@ function triangleAreaSq2D(ax, ay, bx, by, cx, cy) {
 function faceIsDegenerate(face, tol2 = 1e-10) {
   const v = face.vertices;
   if (!v || v.length < 3) return true;
-  // 3D 叉积平方：若最大叉积模方仍低于 tol2，则认为退化
+  // 索引去重后少于 3 → 真退化
+  const seen = new Set();
+  let hasDupIdx = false;
+  for (const i of face.indices) {
+    if (seen.has(i)) { hasDupIdx = true; break; }
+    seen.add(i);
+  }
+  if (hasDupIdx || seen.size < 3) return true;
+  // 对每个三角子面（3 顶点: [0,1,2]，若有 4 顶点再取 [0,2,3]、[1,2,3]）
+  // 要求至少一个子面叉积模方大于阈值；否则视为退化
   const triplets = [[0, 1, 2]];
-  if (v.length >= 4) triplets.push([1, 2, 3]);
-  let maxMag2 = 0;
+  if (v.length >= 4) {
+    triplets.push([0, 2, 3]);
+    triplets.push([1, 2, 3]);
+  }
+  let anyNonDegenerate = false;
   for (const [a, b, c] of triplets) {
     const ux = v[b].x - v[a].x, uy = v[b].y - v[a].y, uz = v[b].z - v[a].z;
     const vxx = v[c].x - v[a].x, vyy = v[c].y - v[a].y, vzz = v[c].z - v[a].z;
@@ -56,9 +68,9 @@ function faceIsDegenerate(face, tol2 = 1e-10) {
     const cy = uz * vxx - ux * vzz;
     const cz = ux * vyy - uy * vxx;
     const m2 = cx * cx + cy * cy + cz * cz;
-    if (m2 > maxMag2) maxMag2 = m2;
+    if (m2 > tol2) anyNonDegenerate = true;
   }
-  return maxMag2 <= tol2;
+  return !anyNonDegenerate;
 }
 
 function analyzeMesh(mesh) {
@@ -71,7 +83,14 @@ function analyzeMesh(mesh) {
 
   for (let i = 0; i < N; i++) {
     const v = mesh.vertices[i];
-    if (isFinite3(v.x, v.y, v.z) && isFinite3(v.nx, v.ny, v.nz)) finiteCount++;
+    if (
+      Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z) &&
+      Number.isFinite(v.nx) && Number.isFinite(v.ny) && Number.isFinite(v.nz) &&
+      // 若 deformSpindle 后带有 tx/ty/tz，也一并校验有限
+      (v.tx === undefined || Number.isFinite(v.tx)) &&
+      (v.ty === undefined || Number.isFinite(v.ty)) &&
+      (v.tz === undefined || Number.isFinite(v.tz))
+    ) finiteCount++;
     if (v.isHead) {
       headTotal++;
       if (v.nz > 0) headNzPos++;
