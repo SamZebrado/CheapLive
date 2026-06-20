@@ -209,59 +209,68 @@ class ProceduralMeshRenderer {
     const faces = mesh.faces;
     if (!vertices || !faces || faces.length === 0) return;
 
-    // 1) 先把顶点投影到屏幕空间，并做简单的背面剔除准备
+    const cullThreshold = options.cullThreshold !== undefined ? options.cullThreshold : -0.05;
+
+    // 1) 先把顶点投影到屏幕空间
     const projected = new Array(vertices.length);
     for (let i = 0; i < vertices.length; i++) {
       const v = vertices[i];
       const tx = (v.tx !== undefined ? v.tx : v.x);
       const ty = (v.ty !== undefined ? v.ty : v.y);
       const tz = (v.tz !== undefined ? v.tz : v.z);
-      const sx = originX + tx * scale;
-      const sy = originY + ty * scale;
-      projected[i] = { sx, sy, sz: tz, nx: v.nx || 0, ny: v.ny || 0, nz: v.nz || 0, v };
+      projected[i] = { sx: originX + tx * scale, sy: originY + ty * scale, sz: tz, nx: v.nx ?? 0, ny: v.ny ?? 0, nz: v.nz ?? 0, v };
     }
 
-    // 2) 计算每个面的平均深度和法线，做背面剔除和光照
+    // 2) 计算每个面的平均深度和法线（支持任意多边形，不再硬编码4顶点）
     const drawList = [];
     for (let i = 0; i < faces.length; i++) {
       const f = faces[i];
       const idxs = f.indices;
-      const p0 = projected[idxs[0]];
-      const p1 = projected[idxs[1]];
-      const p2 = projected[idxs[2]];
-      const p3 = projected[idxs[3]];
-      const avgZ = (p0.sz + p1.sz + p2.sz + p3.sz) * 0.25;
-      const avgNx = (p0.nx + p1.nx + p2.nx + p3.nx) * 0.25;
-      const avgNy = (p0.ny + p1.ny + p2.ny + p3.ny) * 0.25;
-      const avgNz = (p0.nz + p1.nz + p2.nz + p3.nz) * 0.25;
+      const nPoints = idxs.length;
+
+      let avgSz = 0;
+      let avgNx = 0, avgNy = 0, avgNz = 0;
+      for (let k = 0; k < nPoints; k++) {
+        const p = projected[idxs[k]];
+        avgSz += p.sz;
+        avgNx += p.nx;
+        avgNy += p.ny;
+        avgNz += p.nz;
+      }
+      avgSz /= nPoints;
+      avgNx /= nPoints;
+      avgNy /= nPoints;
+      avgNz /= nPoints;
       const nLen = Math.sqrt(avgNx * avgNx + avgNy * avgNy + avgNz * avgNz) || 1;
 
       // 背面剔除：摄像机朝 +Z，所以 -Z 方向的面不画
-      // 对于卡通风格的萨卡班甲鱼，放宽阈值到 -0.25，让更多侧面可见
-      // 萨卡班甲鱼是扁平椭球体，旋转 60° 时侧面仍应可见
-      const facing = avgNz / nLen;
-      if (facing < -0.25) continue;
+      // 对于薄鳍/双面结构（如尾鳍）: doubleSided = true 时两侧都画
+      if (!f.doubleSided) {
+        const facing = avgNz / nLen;
+        if (facing < cullThreshold) continue;
+      }
 
       // 选择颜色：使用原始坐标判断上下，不随旋转变化
       // 对于球体：y < 0 为上半（灰），y >= 0 为下半（白）
-      // 对于鲸鱼：cos(angle) < 0 为上半（灰），cos(angle) >= 0 为下半（白）
+      // 对于鲸鱼：sin(angle) < 0 为上半（灰），sin(angle) >= 0 为下半（白）
       // 使用顶点原始属性来判断，而不是旋转后的坐标
       let isTop = false;
       if (f.isTop !== undefined) {
         isTop = f.isTop;
       } else {
-        // 兼容旧网格：使用原始 y 坐标判断
-        const avgOriginalY = (f.vertices[0].y + f.vertices[1].y + f.vertices[2].y + f.vertices[3].y) * 0.25;
-        isTop = avgOriginalY < 0;
+        // 兼容旧网格：使用原始 y 坐标判断（按实际顶点数平均）
+        let origYSum = 0;
+        for (let k = 0; k < nPoints; k++) origYSum += f.vertices[k].y;
+        isTop = (origYSum / nPoints) < 0;
       }
 
       // 如果是纺锤/鲸鱼，顶点可能带 faceWeight，用它来过渡面部颜色
       let faceWeight = 0;
-      for (let k = 0; k < 4; k++) {
+      for (let k = 0; k < nPoints; k++) {
         const vv = f.vertices[k];
         if (vv && typeof vv.faceWeight === 'number') faceWeight += vv.faceWeight;
       }
-      faceWeight *= 0.25;
+      faceWeight /= nPoints;
 
       let base = (isTop ? baseColorTop : baseColorBottom);
       if (faceWeight > 0.01 && faceTopColor && faceBottomColor) {
@@ -275,11 +284,16 @@ class ProceduralMeshRenderer {
         base
       );
 
+      // 构建多边形点数组（支持任意顶点数）
+      const polyPoints = new Array(nPoints);
+      for (let k = 0; k < nPoints; k++) {
+        const p = projected[idxs[k]];
+        polyPoints[k] = [p.sx, p.sy];
+      }
+
       drawList.push({
-        points: [
-          [p0.sx, p0.sy], [p1.sx, p1.sy], [p2.sx, p2.sy], [p3.sx, p3.sy]
-        ],
-        avgZ,
+        points: polyPoints,
+        avgZ: avgSz,
         fill: lit,
         stroke: this.debugMesh ? 'rgba(255,255,255,0.4)' : null,
       });
@@ -291,10 +305,11 @@ class ProceduralMeshRenderer {
     for (let i = 0; i < drawList.length; i++) {
       const d = drawList[i];
       ctx.beginPath();
-      ctx.moveTo(d.points[0][0], d.points[0][1]);
-      ctx.lineTo(d.points[1][0], d.points[1][1]);
-      ctx.lineTo(d.points[2][0], d.points[2][1]);
-      ctx.lineTo(d.points[3][0], d.points[3][1]);
+      const points = d.points;
+      ctx.moveTo(points[0][0], points[0][1]);
+      for (let k = 1; k < points.length; k++) {
+        ctx.lineTo(points[k][0], points[k][1]);
+      }
       ctx.closePath();
       ctx.fillStyle = d.fill;
       ctx.fill();
@@ -323,23 +338,29 @@ class ProceduralMeshRenderer {
     const cosX = Math.cos(radX), sinX = Math.sin(radX);
     const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
 
-    let x1 = x * cosY + z * sinY;
-    let z1 = -x * sinY + z * cosY;
-    let y1 = y;
+    // 旋转顺序: Z → X → Y (先 roll, 再 pitch, 最后 yaw)
+    // 等价于: v' = Ry * Rx * Rz * v
+    // 这种顺序下 pitch 绕的是"yaw 后的局部 x 轴"，避免 yaw+pitch 组合时眼睛横过来
+    // Z (roll):
+    let x1 = x * cosZ - y * sinZ;
+    let y1 = x * sinZ + y * cosZ;
+    let z1 = z;
+    // X (pitch):
     let y2 = y1 * cosX - z1 * sinX;
     let z2 = y1 * sinX + z1 * cosX;
     let x2 = x1;
-    let x3 = x2 * cosZ - y2 * sinZ;
-    let y3 = x2 * sinZ + y2 * cosZ;
-    let z3 = z2;
+    // Y (yaw):
+    let x3 = x2 * cosY + z2 * sinY;
+    let z3 = -x2 * sinY + z2 * cosY;
+    let y3 = y2;
     return { x: x3, y: y3, z: z3 };
   }
 
   _transformAnchor(local, rotParams, originX, originY, scale) {
     const p = this._transformVec(local.x, local.y, local.z, rotParams);
-    const n = this._transformVec(local.nx, local.ny, local.nz || 1, rotParams);
-    const t = this._transformVec(local.tx || 1, local.ty || 0, local.tz || 0, rotParams);
-    const b = this._transformVec(local.bx || 0, local.by || 1, local.bz || 0, rotParams);
+    const n = this._transformVec(local.nx, local.ny, local.nz ?? 1, rotParams);
+    const t = this._transformVec(local.tx ?? 1, local.ty ?? 0, local.tz ?? 0, rotParams);
+    const b = this._transformVec(local.bx ?? 0, local.by ?? 1, local.bz ?? 0, rotParams);
 
     return {
       worldX: p.x, worldY: p.y, worldZ: p.z,
@@ -414,6 +435,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
 
     const lightDir = { x: -0.35, y: -0.4, z: 0.8 };
     // 球体的"上半=灰，下半=白"的简单配色：
+    // 球体是封闭凸形，用严格的背面剔除阈值 -0.05
     this._drawMesh(ctx, deformed, {
       w, h, scale, originX, originY,
       baseColorTop: '#bdb8aa',
@@ -421,6 +443,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       faceTopColor: '#c8c2b4',
       faceBottomColor: '#fffaf0',
       lightDir,
+      cullThreshold: -0.05,
     });
 
     // 五官
@@ -679,6 +702,8 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const originY = h * 0.48 + (np.headY - 0.5) * minSide * 0.18;
 
     // 单 mesh 渲染：头部 + 身体 + 尾巴都已经在 spindleMesh 中
+    // 萨卡班甲鱼是扁平椭球，旋转时侧面仍应可见，放宽到 -0.15
+    // 尾鳍是双面的，不受这个阈值影响
     const lightDir = { x: -0.3, y: -0.5, z: 0.8 };
     const deformedBody = deformSpindle(this.spindleMesh, rot);
     this._drawMesh(ctx, deformedBody, {
@@ -688,6 +713,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       faceTopColor: this.spindleMesh.faceTopColor,
       faceBottomColor: this.spindleMesh.faceBottomColor,
       lightDir,
+      cullThreshold: -0.15,
     });
 
     this._drawFaceFeatures(ctx, np, rot, originX, originY, scale);
