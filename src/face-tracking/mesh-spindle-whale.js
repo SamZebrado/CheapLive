@@ -27,34 +27,35 @@ function smoothstep01(t) {
 
 // -------------------- 形状曲线 --------------------
 
-const HEAD_T_END = 0.22;   // 头部最大半径位置
-const MID_T = 0.55;        // 身体中前段结束位置
+// 头部半径在 s ∈ [0, SPHERE_END] 时为半球（椭球方程）
+// s ∈ [SPHERE_END, 1] 时为指数衰减收尾
+const SPHERE_END = 0.26;  // 头部最大半径位置（s=0 是鼻端，s=SPHERE_END 是头部最宽处）
 
 /**
  * 沿主轴 s ∈ [0,1] 的归一化半径曲线：
- *   s ∈ [0, HEAD_T_END]：半圆膨胀（鼻端 0 → 最大 1）
- *   s ∈ [HEAD_T_END, MID_T]：smoothstep 从 1 降到 0.72（缓慢收窄 "肩膀"）
- *   s ∈ [MID_T, 1]：smoothstep 从 0.72 降到 0.04（快速收尖）
+ *   前半段（s ∈ [0, SPHERE_END]）：严格半球形（椭球方程）
+ *     r²(s) = SPHERE_END² - (s - SPHERE_END)²
+ *     r(s) = sqrt(r²) / SPHERE_END（归一化到 1）
+ *   后半段（s ∈ [SPHERE_END, 1]）：余弦衰减，保证连接处导数=0，收尾平滑
+ *     r(s) = exp(-tailK * (s - SPHERE_END))
  *
- * 返回 0~1 缩放因子；外部乘以 headX/headY 得到实际半径。
+ * 用户要求：增大的速度要慢于减小的速度，这样才会有细长身体。
+ * 用余弦衰减确保后半段平滑且持续收窄。
  */
 function radiusScale(s) {
-  if (s <= HEAD_T_END) {
-    // 头部：r(s) = sqrt(1 - (1 - s/HEAD_T_END)^2)
-    const u = s / HEAD_T_END;
-    const v = 1 - u;
-    return Math.sqrt(Math.max(0, 1 - v * v));
+  if (s <= SPHERE_END) {
+    // 前半球：椭球方程，确保头部轮廓圆润无肩
+    const rel = SPHERE_END - s;  // rel ∈ [SPHERE_END, 0]
+    const r2 = SPHERE_END * SPHERE_END - rel * rel;
+    return Math.sqrt(Math.max(0, r2)) / SPHERE_END;
   }
-  if (s <= MID_T) {
-    // 肩部：慢收窄到 0.72
-    const u = (s - HEAD_T_END) / (MID_T - HEAD_T_END);
-    const eased = smoothstep01(u);
-    return 1.0 * (1 - eased) + 0.72 * eased;
-  }
-  // 尾部：从 0.72 快速收尖到 0.04
-  const u = (s - MID_T) / (1 - MID_T);
-  const eased = smoothstep01(u);
-  return 0.72 * (1 - eased) + 0.04 * eased;
+  // 后半段：余弦衰减，保证 SPHERE_END→r=1, s=1→r=TAIL_RATIO
+  // r(s) = TAIL_RATIO + (1-TAIL_RATIO) * cos(π/2 * (s-SPHERE_END)/(1-SPHERE_END))
+  // s=SPHERE_END: cos(0)=1, r=1
+  // s=1: cos(π/2)≈0, r=TAIL_RATIO
+  const TAIL_RATIO = 0.035;
+  const t = (s - SPHERE_END) / (1 - SPHERE_END) * (Math.PI / 2);
+  return TAIL_RATIO + (1 - TAIL_RATIO) * Math.cos(t);
 }
 
 /**
@@ -120,7 +121,7 @@ function getSection(s, headX, headY, headZ, bodyLength) {
     rxDeriv, ryDeriv,
     spineZDeriv,
     spineYDeriv,
-    isHead: s <= HEAD_T_END + 0.02,
+    isHead: s <= SPHERE_END + 0.02,
   };
 }
 
@@ -131,9 +132,9 @@ function getSection(s, headX, headY, headZ, bodyLength) {
  * 用于让面部颜色比身体略亮一点。
  */
 function getFaceWeight(s, angle) {
-  if (s > HEAD_T_END + 0.04) return 0;
+  if (s > SPHERE_END + 0.04) return 0;
   // 鼻端附近权重更高；同时让 "朝前" 的半球 +θ 靠近 0 的带形区域有效。
-  const u = s / HEAD_T_END;         // 0 在鼻端，1 在头部最鼓处
+  const u = s / SPHERE_END;         // 0 在鼻端，1 在头部最鼓处
   const distFromFront = u;
   // 让朝前半球（|angle| 小 → cosθ 大 → 接近 1）权重更高
   const lat = Math.max(0, Math.cos(angle));
