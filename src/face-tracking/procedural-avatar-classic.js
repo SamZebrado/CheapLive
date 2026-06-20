@@ -1497,21 +1497,24 @@ class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       if (facing <= 0.05) return;
       // 沿曲面的"右"方向画眉毛
       const rl = Math.max(0.3, t.rightLen);
+      const dl = Math.max(0.3, t.downLen);
       const len = 22 * scale * rl;
-      const upAmt = -raise * 6 * scale;
+      // 眉毛抬升：沿曲面"上"方向（-downVec）移动
+      // raise ∈ [0,1]，raise=1 时眉毛向上抬升最大
+      const upAmt = raise * 8 * scale * dl;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1, 2.2 * scale);
       ctx.beginPath();
       // 起点 = screenX - rightVec.x * len * 0.5, screenY - rightVec.y * len * 0.5
-      const startX = t.screenX - t.rightVec.x * len * 0.5;
-      const startY = t.screenY - t.rightVec.y * len * 0.5;
-      const endX = t.screenX + t.rightVec.x * len * 0.5;
-      const endY = t.screenY + t.rightVec.y * len * 0.5;
-      // slight arc up 稍微向下偏移
-      ctx.moveTo(startX, startY + upAmt);
-      ctx.lineTo(endX, endY + upAmt);
+      // 眉毛沿 -downVec 方向抬升（向上）
+      const startX = t.screenX - t.rightVec.x * len * 0.5 - t.downVec.x * upAmt;
+      const startY = t.screenY - t.rightVec.y * len * 0.5 - t.downVec.y * upAmt;
+      const endX = t.screenX + t.rightVec.x * len * 0.5 - t.downVec.x * upAmt;
+      const endY = t.screenY + t.rightVec.y * len * 0.5 - t.downVec.y * upAmt;
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
       ctx.stroke();
       ctx.restore();
     };
@@ -1756,16 +1759,20 @@ class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
       const rl = Math.max(0.25, t.rightLen);
+      const dl = Math.max(0.25, t.downLen);
       const len = mesh.headX * 0.26 * scale * rl;
-      const up = -raise * 6 * scale;
+      // 眉毛抬升：沿曲面"上"方向（-downVec）移动
+      const upAmt = raise * 8 * scale * dl;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1.5, 2.5 * scale);
       const dx = t.rightVec.x, dy = t.rightVec.y;
+      const bx = t.downVec.x, by = t.downVec.y;
       ctx.beginPath();
-      ctx.moveTo(t.screenX - dx * len * 0.5, t.screenY - dy * len * 0.5 + up);
-      ctx.lineTo(t.screenX + dx * len * 0.5, t.screenY + dy * len * 0.5 + up);
+      // 眉毛沿 -downVec 方向抬升（向上）
+      ctx.moveTo(t.screenX - dx * len * 0.5 - bx * upAmt, t.screenY - dy * len * 0.5 - by * upAmt);
+      ctx.lineTo(t.screenX + dx * len * 0.5 - bx * upAmt, t.screenY + dy * len * 0.5 - by * upAmt);
       ctx.stroke();
       ctx.restore();
     };
