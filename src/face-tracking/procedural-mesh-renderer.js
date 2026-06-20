@@ -29,8 +29,95 @@ import {
 
 // ---------------- 公共工具 ----------------
 
+const BASIS_EPSILON = 1e-10;
+
 function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+function isFiniteVec3(v) {
+  return v != null && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+}
+
+function normVec3(v, fallback) {
+  const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  if (!Number.isFinite(len) || len < BASIS_EPSILON) {
+    return { x: fallback.x, y: fallback.y, z: fallback.z };
+  }
+  return { x: v.x / len, y: v.y / len, z: v.z / len };
+}
+
+function dotVec3(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function crossVec3(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+function buildFaceBasis(local) {
+  const rawN = { x: local.nx, y: local.ny, z: local.nz };
+  const n = normVec3(isFiniteVec3(rawN) ? rawN : { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: 1 });
+
+  let rawT = { x: local.tx, y: local.ty, z: local.tz };
+
+  if (!isFiniteVec3(rawT)) {
+    rawT = { x: 1 - n.x * n.x, y: -n.x * n.y, z: -n.x * n.z };
+    if (Math.sqrt(rawT.x * rawT.x + rawT.y * rawT.y + rawT.z * rawT.z) < BASIS_EPSILON) {
+      rawT = { x: -n.y * n.x, y: 1 - n.y * n.y, z: -n.y * n.z };
+    }
+  }
+
+  const tDotN = dotVec3(rawT, n);
+  const t = normVec3(
+    { x: rawT.x - tDotN * n.x, y: rawT.y - tDotN * n.y, z: rawT.z - tDotN * n.z },
+    { x: 1, y: 0, z: 0 },
+  );
+
+  const b = normVec3(crossVec3(n, t), { x: 0, y: 1, z: 0 });
+
+  return { n, t, b };
+}
+
+function computeProjectedEllipse(rx, ry, bx, by, halfWidth, halfHeight) {
+  const ax = rx * halfWidth;
+  const ay = ry * halfWidth;
+  const bxx = bx * halfHeight;
+  const byy = by * halfHeight;
+
+  const cxx = ax * ax + bxx * bxx;
+  const cxy = ax * ay + bxx * byy;
+  const cyy = ay * ay + byy * byy;
+
+  const trace = cxx + cyy;
+  const delta = Math.sqrt((cxx - cyy) * (cxx - cyy) + 4 * cxy * cxy);
+
+  const lambdaMajor = Math.max(0, (trace + delta) * 0.5);
+  const lambdaMinor = Math.max(0, (trace - delta) * 0.5);
+
+  let angle;
+  if (delta < 1e-10) {
+    angle = Math.atan2(ry, rx);
+  } else {
+    angle = 0.5 * Math.atan2(2 * cxy, cxx - cyy);
+  }
+
+  return {
+    radiusX: Math.sqrt(lambdaMajor),
+    radiusY: Math.sqrt(lambdaMinor),
+    angle,
+  };
+}
+
+function mapFaceLocalPoint(anchor, u, v) {
+  return {
+    x: anchor.screenX + anchor.rightVec.x * u + anchor.downVec.x * v,
+    y: anchor.screenY + anchor.rightVec.y * u + anchor.downVec.y * v,
+  };
 }
 
 function lerp(a, b, t) {
@@ -360,20 +447,22 @@ class ProceduralMeshRenderer {
 
   _transformAnchor(local, rotParams, originX, originY, scale) {
     const p = this._transformVec(local.x, local.y, local.z, rotParams);
-    const n = this._transformVec(local.nx, local.ny, local.nz ?? 1, rotParams);
-    const t = this._transformVec(local.tx ?? 1, local.ty ?? 0, local.tz ?? 0, rotParams);
-    const b = this._transformVec(local.bx ?? 0, local.by ?? 1, local.bz ?? 0, rotParams);
+
+    const basis = buildFaceBasis(local);
+
+    const n = this._transformVec(basis.n.x, basis.n.y, basis.n.z, rotParams);
+    const t = this._transformVec(basis.t.x, basis.t.y, basis.t.z, rotParams);
+    const b = this._transformVec(basis.b.x, basis.b.y, basis.b.z, rotParams);
 
     return {
       worldX: p.x, worldY: p.y, worldZ: p.z,
       screenX: originX + p.x * scale,
       screenY: originY + p.y * scale,
       nx: n.x, ny: n.y, nz: n.z,
-      rightVec: { x: t.x, y: t.y },
-      downVec:  { x: b.x, y: b.y },
-      // 切向量的屏幕空间长度（作为透视压缩的简单度量）
-      rightLen: Math.hypot(t.x, t.y),
-      downLen:  Math.hypot(b.x, b.y),
+      rightVec: { x: t.x, y: t.y, z: t.z },
+      downVec:  { x: b.x, y: b.y, z: b.z },
+      rightLen: Math.sqrt(t.x * t.x + t.y * t.y),
+      downLen:  Math.sqrt(b.x * b.x + b.y * b.y),
     };
   }
 }
@@ -455,46 +544,42 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
   _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
     const anchors = this.getAnchors(np);
 
-    // 统一画"一只眼睛"：
-    //   1) 先画椭圆眼白（完整椭圆，永远画满）
-    //   2) 在中心画瞳孔（圆形/小圆）
-    //   3) 用眼皮弧线从上下盖上去 —— 这一步的高度由 openness 控制：
-    //        openness=1 → 不盖；openness=0 → 完全盖住
-    //        睁开程度：上眼皮从上往下盖盖住 openRatio = 1-openness
+    // 统一画"一只眼睛"：使用完整投影椭圆计算主轴角度
     const drawEye = (anchor, openness) => {
       const local = computeSphereFaceAnchorXYZ(this.mesh, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
 
-      // 沿曲面切向量计算椭圆朝向
-      const rxRaw = Math.max(0.3, t.rightLen);  // "左右被压缩时变小
-      const ryRaw = Math.max(0.3, t.downLen);
       const eyeSize = 10 * scale;
-      // 椭圆尺寸：长轴 = rightVec 方向，短轴 = downVec 方向
-      const eyeHalfW = eyeSize * rxRaw;  // 切向长度
-      const eyeHalfH = eyeSize * ryRaw * (0.5 + 0.5 * 1) ; // 睁眼高度
+      const rl = Math.max(0.3, t.rightLen);
+      const dl = Math.max(0.3, t.downLen);
+      const eyeHalfW = eyeSize * rl;
+      const eyeHalfH = eyeSize * dl;
 
-      // 绘制椭圆方向
-      // 计算椭圆中心
-      const angleOnScreen = Math.atan2(t.rightVec.y, t.rightVec.x);
+      // 使用完整投影椭圆（考虑 rightVec + downVec 可能不正交）
+      const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
+      const rx = Math.max(0.1, proj.radiusX);
+      const ry = Math.max(0.1, proj.radiusY);
+      const ang = proj.angle;
+
       ctx.save();
       ctx.globalAlpha = facing;
 
       // 1) 眼白
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, eyeHalfW, eyeHalfH, angleOnScreen, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
       ctx.lineWidth = Math.max(1, 1.8 * scale);
       ctx.strokeStyle = '#222';
       ctx.stroke();
 
-      // 2) 瞳孔 — 永远画（不因为 openness 消失）
-      const pupilW = eyeHalfW * 0.55;
-      const pupilH = eyeHalfH * 0.55;
+      // 2) 瞳孔（永远画）
+      const pupilRx = rx * 0.55;
+      const pupilRy = ry * 0.55;
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, pupilW, pupilH, angleOnScreen, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#1f1f1f';
       ctx.fill();
 
@@ -502,17 +587,14 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const cover = 1 - openness;
       if (cover > 0.01) {
         ctx.save();
-        // 裁剪到眼白区域（略放大一点避免细缝）
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY, eyeHalfW + 0.5, eyeHalfH + 0.5, angleOnScreen, 0, Math.PI * 2);
+        ctx.ellipse(t.screenX, t.screenY, rx + 0.5, ry + 0.5, ang, 0, Math.PI * 2);
         ctx.clip();
-
-        // 转到局部坐标，从顶部（-eyeHalfH）向下盖 cover*2*eyeHalfH
         ctx.translate(t.screenX, t.screenY);
-        ctx.rotate(angleOnScreen);
-        const coverH = 2 * eyeHalfH * cover;
-        ctx.fillStyle = this.mesh.faceTopColor || '#d9d2be';  // 与球体卡通肤色一致
-        ctx.fillRect(-eyeHalfW - 2, -eyeHalfH - 2, eyeHalfW * 2 + 4, coverH + 2);
+        ctx.rotate(ang);
+        const coverH = 2 * ry * cover;
+        ctx.fillStyle = this.mesh.faceTopColor || '#d9d2be';
+        ctx.fillRect(-rx - 2, -ry - 2, rx * 2 + 4, coverH + 2);
         ctx.restore();
       }
       ctx.restore();
@@ -523,26 +605,21 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      // 沿曲面的"右"方向画眉毛
       const rl = Math.max(0.3, t.rightLen);
       const dl = Math.max(0.3, t.downLen);
       const len = 22 * scale * rl;
-      // 眉毛抬升：沿曲面"上"方向（-downVec）移动
-      // raise ∈ [0,1]，raise=1 时眉毛向上抬升最大
       const upAmt = raise * 8 * scale * dl;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1, 2.2 * scale);
       ctx.beginPath();
-      // 起点 = screenX - rightVec.x * len * 0.5, screenY - rightVec.y * len * 0.5
-      // 眉毛沿 -downVec 方向抬升（向上）
-      const startX = t.screenX - t.rightVec.x * len * 0.5 - t.downVec.x * upAmt;
-      const startY = t.screenY - t.rightVec.y * len * 0.5 - t.downVec.y * upAmt;
-      const endX = t.screenX + t.rightVec.x * len * 0.5 - t.downVec.x * upAmt;
-      const endY = t.screenY + t.rightVec.y * len * 0.5 - t.downVec.y * upAmt;
-      ctx.moveTo(startX, startY);
-      ctx.lineTo(endX, endY);
+      // 使用 mapFaceLocalPoint：眉毛沿 rightVec 展开，顶部沿 -downVec 方向拱起
+      const left = mapFaceLocalPoint(t, -len * 0.5, -upAmt);
+      const peak = mapFaceLocalPoint(t, 0, -upAmt * 1.2);
+      const right = mapFaceLocalPoint(t, len * 0.5, -upAmt);
+      ctx.moveTo(left.x, left.y);
+      ctx.quadraticCurveTo(peak.x, peak.y, right.x, right.y);
       ctx.stroke();
       ctx.restore();
     };
@@ -552,7 +629,6 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      // smile: width 沿 rightVec，height 沿 downVec
       const rl = Math.max(0.3, t.rightLen);
       const dl = Math.max(0.3, t.downLen);
       const smileWiden = 1 + smile * 0.4;
@@ -565,51 +641,31 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1, 2.2 * scale);
 
-      const centerX = t.screenX;
-      const centerY = t.screenY;
-      const rx = t.rightVec.x, ry = t.rightVec.y;
-      const dx = t.downVec.x, dy = t.downVec.y;
-
-      function alongRight(amount) {
-        return { x: centerX + rx * amount, y: centerY + ry * amount };
-      }
-      function alongDown(amount) {
-        return { x: centerX + dx * amount, y: centerY + dy * amount };
-      }
-      const leftCorner  = alongRight(-halfW);
-      const rightCorner = alongRight(halfW);
-      // 左角向上移动
-      leftCorner.x += dx * cornerUp; leftCorner.y += dy * cornerUp;
-      rightCorner.x += dx * cornerUp; rightCorner.y += dy * cornerUp;
-
       if (open < 0.05 && smile < 0.1) {
+        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
+        const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
-        ctx.moveTo(leftCorner.x, leftCorner.y);
-        ctx.lineTo(rightCorner.x, rightCorner.y);
+        ctx.moveTo(left.x, left.y);
+        ctx.lineTo(right.x, right.y);
         ctx.stroke();
       } else if (open < 0.05) {
+        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
+        const mid = mapFaceLocalPoint(t, 0, centerUp + 2 * scale);
+        const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
-        ctx.moveTo(leftCorner.x, leftCorner.y);
-        // 中点在中心往下 + centerUp down
-        const mid = alongRight(0);
-        mid.x += dx * centerUp; mid.y += dy * centerUp;
-        ctx.quadraticCurveTo(mid.x + dx * (2 * scale), mid.y + dy * (2 * scale),
-          rightCorner.x, rightCorner.y);
+        ctx.moveTo(left.x, left.y);
+        ctx.quadraticCurveTo(mid.x, mid.y, right.x, right.y);
         ctx.stroke();
       } else {
         ctx.fillStyle = '#4a2020';
+        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
+        const topMid = mapFaceLocalPoint(t, 0, centerUp - openH * 0.35);
+        const right = mapFaceLocalPoint(t, halfW, cornerUp);
+        const botMid = mapFaceLocalPoint(t, 0, centerUp + openH * 0.55);
         ctx.beginPath();
-        ctx.moveTo(leftCorner.x, leftCorner.y);
-        // 上唇弧
-        const topMid = alongRight(0);
-        topMid.x += dx * (centerUp - openH * 0.35);
-        topMid.y += dy * (centerUp - openH * 0.35);
-        ctx.quadraticCurveTo(topMid.x, topMid.y, rightCorner.x, rightCorner.y);
-        // 下唇弧
-        const botMid = alongRight(0);
-        botMid.x += dx * (centerUp + openH * 0.55);
-        botMid.y += dy * (centerUp + openH * 0.55);
-        ctx.quadraticCurveTo(botMid.x, botMid.y, leftCorner.x, leftCorner.y);
+        ctx.moveTo(left.x, left.y);
+        ctx.quadraticCurveTo(topMid.x, topMid.y, right.x, right.y);
+        ctx.quadraticCurveTo(botMid.x, botMid.y, left.x, left.y);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
@@ -736,46 +792,47 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
 
-      // 椭圆 = 切向/法向长度控制大小
       const rl = Math.max(0.25, t.rightLen);
       const dl = Math.max(0.25, t.downLen);
-      const angleOnScreen = Math.atan2(t.rightVec.y, t.rightVec.x);
       const eyeHalfW = eyeBase * scale * rl;
       const eyeHalfH = eyeBase * scale * dl;
+
+      // 使用完整投影椭圆（考虑 rightVec + downVec 可能不正交）
+      const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
+      const rx = Math.max(0.1, proj.radiusX);
+      const ry = Math.max(0.1, proj.radiusY);
+      const ang = proj.angle;
 
       ctx.save();
       ctx.globalAlpha = facing;
 
       // 1) 眼白
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, eyeHalfW, eyeHalfH, angleOnScreen, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
       ctx.lineWidth = Math.max(1, 2.0 * scale);
       ctx.strokeStyle = '#222';
       ctx.stroke();
 
-      // 2) 瞳孔（永远画，大小不变 —— 形状随曲面被压缩）
+      // 2) 瞳孔
       ctx.beginPath();
-      const pupilW = eyeHalfW * 0.55;
-      const pupilH = eyeHalfH * 0.55;
-      ctx.ellipse(t.screenX, t.screenY, pupilW, pupilH, angleOnScreen, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, rx * 0.55, ry * 0.55, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#1f1f1f';
       ctx.fill();
 
-      // 3) 眨眼遮罩（在椭圆内，用同色块盖）
+      // 3) 眨眼遮罩
       const cover = 1 - openness;
       if (cover > 0.01) {
         ctx.save();
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY, eyeHalfW + 0.5, eyeHalfH + 0.5, angleOnScreen, 0, Math.PI * 2);
+        ctx.ellipse(t.screenX, t.screenY, rx + 0.5, ry + 0.5, ang, 0, Math.PI * 2);
         ctx.clip();
         ctx.translate(t.screenX, t.screenY);
-        ctx.rotate(angleOnScreen);
-        // 从 -eyeHalfH 顶部往下盖 cover*2*eyeHalfH
-        const coverH = 2 * eyeHalfH * cover;
-        ctx.fillStyle = mesh.faceTopColor || '#bdb8aa';  // 遮罩色与鱼头顶面部色一致，取代硬编码 #d4c78d
-        ctx.fillRect(-eyeHalfW - 2, -eyeHalfH - 2, eyeHalfW * 2 + 4, coverH + 2);
+        ctx.rotate(ang);
+        const coverH = 2 * ry * cover;
+        ctx.fillStyle = mesh.faceTopColor || '#bdb8aa';
+        ctx.fillRect(-rx - 2, -ry - 2, rx * 2 + 4, coverH + 2);
         ctx.restore();
       }
       ctx.restore();
@@ -789,18 +846,17 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const rl = Math.max(0.25, t.rightLen);
       const dl = Math.max(0.25, t.downLen);
       const len = mesh.headX * 0.26 * scale * rl;
-      // 眉毛抬升：沿曲面"上"方向（-downVec）移动
       const upAmt = raise * 8 * scale * dl;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1.5, 2.5 * scale);
-      const dx = t.rightVec.x, dy = t.rightVec.y;
-      const bx = t.downVec.x, by = t.downVec.y;
       ctx.beginPath();
-      // 眉毛沿 -downVec 方向抬升（向上）
-      ctx.moveTo(t.screenX - dx * len * 0.5 - bx * upAmt, t.screenY - dy * len * 0.5 - by * upAmt);
-      ctx.lineTo(t.screenX + dx * len * 0.5 - bx * upAmt, t.screenY + dy * len * 0.5 - by * upAmt);
+      const left = mapFaceLocalPoint(t, -len * 0.5, -upAmt);
+      const peak = mapFaceLocalPoint(t, 0, -upAmt * 1.2);
+      const right = mapFaceLocalPoint(t, len * 0.5, -upAmt);
+      ctx.moveTo(left.x, left.y);
+      ctx.quadraticCurveTo(peak.x, peak.y, right.x, right.y);
       ctx.stroke();
       ctx.restore();
     };
@@ -822,35 +878,31 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1.5, 2.5 * scale);
 
-      const cx = t.screenX, cy = t.screenY;
-      const rx = t.rightVec.x, ry = t.rightVec.y;
-      const dx = t.downVec.x, dy = t.downVec.y;
-      const posAlongRight = (a) => ({ x: cx + rx * a, y: cy + ry * a });
-      const posAlongDown = (a) => ({ x: cx + dx * a, y: cy + dy * a });
-      const combine = (p, amt) => ({ x: p.x + dx * amt, y: p.y + dy * amt });
-
-      const lc = combine(posAlongRight(-halfW), cornerUp);
-      const rc = combine(posAlongRight(halfW), cornerUp);
-
       if (open < 0.05 && smile < 0.1) {
+        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
+        const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
-        ctx.moveTo(lc.x, lc.y);
-        ctx.lineTo(rc.x, rc.y);
+        ctx.moveTo(left.x, left.y);
+        ctx.lineTo(right.x, right.y);
         ctx.stroke();
       } else if (open < 0.05) {
+        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
+        const mid = mapFaceLocalPoint(t, 0, centerUp + 2 * scale);
+        const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
-        ctx.moveTo(lc.x, lc.y);
-        const mid = combine(posAlongRight(0), centerUp + 2 * scale);
-        ctx.quadraticCurveTo(mid.x, mid.y, rc.x, rc.y);
+        ctx.moveTo(left.x, left.y);
+        ctx.quadraticCurveTo(mid.x, mid.y, right.x, right.y);
         ctx.stroke();
       } else {
         ctx.fillStyle = '#4a2020';
+        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
+        const topMid = mapFaceLocalPoint(t, 0, centerUp - openH * 0.35);
+        const right = mapFaceLocalPoint(t, halfW, cornerUp);
+        const botMid = mapFaceLocalPoint(t, 0, centerUp + openH * 0.55);
         ctx.beginPath();
-        ctx.moveTo(lc.x, lc.y);
-        const topMid = combine(posAlongRight(0), centerUp - openH * 0.35);
-        ctx.quadraticCurveTo(topMid.x, topMid.y, rc.x, rc.y);
-        const botMid = combine(posAlongRight(0), centerUp + openH * 0.55);
-        ctx.quadraticCurveTo(botMid.x, botMid.y, lc.x, lc.y);
+        ctx.moveTo(left.x, left.y);
+        ctx.quadraticCurveTo(topMid.x, topMid.y, right.x, right.y);
+        ctx.quadraticCurveTo(botMid.x, botMid.y, left.x, left.y);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
@@ -858,12 +910,9 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    // 鼻孔：两个位于灰白分界线附近（y≈0），稍向外分开
-    // 灰白分界线是头部中心线（y=0），鼻孔应在分界线附近而不是上方
-    // horizOffset = ±hx * 0.06（略向外，比眼睛更居中）
     const hx = mesh.headX, hy = mesh.headY;
     const nostrilHoriz = hx * 0.06;
-    const nostrilVert = -hy * 0.06;  // 略高于灰白分界线（y=0），但低于眼睛（y=-hy*0.15）
+    const nostrilVert = -hy * 0.06;
     const nostrilSize = Math.max(1.8, hx * 0.022);
     const drawNostril = (hSign) => {
       const local = computeFaceAnchorXYZ(mesh, 0, nostrilHoriz * hSign, nostrilVert, 0.2);
@@ -873,10 +922,14 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.save();
       ctx.globalAlpha = 0.8 * facing;
       ctx.beginPath();
-      const rxN = nostrilSize * scale * Math.max(0.3, t.rightLen);
-      const ryN = nostrilSize * scale * Math.max(0.3, t.downLen);
-      const ang = Math.atan2(t.rightVec.y, t.rightVec.x);
-      ctx.ellipse(t.screenX, t.screenY, rxN, ryN, ang, 0, Math.PI * 2);
+      const rl = Math.max(0.25, t.rightLen);
+      const dl = Math.max(0.25, t.downLen);
+      const halfW = nostrilSize * scale * rl;
+      const halfH = nostrilSize * scale * dl;
+      const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, halfW, halfH);
+      ctx.ellipse(t.screenX, t.screenY,
+        Math.max(0.1, proj.radiusX), Math.max(0.1, proj.radiusY),
+        proj.angle, 0, Math.PI * 2);
       ctx.fillStyle = '#8a7a4a';
       ctx.fill();
       ctx.restore();

@@ -528,46 +528,58 @@ export function createSpindleMesh(options = {}) {
  * 这样，在渲染时，眉毛沿 tangent 画，嘴的垂直方向沿 binormal。
  * 旋转后再投影，侧视椭圆自然出现。
  */
+const BASIS_EPSILON = 1e-10;
+
+function normalizeVec3(x, y, z, fallback) {
+  const len = Math.sqrt(x * x + y * y + z * z);
+  if (!Number.isFinite(len) || len < BASIS_EPSILON) {
+    return { x: fallback.x, y: fallback.y, z: fallback.z };
+  }
+  return { x: x / len, y: y / len, z: z / len };
+}
+
+function crossVec3(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
 export function computeFaceAnchorXYZ(mesh, _, horizOffset, vertOffset, depthOffset = 0.5) {
   const hx = mesh.headX, hy = mesh.headY, hz = mesh.headZ;
   const x = horizOffset;
   const y = vertOffset;
-  const inside = 1 - (x * x) / (hx * hx) - (y * y) / (hy * hy);
+  const invHx2 = 1 / (hx * hx);
+  const invHy2 = 1 / (hy * hy);
+  const invHz2 = 1 / (hz * hz);
+  const inside = 1 - x * x * invHx2 - y * y * invHy2;
   const zSurface = hz * Math.sqrt(Math.max(0.02, inside));
   const z = zSurface + depthOffset;
 
-  // 椭球表面法线 = (x/hx², y/hy², z/hz²) 方向
-  let nx = x / (hx * hx);
-  let ny = y / (hy * hy);
-  let nz = zSurface / (hz * hz);
-  const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-  nx /= nLen; ny /= nLen; nz /= nLen;
+  // 椭球表面法线：(x/hx², y/hy², z/hz²)
+  const n = normalizeVec3(x * invHx2, y * invHy2, zSurface * invHz2, { x: 0, y: 0, z: 1 });
 
-  // 两个切向量：在椭球表面上估计"右"和"下"
-  //   右方向 = (1, 0, -x/z * (hz²/hx²)) —— 近似保持在切平面；为稳定起见用 Gram-Schmidt：
-  //   先猜 right ≈ (1, 0, -x/z * something)，然后减去沿法线分量
-  const approxRX = 1.0;
-  const approxRY = 0.0;
-  const approxRZ = (Math.abs(zSurface) > 0.01) ? -(x * hz * hz) / (hx * hx * zSurface) : 0;
-  const dotRN = approxRX * nx + approxRY * ny + approxRZ * nz;
-  let tx = approxRX - dotRN * nx;
-  let ty = approxRY - dotRN * ny;
-  let tz = approxRZ - dotRN * nz;
-  const tLen = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1;
-  tx /= tLen; ty /= tLen; tz /= tLen;
+  // 稳定的水平切向量：(z/hz², 0, -x/hx²)，与椭球梯度点积为零，无除法
+  let t = normalizeVec3(zSurface * invHz2, 0, -x * invHx2, { x: 1, y: 0, z: 0 });
 
-  // "下"方向 = n × t （右手系，保证互相垂直）
-  let bx = ny * tz - nz * ty;
-  let by = nz * tx - nx * tz;
-  let bz = nx * ty - ny * tx;
-  const bLen = Math.sqrt(bx * bx + by * by + bz * bz) || 1;
-  bx /= bLen; by /= bLen; bz /= bLen;
+  // 下方向：n × t
+  const rawB = crossVec3(n, t);
+  let b = normalizeVec3(rawB.x, rawB.y, rawB.z, { x: 0, y: 1, z: 0 });
+
+  // 再做一次正交化：t = b × n
+  const rawT2 = crossVec3(b, n);
+  t = normalizeVec3(rawT2.x, rawT2.y, rawT2.z, { x: 1, y: 0, z: 0 });
+
+  // 最终 b = n × t（再次确保）
+  const rawB2 = crossVec3(n, t);
+  b = normalizeVec3(rawB2.x, rawB2.y, rawB2.z, { x: 0, y: 1, z: 0 });
 
   return {
     x, y, z,
-    nx, ny, nz,
-    tx, ty, tz,
-    bx, by, bz,
+    nx: n.x, ny: n.y, nz: n.z,
+    tx: t.x, ty: t.y, tz: t.z,
+    bx: b.x, by: b.y, bz: b.z,
     faceWeight: 1.0,
   };
 }

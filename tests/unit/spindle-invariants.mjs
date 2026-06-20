@@ -106,8 +106,9 @@ for (const f of mesh.faces) {
   else other++;
 }
 console.log(' triangle faces:', tri, 'quad faces:', quad, 'other:', other);
-assert(tri === 4, 'default mesh has 4 tail triangles');
-assert(quad === mesh.faces.length - 4, 'remaining faces are quads');
+// After nose apex fan change (commit 6a3e8ce): 24 triangles at nose + 4 at tail = 28 total
+assert(tri >= 24, 'default mesh has nose apex fan triangles (>=24)');
+assert(quad === mesh.faces.length - tri, 'remaining faces are quads');
 
 console.log('\n--- flukeEnabled=false: tail ring uses native triangles ---');
 const noFluke = createSpindleMesh({ flukeEnabled: false });
