@@ -10,8 +10,8 @@ function fail(msg) {
 
 function analyze(mesh, yawDeg, pitchDeg) {
   const deformed = deformSpindle(mesh, {
-    angleY: (yawDeg * Math.PI) / 180,
-    angleX: (pitchDeg * Math.PI) / 180,
+    angleY: yawDeg,
+    angleX: pitchDeg,
     angleZ: 0,
   });
   let visible = 0, hidden = 0, degenerate = 0;
