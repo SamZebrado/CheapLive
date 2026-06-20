@@ -25,14 +25,22 @@ function classifyFaces(mesh) {
   return { tri, quad, other, indexOutOfRange };
 }
 
-test('createSpindleMesh: 默认含尾鳍，鼻端扇形 + fluke 三角面共 28，退化 0', () => {
+test('createSpindleMesh: 默认含尾鳍，鼻端扇形 24 + fluke 内部 4 = 28 三角，退化 0', () => {
   const m = createSpindleMesh();
   const c = classifyFaces(m);
-  // col=0 的退化 quad 已替换为单顶点 apex + 24 三角扇；fluke 内部 4 三角 + 主体-fluke 连接 4 四角
   assert.equal(c.tri, 28, 'expected 28 triangle faces (nose fan 24 + fluke inner 4)');
   assert.ok(c.quad > 0, 'quad faces present');
   assert.equal(c.other, 0, 'no unexpected polygon sizes');
   assert.equal(c.indexOutOfRange, 0, 'indices in range');
+  // 面积断言：对每个 face 至少一个子三角非退化（等价于退化 0）
+  const deg = m.faces.filter((f) => {
+    const v = f.vertices;
+    const ux = v[1].x - v[0].x, uy = v[1].y - v[0].y, uz = v[1].z - v[0].z;
+    const vxx = v[2].x - v[0].x, vyy = v[2].y - v[0].y, vzz = v[2].z - v[0].z;
+    const cx = uy * vzz - uz * vyy, cy = uz * vxx - ux * vzz, cz = ux * vyy - uy * vxx;
+    return (cx * cx + cy * cy + cz * cz) <= 1e-10;
+  }).length;
+  assert.equal(deg, 0, 'all faces non-degenerate (first triplet area > 0)');
 });
 
 test('createSpindleMesh: flukeEnabled=false 使用尾端三角扇 + 鼻端三角扇，共 48 三角', () => {
