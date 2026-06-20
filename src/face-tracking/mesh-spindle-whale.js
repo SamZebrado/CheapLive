@@ -271,14 +271,19 @@ export function createSpindleMesh(options = {}) {
     }
   }
 
-  // --- 尾鳍（Fluke）：在主体最后一圈后向外延伸扁平三角形 ---
-  //     设计：尾鳍从最后一圈向外（-Z 方向）延伸出一小段，呈扁平的
-  //     等腰三角形状，左右对称（类似鲸尾但更收敛）。
+  // --- 尾鳍（Tail）：萨卡班甲鱼式细长尾 + 小三角形尾鳍叶 ---
+  //     萨卡班甲鱼特征：
+  //     1. 身体逐渐变细成长尾巴
+  //     2. 尾巴上有对称的三角形尾鳍叶
+  //     3. 尾巴末端有很小的尾鳍
+  //     参考：https://m.baike.com/wiki/fossil/23417395
   if (flukeEnabled) {
     const flukeStartIdx = vertices.length;
-    const flukeHalfWidth = headX * 0.85 * flukeSize; // 尾鳍左右伸展宽度
-    const flukeHalfHeight = headY * 0.55 * flukeSize; // 尾鳍上下高度
-    const flukeTipBackZ = -bodyLength - headZ * 0.4;  // 尾尖在身体末端之后再靠后
+    // 萨卡班甲鱼的尾鳍较小，不再是鲸鱼式大扇形
+    const flukeHalfWidth = headX * 0.25 * flukeSize;  // 尾鳍左右伸展宽度（缩小）
+    const flukeHalfHeight = headY * 0.35 * flukeSize; // 尾鳍上下高度（略大，上下对称）
+    const tailExtensionZ = 30;  // 尾巴延伸长度
+    const flukeTipBackZ = -bodyLength - headZ * 0.2;  // 尾尖在身体末端之后再靠后
 
     // 主体最后一圈的中心
     const lastRingStart = columns * (rows + 1);
@@ -292,34 +297,37 @@ export function createSpindleMesh(options = {}) {
     bodyEndCenterY /= (rows + 1);
     bodyEndCenterZ /= (rows + 1);
 
-    // 尾鳍用一个菱形 + 尾尖的简单三角化：
+    // 萨卡班甲鱼尾鳍设计：小三角形尾鳍叶 + 细长尾柄
     //   A：尾鳍上顶点（-Y）
     //   B：尾鳍左端点（-X）
     //   C：尾鳍下端点（+Y）
     //   D：尾鳍右端点（+X）
     //   T：尾尖（中心 +Z 向后）
+    // 尾鳍起点比身体末端稍后
+    const flukeBaseZ = bodyEndCenterZ - 5;
     const flA = {
-      x: bodyEndCenterX, y: bodyEndCenterY - flukeHalfHeight, z: bodyEndCenterZ - 5,
-      nx: 0, ny: -1, nz: 0, t: 1.02, angle: -Math.PI / 2, col: columns + 1, row: 0,
+      x: bodyEndCenterX, y: bodyEndCenterY - flukeHalfHeight, z: flukeBaseZ,
+      nx: 0, ny: -1, nz: 0.5, t: 1.02, angle: -Math.PI / 2, col: columns + 1, row: 0,
       isTop: true, isBottom: false, faceWeight: 0, isHead: false,
     };
     const flB = {
-      x: bodyEndCenterX - flukeHalfWidth, y: bodyEndCenterY, z: bodyEndCenterZ - 5,
+      x: bodyEndCenterX - flukeHalfWidth, y: bodyEndCenterY, z: flukeBaseZ,
       nx: -1, ny: 0, nz: 0, t: 1.02, angle: Math.PI, col: columns + 1, row: 0,
       isTop: false, isBottom: true, faceWeight: 0, isHead: false,
     };
     const flC = {
-      x: bodyEndCenterX, y: bodyEndCenterY + flukeHalfHeight, z: bodyEndCenterZ - 5,
-      nx: 0, ny: 1, nz: 0, t: 1.02, angle: Math.PI / 2, col: columns + 1, row: 0,
+      x: bodyEndCenterX, y: bodyEndCenterY + flukeHalfHeight, z: flukeBaseZ,
+      nx: 0, ny: 1, nz: 0.5, t: 1.02, angle: Math.PI / 2, col: columns + 1, row: 0,
       isTop: false, isBottom: true, faceWeight: 0, isHead: false,
     };
     const flD = {
-      x: bodyEndCenterX + flukeHalfWidth, y: bodyEndCenterY, z: bodyEndCenterZ - 5,
+      x: bodyEndCenterX + flukeHalfWidth, y: bodyEndCenterY, z: flukeBaseZ,
       nx: 1, ny: 0, nz: 0, t: 1.02, angle: 0, col: columns + 1, row: 0,
       isTop: false, isBottom: true, faceWeight: 0, isHead: false,
     };
+    // 尾尖：萨卡班甲鱼的尾巴末端有很小的尾鳍
     const flT = {
-      x: bodyEndCenterX, y: bodyEndCenterY - headY * 0.05, z: flukeTipBackZ,
+      x: bodyEndCenterX, y: bodyEndCenterY, z: flukeTipBackZ,  // 尾尖略微偏下
       nx: 0, ny: 0, nz: -1, t: 1.1, angle: 0, col: columns + 2, row: 0,
       isTop: true, isBottom: false, faceWeight: 0, isHead: false,
     };
@@ -332,70 +340,67 @@ export function createSpindleMesh(options = {}) {
     const iD = flukeStartIdx + 3;
     const iT = flukeStartIdx + 4;
 
-    // 三角化尾鳍：从 A-B-C-D 四个点 + T（尾尖）组成 4 个三角形扇
-    //   Triangle 1: A-B-T  (左上)
-    //   Triangle 2: B-C-T  (左下)
-    //   Triangle 3: C-D-T  (右下)
-    //   Triangle 4: D-A-T  (右上)
+    // 三角化尾鳍：萨卡班甲鱼式上下三角形尾鳍叶
+    //   上三角形：A-B-T（上尾鳍叶）
+    //   下三角形：C-D-T（下尾鳍叶）
+    // 注意：萨卡班甲鱼的尾鳍是对称的三角形，不是菱形
     const flukeTriangles = [
-      [iA, iB, iT],
-      [iB, iC, iT],
-      [iC, iD, iT],
-      [iD, iA, iT],
+      [iA, iB, iT],  // 上三角形
+      [iC, iD, iT],  // 下三角形
     ];
     for (const tri of flukeTriangles) {
       const [i0, i1, i2] = tri;
       faces.push({
         indices: [i0, i1, i2, i0], // 退化四边形 = 三角形
         vertices: [vertices[i0], vertices[i1], vertices[i2], vertices[i0]],
-        isTop: true,
-        isBottom: false,
+        isTop: i0 === iA,
+        isBottom: i0 === iC,
         column: columns + 1, row: 0,
       });
     }
 
-    // 连接主体最后一圈到尾鳍 A-B-C-D 环（让尾鳍从身体平滑"长"出来）
-    // 主体最后一圈 → 尾鳍环：用四边形连起来
-    const flukeRingOrder = [
-      { flukeIdx: iA, matchAngle: -Math.PI / 2 }, // 上
-      { flukeIdx: iD, matchAngle: 0 },            // 右
-      { flukeIdx: iC, matchAngle: Math.PI / 2 },  // 下
-      { flukeIdx: iB, matchAngle: Math.PI },      // 左
-    ];
-    // 简单实现：从最后一圈把 4 个最接近的点分别连到 iA/iD/iC/iB
-    // 为避免复杂，我们用三角扇把最后一圈的"顶部/底部/左右"四个点连到尾鳍环。
-    // 实际视觉上，这只是一个过渡环，不影响主体造型。
+    // 连接主体最后一圈到尾鳍：只用上下的过渡四边形
     // 找到四个关键点：
-    let topIdx = lastRingStart, rightIdx = lastRingStart, bottomIdx = lastRingStart, leftIdx = lastRingStart;
-    let topDiff = Infinity, rightDiff = Infinity, bottomDiff = Infinity, leftDiff = Infinity;
+    let topIdx = lastRingStart, bottomIdx = lastRingStart, leftIdx = lastRingStart, rightIdx = lastRingStart;
+    let topDiff = Infinity, bottomDiff = Infinity, leftDiff = Infinity, rightDiff = Infinity;
     for (let row = 0; row <= rows; row++) {
       const v = vertices[lastRingStart + row];
       const d1 = Math.abs(v.angle - (-Math.PI / 2));
-      const d2 = Math.abs(v.angle - 0);
-      const d3 = Math.abs(v.angle - Math.PI / 2);
-      const d4 = Math.abs(Math.abs(v.angle) - Math.PI);
+      const d2 = Math.abs(v.angle - Math.PI / 2);
+      const d3 = Math.abs(Math.abs(v.angle) - Math.PI);
+      const d4 = Math.abs(v.angle - 0);
       if (d1 < topDiff) { topDiff = d1; topIdx = lastRingStart + row; }
-      if (d2 < rightDiff) { rightDiff = d2; rightIdx = lastRingStart + row; }
-      if (d3 < bottomDiff) { bottomDiff = d3; bottomIdx = lastRingStart + row; }
-      if (d4 < leftDiff) { leftDiff = d4; leftIdx = lastRingStart + row; }
+      if (d2 < bottomDiff) { bottomDiff = d2; bottomIdx = lastRingStart + row; }
+      if (d3 < leftDiff) { leftDiff = d3; leftIdx = lastRingStart + row; }
+      if (d4 < rightDiff) { rightDiff = d4; rightIdx = lastRingStart + row; }
     }
-    // 四边形连接：上-右-下-左 → A-D-C-B（两个三角形足够了）
-    const bridgeFaces = [
-      [topIdx, rightIdx, iA, iD],
-      [rightIdx, bottomIdx, iD, iC],
-      [bottomIdx, leftIdx, iC, iB],
-      [leftIdx, topIdx, iB, iA],
-    ];
-    for (const quad of bridgeFaces) {
-      const [i0, i1, i2, i3] = quad;
-      faces.push({
-        indices: [i0, i1, i2, i3],
-        vertices: [vertices[i0], vertices[i1], vertices[i2], vertices[i3]],
-        isTop: true,
-        isBottom: false,
-        column: columns, row: 0,
-      });
-    }
+    // 上部连接：topIdx -> A
+    faces.push({
+      indices: [topIdx, rightIdx, iA, iD],
+      vertices: [vertices[topIdx], vertices[rightIdx], vertices[iA], vertices[iD]],
+      isTop: true, isBottom: false,
+      column: columns, row: 0,
+    });
+    // 下部连接：bottomIdx -> C
+    faces.push({
+      indices: [bottomIdx, rightIdx, iC, iD],
+      vertices: [vertices[bottomIdx], vertices[rightIdx], vertices[iC], vertices[iD]],
+      isTop: false, isBottom: true,
+      column: columns, row: 0,
+    });
+    // 左右侧面：连接 leftIdx 和 rightIdx 到尾鳍起点
+    faces.push({
+      indices: [leftIdx, topIdx, iB, iA],
+      vertices: [vertices[leftIdx], vertices[topIdx], vertices[iB], vertices[iA]],
+      isTop: true, isBottom: false,
+      column: columns, row: 0,
+    });
+    faces.push({
+      indices: [leftIdx, bottomIdx, iB, iC],
+      vertices: [vertices[leftIdx], vertices[bottomIdx], vertices[iB], vertices[iC]],
+      isTop: false, isBottom: true,
+      column: columns, row: 0,
+    });
   } else {
     // 无尾鳍模式：简单从尾端中心扇形三角化到最后一圈
     const lastRingStart = columns * (rows + 1);
