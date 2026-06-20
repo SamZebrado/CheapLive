@@ -849,12 +849,13 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    // 鼻孔：两个位于中线上方（灰白色分界线上方）的深色小点，稍微向左右两边分开
-    // horizOffset = ±hx * 0.08, vertOffset = -hy * 0.55 附近（眼睛下方，嘴巴上方）
+    // 鼻孔：两个位于灰白分界线附近（y≈0），稍向外分开
+    // 灰白分界线是头部中心线（y=0），鼻孔应在分界线附近而不是上方
+    // horizOffset = ±hx * 0.06（略向外，比眼睛更居中）
     const hx = mesh.headX, hy = mesh.headY;
-    const nostrilHoriz = hx * 0.08;
-    const nostrilVert = -hy * 0.55;
-    const nostrilSize = Math.max(1.5, hx * 0.018);
+    const nostrilHoriz = hx * 0.06;
+    const nostrilVert = -hy * 0.06;  // 略高于灰白分界线（y=0），但低于眼睛（y=-hy*0.15）
+    const nostrilSize = Math.max(1.8, hx * 0.022);
     const drawNostril = (hSign) => {
       const local = computeFaceAnchorXYZ(mesh, 0, nostrilHoriz * hSign, nostrilVert, 0.2);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
