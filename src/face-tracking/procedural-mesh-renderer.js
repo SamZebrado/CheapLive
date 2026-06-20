@@ -66,19 +66,43 @@ function buildFaceBasis(local) {
   let rawT = { x: local.tx, y: local.ty, z: local.tz };
 
   if (!isFiniteVec3(rawT)) {
+    // 从 n 构造一个正交的 rawT
     rawT = { x: 1 - n.x * n.x, y: -n.x * n.y, z: -n.x * n.z };
     if (Math.sqrt(rawT.x * rawT.x + rawT.y * rawT.y + rawT.z * rawT.z) < BASIS_EPSILON) {
       rawT = { x: -n.y * n.x, y: 1 - n.y * n.y, z: -n.y * n.z };
     }
   }
 
+  // Gram-Schmidt 正交化
   const tDotN = dotVec3(rawT, n);
-  const t = normVec3(
-    { x: rawT.x - tDotN * n.x, y: rawT.y - tDotN * n.y, z: rawT.z - tDotN * n.z },
-    { x: 1, y: 0, z: 0 },
-  );
+  let t = {
+    x: rawT.x - tDotN * n.x,
+    y: rawT.y - tDotN * n.y,
+    z: rawT.z - tDotN * n.z,
+  };
 
-  const b = normVec3(crossVec3(n, t), { x: 0, y: 1, z: 0 });
+  // 检查 t 是否退化（与 n 平行导致 Gram-Schmidt 给出零向量）
+  const tLen = Math.sqrt(t.x * t.x + t.y * t.y + t.z * t.z);
+  if (tLen < BASIS_EPSILON) {
+    // 选择与 n 最不平行的参考轴，投影到切平面
+    const refX = Math.abs(n.x) < 0.9 ? 1 : 0;
+    const refY = Math.abs(n.y) < 0.9 ? 1 : 0;
+    const refZ = Math.abs(n.z) < 0.9 ? 1 : 0;
+    const ref = { x: refX, y: refY, z: refZ };
+    // 投影到 n 的法平面
+    const refDotN = dotVec3(ref, n);
+    t = {
+      x: ref.x - refDotN * n.x,
+      y: ref.y - refDotN * n.y,
+      z: ref.z - refDotN * n.z,
+    };
+  }
+
+  t = normVec3(t, { x: 1, y: 0, z: 0 });
+
+  // b = n × t，保证正交
+  const bRaw = crossVec3(n, t);
+  const b = normVec3(bRaw, { x: 0, y: 1, z: 0 });
 
   return { n, t, b };
 }
@@ -551,11 +575,12 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
 
+      // 眼睛椭圆的半宽/高：直接用 eyeSize，不预乘 rl/dl
+      // 因为 computeProjectedEllipse 会将 halfWidth/halfH 与 rightVec/downVec 分量相乘
+      // rightVec 已包含投影后的完整长度信息
       const eyeSize = 10 * scale;
-      const rl = Math.max(0.3, t.rightLen);
-      const dl = Math.max(0.3, t.downLen);
-      const eyeHalfW = eyeSize * rl;
-      const eyeHalfH = eyeSize * dl;
+      const eyeHalfW = eyeSize;
+      const eyeHalfH = eyeSize;
 
       // 使用完整投影椭圆（考虑 rightVec + downVec 可能不正交）
       const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
@@ -605,10 +630,10 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      const rl = Math.max(0.3, t.rightLen);
-      const dl = Math.max(0.3, t.downLen);
-      const len = 22 * scale * rl;
-      const upAmt = raise * 8 * scale * dl;
+      // 眉毛长度和抬升量：直接用 scale，不预乘 rl/dl
+      // 因为 mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
+      const len = 22 * scale;
+      const upAmt = raise * 8 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
@@ -629,13 +654,13 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      const rl = Math.max(0.3, t.rightLen);
-      const dl = Math.max(0.3, t.downLen);
+      // 嘴巴尺寸参数：直接用 scale，不预乘 rl/dl
+      // mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
       const smileWiden = 1 + smile * 0.4;
-      const halfW = 22 * scale * rl * smileWiden;
-      const openH = (3 * scale + 14 * scale * open) * dl;
-      const cornerUp = -smile * 8 * scale * dl;
-      const centerUp = -smile * 3 * scale * dl;
+      const halfW = 22 * scale * smileWiden;
+      const openH = (3 * scale + 14 * scale * open);
+      const cornerUp = -smile * 8 * scale;
+      const centerUp = -smile * 3 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
@@ -792,10 +817,11 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
 
-      const rl = Math.max(0.25, t.rightLen);
-      const dl = Math.max(0.25, t.downLen);
-      const eyeHalfW = eyeBase * scale * rl;
-      const eyeHalfH = eyeBase * scale * dl;
+      // 眼睛椭圆的半宽/高：直接用 base size，不预乘 rl/dl
+      // 因为 computeProjectedEllipse 会将 halfWidth/halfH 与 rightVec/downVec 分量相乘
+      // rightVec 已包含投影后的完整长度信息
+      const eyeHalfW = eyeBase * scale;
+      const eyeHalfH = eyeBase * scale;
 
       // 使用完整投影椭圆（考虑 rightVec + downVec 可能不正交）
       const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
@@ -843,10 +869,10 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      const rl = Math.max(0.25, t.rightLen);
-      const dl = Math.max(0.25, t.downLen);
-      const len = mesh.headX * 0.26 * scale * rl;
-      const upAmt = raise * 8 * scale * dl;
+      // 眉毛长度和抬升量：直接用 scale，不预乘 rl/dl
+      // 因为 mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
+      const len = mesh.headX * 0.26 * scale;
+      const upAmt = raise * 8 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
@@ -866,13 +892,13 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      const rl = Math.max(0.25, t.rightLen);
-      const dl = Math.max(0.25, t.downLen);
+      // 嘴巴尺寸参数：直接用 scale，不预乘 rl/dl
+      // mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
       const smileWiden = 1 + smile * 0.40;
-      const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * rl;
-      const openH = (3 * scale + 12 * scale * open) * dl;
-      const cornerUp = -smile * 7 * scale * dl;
-      const centerUp = -smile * 3 * scale * dl;
+      const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden;
+      const openH = (3 * scale + 12 * scale * open);
+      const cornerUp = -smile * 7 * scale;
+      const centerUp = -smile * 3 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
@@ -922,10 +948,10 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.save();
       ctx.globalAlpha = 0.8 * facing;
       ctx.beginPath();
-      const rl = Math.max(0.25, t.rightLen);
-      const dl = Math.max(0.25, t.downLen);
-      const halfW = nostrilSize * scale * rl;
-      const halfH = nostrilSize * scale * dl;
+      // 鼻孔椭圆的半宽/高：直接用 nostrilSize * scale，不预乘 rl/dl
+      // computeProjectedEllipse 会与 rightVec/downVec 分量相乘，已包含投影长度
+      const halfW = nostrilSize * scale;
+      const halfH = nostrilSize * scale;
       const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, halfW, halfH);
       ctx.ellipse(t.screenX, t.screenY,
         Math.max(0.1, proj.radiusX), Math.max(0.1, proj.radiusY),
