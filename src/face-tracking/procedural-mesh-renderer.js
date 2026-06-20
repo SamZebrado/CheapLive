@@ -509,7 +509,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
         ctx.translate(t.screenX, t.screenY);
         ctx.rotate(angleOnScreen);
         const coverH = 2 * eyeHalfH * cover;
-        ctx.fillStyle = '#d9d2be';  // 球体卡通肤色
+        ctx.fillStyle = this.mesh.faceTopColor || '#d9d2be';  // 与球体卡通肤色一致
         ctx.fillRect(-eyeHalfW - 2, -eyeHalfH - 2, eyeHalfW * 2 + 4, coverH + 2);
         ctx.restore();
       }
@@ -769,7 +769,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.rotate(angleOnScreen);
         // 从 -eyeHalfH 顶部往下盖 cover*2*eyeHalfH
         const coverH = 2 * eyeHalfH * cover;
-        ctx.fillStyle = '#d4c78d';  // 纺锤体上半的灰黄
+        ctx.fillStyle = mesh.faceTopColor || '#bdb8aa';  // 遮罩色与鱼头顶面部色一致，取代硬编码 #d4c78d
         ctx.fillRect(-eyeHalfW - 2, -eyeHalfH - 2, eyeHalfW * 2 + 4, coverH + 2);
         ctx.restore();
       }

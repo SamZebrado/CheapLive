@@ -2,16 +2,19 @@
  * build-classic-avatar.js
  *
  * 将 src/face-tracking/{mesh-sphere,mesh-spindle-whale,procedural-mesh-renderer}.js
- * 合并为单一经典脚本 procedural-avatar-classic.js，用于 Android WebView
- * 离线 Demo（不支持 ES Module import）。
+ * 合并为单一经典脚本 procedural-avatar-classic.js，用于验证 ES Module 兼容性。
  *
  * 用法：
  *   node scripts/build-classic-avatar.js
  *
  * 输出：
- *   android-capture/app/src/main/assets/web/demo/procedural-avatar-classic.js
+ *   src/face-tracking/procedural-avatar-classic.js
  *
- * 同时复制一份到 src/face-tracking/，便于网页验证。
+ * 【2026-06-20 冻结说明】
+ *   本脚本曾同时输出到 android-capture/app/src/main/assets/web/demo/，
+ *   但因 Android APP 功能已移交参赛项目独立开发，主项目不再
+ *   不再写入 Android assets 目录。Android 侧如需最新脚本，由参赛项目
+ *   在其独立仓库中自行维护。
  */
 'use strict';
 
@@ -20,16 +23,8 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const SRC_DIR = path.join(ROOT, 'src', 'face-tracking');
-const ANDROID_DEMO = path.join(
-  ROOT,
-  'android-capture',
-  'app',
-  'src',
-  'main',
-  'assets',
-  'web',
-  'demo'
-);
+// ANDROID_DEMO 输出路径已冻结（2026-06-20）
+// const ANDROID_DEMO = path.join(ROOT, 'android-capture', 'app', 'src', 'main', 'assets', 'web', 'demo');
 
 function load(name) {
   return fs.readFileSync(path.join(SRC_DIR, name), 'utf8');
@@ -88,13 +83,10 @@ const tail =
 
 const combined = banner + meshSphere + meshWhale + renderer + tail;
 
-// 写入 Android assets
-fs.mkdirSync(ANDROID_DEMO, { recursive: true });
-fs.writeFileSync(path.join(ANDROID_DEMO, 'procedural-avatar-classic.js'), combined, 'utf8');
-
-// 同时复制一份到 src/face-tracking/，便于 web 端直接验证。
+// 仅写入 src/face-tracking/ 供网页验证
+// Android assets 目录已冻结，不再写入（2026-06-20）
 fs.writeFileSync(path.join(SRC_DIR, 'procedural-avatar-classic.js'), combined, 'utf8');
 
 console.log('OK, wrote procedural-avatar-classic.js to:');
-console.log('  -', path.join(ANDROID_DEMO, 'procedural-avatar-classic.js'));
 console.log('  -', path.join(SRC_DIR, 'procedural-avatar-classic.js'));
+console.log('（Android assets 目录已冻结，不再同步）');
