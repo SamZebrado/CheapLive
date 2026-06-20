@@ -455,9 +455,10 @@ export function createSpindleMesh(options = {}) {
     for (let row = 0; row < rows; row++) {
       const curr = lastRingStart + row;
       const next = lastRingStart + row + 1;
+      // 三角形面（不再重复 tailIdx 伪装成四边形）
       faces.push({
-        indices: [tailIdx, curr, next, tailIdx],
-        vertices: [vertices[tailIdx], vertices[curr], vertices[next], vertices[tailIdx]],
+        indices: [tailIdx, curr, next],
+        vertices: [vertices[tailIdx], vertices[curr], vertices[next]],
         isTop: false, isBottom: true,
         column: columns, row,
       });

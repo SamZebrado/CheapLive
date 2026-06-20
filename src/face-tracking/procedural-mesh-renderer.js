@@ -62,13 +62,14 @@ function parseHex(hex) {
   };
 }
 
-function applyLight(faceCenterNormal, lightDir, baseColor) {
+function applyLight(faceCenterNormal, lightDir, baseColor, ambient) {
   // 点积表示朝向光源的程度，映射到 [ambient, 1.0]
   const dot =
     (faceCenterNormal.x || 0) * lightDir.x +
     (faceCenterNormal.y || 0) * lightDir.y +
     (faceCenterNormal.z || 0) * lightDir.z;
-  const factor = 0.55 + 0.45 * clamp(dot, -0.2, 1.0);
+  const a = Number.isFinite(ambient) && ambient >= 0 && ambient <= 1 ? ambient : 0.55;
+  const factor = a + (1 - a) * clamp(dot, -0.2, 1.0);
   const rgb = parseRGB(baseColor);
   const r = Math.round(clamp(rgb.r * factor, 0, 255));
   const g = Math.round(clamp(rgb.g * factor, 0, 255));
@@ -204,7 +205,7 @@ class ProceduralMeshRenderer {
    * 和 (nx, ny, nz)。
    */
   _drawMesh(ctx, mesh, options) {
-    const { w, h, scale, originX, originY, baseColorTop, baseColorBottom, faceTopColor, faceBottomColor, lightDir } = options;
+    const { w, h, scale, originX, originY, baseColorTop, baseColorBottom, faceTopColor, faceBottomColor, lightDir, ambient } = options;
     const vertices = mesh.vertices;
     const faces = mesh.faces;
     if (!vertices || !faces || faces.length === 0) return;
@@ -281,7 +282,8 @@ class ProceduralMeshRenderer {
       const lit = applyLight(
         { x: avgNx / nLen, y: avgNy / nLen, z: avgNz / nLen },
         lightDir,
-        base
+        base,
+        ambient,
       );
 
       // 构建多边形点数组（支持任意顶点数）
@@ -434,8 +436,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
     const originY = h * 0.5 + (np.headY - 0.5) * minSide * 0.20;
 
     const lightDir = { x: -0.35, y: -0.4, z: 0.8 };
-    // 球体的"上半=灰，下半=白"的简单配色：
-    // 球体是封闭凸形，用严格的背面剔除阈值 -0.05
+    // 球体是封闭凸形，使用严格的背面剔除阈值 -0.05，ambient 0.55 让暗部不糊死
     this._drawMesh(ctx, deformed, {
       w, h, scale, originX, originY,
       baseColorTop: '#bdb8aa',
@@ -444,6 +445,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       faceBottomColor: '#fffaf0',
       lightDir,
       cullThreshold: -0.05,
+      ambient: 0.55,
     });
 
     // 五官
@@ -704,7 +706,6 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const originX = w * 0.5 + (np.headX - 0.5) * minSide * 0.22;
     const originY = h * 0.48 + (np.headY - 0.5) * minSide * 0.18;
 
-    // 单 mesh 渲染：头部 + 身体 + 尾巴都已经在 spindleMesh 中
     // 萨卡班甲鱼是扁平椭球，旋转时侧面仍应可见，放宽到 -0.15
     // 尾鳍是双面的，不受这个阈值影响
     const lightDir = { x: -0.3, y: -0.5, z: 0.8 };
@@ -717,6 +718,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       faceBottomColor: this.spindleMesh.faceBottomColor,
       lightDir,
       cullThreshold: -0.15,
+      ambient: 0.58,
     });
 
     this._drawFaceFeatures(ctx, np, rot, originX, originY, scale);
