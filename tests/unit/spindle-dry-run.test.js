@@ -53,14 +53,13 @@ function faceIsDegenerate(face, tol2 = 1e-10) {
     seen.add(i);
   }
   if (hasDupIdx || seen.size < 3) return true;
-  // 对每个三角子面（3 顶点: [0,1,2]，若有 4 顶点再取 [0,2,3]、[1,2,3]）
-  // 要求至少一个子面叉积模方大于阈值；否则视为退化
+  // 三角形：仅 [0,1,2]。
+  // 四边形：拆分为 [0,1,2]、[0,2,3]、[1,2,3]；任一子三角退化即视为整体退化。
   const triplets = [[0, 1, 2]];
   if (v.length >= 4) {
     triplets.push([0, 2, 3]);
     triplets.push([1, 2, 3]);
   }
-  let anyNonDegenerate = false;
   for (const [a, b, c] of triplets) {
     const ux = v[b].x - v[a].x, uy = v[b].y - v[a].y, uz = v[b].z - v[a].z;
     const vxx = v[c].x - v[a].x, vyy = v[c].y - v[a].y, vzz = v[c].z - v[a].z;
@@ -68,9 +67,9 @@ function faceIsDegenerate(face, tol2 = 1e-10) {
     const cy = uz * vxx - ux * vzz;
     const cz = ux * vyy - uy * vxx;
     const m2 = cx * cx + cy * cy + cz * cz;
-    if (m2 > tol2) anyNonDegenerate = true;
+    if (m2 <= tol2) return true;
   }
-  return !anyNonDegenerate;
+  return false;
 }
 
 function analyzeMesh(mesh) {
@@ -178,4 +177,57 @@ describe('spindle dry-run — 头部法线朝 +Z 比例', () => {
       }
     });
   }
+});
+
+describe('spindle dry-run — 退化检测的负向用例', () => {
+  it('人工退化三角形（顶点 0/1/2 共线）应被判定为退化', () => {
+    const fakeFace = {
+      indices: [0, 1, 2],
+      vertices: [
+        { x: 0, y: 0, z: 0 },
+        { x: 1, y: 0, z: 0 },
+        { x: 2, y: 0, z: 0 },
+      ],
+    };
+    assert.ok(faceIsDegenerate(fakeFace), '共线三点应被判定为退化');
+  });
+
+  it('人工退化四边形（3 落在 2-0 边上）应被判定为退化', () => {
+    const fakeFace = {
+      indices: [0, 1, 2, 3],
+      vertices: [
+        { x: 0, y: 0, z: 0 },
+        { x: 1, y: 0, z: 0 },
+        { x: 1, y: 1, z: 0 },
+        { x: 0.5, y: 0.5, z: 0 }, // 在 0-2 边上
+      ],
+    };
+    assert.ok(faceIsDegenerate(fakeFace), '存在退化子三角的四边形应被判定为退化');
+  });
+
+  it('人工非退化四边形不应被判定为退化', () => {
+    const fakeFace = {
+      indices: [0, 1, 2, 3],
+      vertices: [
+        { x: 0, y: 0, z: 0 },
+        { x: 1, y: 0, z: 0 },
+        { x: 1, y: 1, z: 0 },
+        { x: 0, y: 1, z: 0 },
+      ],
+    };
+    assert.ok(!faceIsDegenerate(fakeFace), '单位方块不应被判定为退化');
+  });
+
+  it('重复索引的四边形应被判定为退化', () => {
+    const fakeFace = {
+      indices: [0, 0, 1, 2],
+      vertices: [
+        { x: 0, y: 0, z: 0 },
+        { x: 1, y: 0, z: 0 },
+        { x: 0, y: 1, z: 0 },
+        { x: 0, y: 0, z: 0 },
+      ],
+    };
+    assert.ok(faceIsDegenerate(fakeFace), '重复索引应被判定为退化');
+  });
 });
