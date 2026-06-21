@@ -26,17 +26,20 @@ const devices = new Map(); // deviceId -> { id, name, ip, port, role, lastHeartb
 // SSE 客户端连接表
 const sseClients = new Map(); // deviceId -> response
 
-// 清理过期设备的定时任务
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, device] of devices) {
-    if (now - device.lastHeartbeat > DEVICE_TTL_MS) {
-      console.log(`[TTL] Device ${id} expired, removing`);
-      devices.delete(id);
-      broadcastDeviceList();
+// 清理过期设备的定时任务（仅在非测试模式）
+let cleanupInterval = null;
+if (!process.env.TEST_MODE) {
+  cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [id, device] of devices) {
+      if (now - device.lastHeartbeat > DEVICE_TTL_MS) {
+        console.log(`[TTL] Device ${id} expired, removing`);
+        devices.delete(id);
+        broadcastDeviceList();
+      }
     }
-  }
-}, HEARTBEAT_INTERVAL_MS);
+  }, HEARTBEAT_INTERVAL_MS);
+}
 
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -224,10 +227,13 @@ const server = http.createServer((req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`CheapLive Signaling Server running on port ${PORT}`);
-  console.log(`Device TTL: ${DEVICE_TTL_MS}ms`);
-  console.log(`Heartbeat interval: ${HEARTBEAT_INTERVAL_MS}ms`);
-});
+// 仅在非测试模式下自动启动服务器
+if (!process.env.TEST_MODE) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`CheapLive Signaling Server running on port ${PORT}`);
+    console.log(`Device TTL: ${DEVICE_TTL_MS}ms`);
+    console.log(`Heartbeat interval: ${HEARTBEAT_INTERVAL_MS}ms`);
+  });
+}
 
-export { server, devices, sseClients };
+export { server, devices, sseClients, PORT, DEVICE_TTL_MS, HEARTBEAT_INTERVAL_MS };
