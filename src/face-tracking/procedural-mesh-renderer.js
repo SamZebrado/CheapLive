@@ -630,15 +630,17 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.fill();
       ctx.globalAlpha = facing;
 
+      // 眼睑线：宽度精确匹配眼睛宽度（不再超出 50%），眼睑从闭到开平滑过渡
       if (easedClosed > 0.05) {
-        const lineLen = rx * 1.5;
-        const lineLeft = mapFaceLocalPoint(t, -lineLen, 0);
-        const lineRight = mapFaceLocalPoint(t, lineLen, 0);
+        const lineHalfLen = rx; // 眼睑宽度精确等于眼睛宽度，不再超出
+        const lineYOffset = -ry * easedClosed; // 闭眼时眼睑线移到眼睛顶部（-ry），随睁眼向上偏移消失
+        const lineLeft = mapFaceLocalPoint(t, -lineHalfLen, lineYOffset);
+        const lineRight = mapFaceLocalPoint(t, lineHalfLen, lineYOffset);
         ctx.beginPath();
         ctx.moveTo(lineLeft.x, lineLeft.y);
         ctx.lineTo(lineRight.x, lineRight.y);
         ctx.strokeStyle = '#222';
-        ctx.lineWidth = Math.max(2, 3 * scale) * easedClosed;
+        ctx.lineWidth = Math.max(1.5, 2.5 * scale) * easedClosed;
         ctx.globalAlpha = facing * easedClosed;
         ctx.stroke();
         ctx.globalAlpha = facing;
@@ -894,15 +896,17 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.fill();
       ctx.globalAlpha = facing;
 
+      // 眼睑线：宽度精确匹配眼睛宽度（不再超出 50%），眼睑从闭到开平滑过渡
       if (easedClosed > 0.05) {
-        const lineLen = rx * 1.5;
-        const lineLeft = mapFaceLocalPoint(t, -lineLen, 0);
-        const lineRight = mapFaceLocalPoint(t, lineLen, 0);
+        const lineHalfLen = rx; // 眼睑宽度精确等于眼睛宽度，不再超出
+        const lineYOffset = -ry * easedClosed; // 闭眼时眼睑线移到眼睛顶部（-ry），随睁眼向上偏移消失
+        const lineLeft = mapFaceLocalPoint(t, -lineHalfLen, lineYOffset);
+        const lineRight = mapFaceLocalPoint(t, lineHalfLen, lineYOffset);
         ctx.beginPath();
         ctx.moveTo(lineLeft.x, lineLeft.y);
         ctx.lineTo(lineRight.x, lineRight.y);
         ctx.strokeStyle = '#222';
-        ctx.lineWidth = Math.max(2, 3 * scale) * easedClosed;
+        ctx.lineWidth = Math.max(1.5, 2.5 * scale) * easedClosed;
         ctx.globalAlpha = facing * easedClosed;
         ctx.stroke();
         ctx.globalAlpha = facing;
