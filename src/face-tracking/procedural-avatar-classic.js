@@ -6,6 +6,9 @@
 (function () {
   "use strict";
 
+  // ----- 公共常量（合并时统一声明）-----
+  const BASIS_EPSILON = 1e-10;
+
   // ----- 几何模块 -----
 // ========[ mesh-sphere ]========
 /**
@@ -803,8 +806,6 @@ function createSpindleMesh(options = {}) {
  * 这样，在渲染时，眉毛沿 tangent 画，嘴的垂直方向沿 binormal。
  * 旋转后再投影，侧视椭圆自然出现。
  */
-const BASIS_EPSILON = 1e-10;
-
 function normalizeVec3(x, y, z, fallback) {
   const len = Math.sqrt(x * x + y * y + z * z);
   if (!Number.isFinite(len) || len < BASIS_EPSILON) {
@@ -1058,8 +1059,6 @@ function computeNostrilSize(headX) {
  */
 
 // ---------------- 公共工具 ----------------
-
-const BASIS_EPSILON = 1e-10;
 
 function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;

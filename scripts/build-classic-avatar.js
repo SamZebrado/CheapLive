@@ -36,6 +36,7 @@ function load(name) {
  *   - export function -> function
  *   - export class -> class
  *   - 末尾添加 window 挂载
+ *   - 移除重复的 const BASIS_EPSILON 声明（已在 banner 中统一声明）
  */
 function stripModule(raw, moduleName) {
   // 先去掉多行 "import { ... } from '...';" 块
@@ -52,6 +53,8 @@ function stripModule(raw, moduleName) {
   out = out.replace(/^export\s+let\s+/gm, 'let ');
   // "export { ... }" -> 空行
   out = out.replace(/^export\s*\{[\s\S]*?\};?\s*\n?/gm, '');
+  // 移除重复的 BASIS_EPSILON 声明（已在 banner 中统一声明）
+  out = out.replace(/^const\s+BASIS_EPSILON\s*=\s*[^;\n]+;?\s*\n?/gm, '');
   return `\n// ========[ ${moduleName} ]========\n${out}\n`;
 }
 
@@ -67,6 +70,8 @@ const banner =
   ' */\n\n' +
   '(function () {\n' +
   '  "use strict";\n\n' +
+  '  // ----- 公共常量（合并时统一声明）-----\n' +
+  '  const BASIS_EPSILON = 1e-10;\n\n' +
   '  // ----- 几何模块 -----';
 
 const tail =
