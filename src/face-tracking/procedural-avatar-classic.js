@@ -453,9 +453,21 @@ function createSpindleMesh(options = {}) {
   const vertices = [];
   const faces = [];
 
+  // 鼻端 apex（单独一个顶点，避免 col=0 的 25 个重复点）
+  vertices.push({
+    x: 0, y: 0, z: headZ,
+    nx: 0, ny: 0, nz: 1,
+    t: 0, angle: 0, col: 0, row: 0,
+    isTop: false, isBottom: false,
+    faceWeight: 1.0,
+    isHead: true,
+  });
+  const APEX_IDX = 0;
+
   // --- 主体顶点：参数化曲面 ---
-  // angle 约定：angle = -π 开始绕一整圈，使 row=0 位于 -Y（上方背面），row=rows/2 位于 +Y（下方正面）
-  for (let col = 0; col <= columns; col++) {
+  // col 从 1 开始（s ≈ 1/columns），到 columns（s=1，尾端）
+  // 每列 rows+1 个顶点，angle ∈ [-π, π]
+  for (let col = 1; col <= columns; col++) {
     const s = col / columns;
     const sec = getSection(s, headX, headY, headZ, bodyLength);
     const rx = sec.rx;
@@ -522,27 +534,47 @@ function createSpindleMesh(options = {}) {
     }
   }
 
-  // --- 生成主体面（四边形）：与旧版同逻辑 ---
-  for (let col = 0; col < columns; col++) {
+  // --- 主体面 ---
+  // col 1 → col 2：每相邻两列构成 rows 个四边形面
+  for (let col = 1; col < columns; col++) {
+    const colA = 1 + (col - 1) * (rows + 1); // col 顶点起始：col=1 → idx 1
+    const colB = colA + (rows + 1);
     for (let row = 0; row < rows; row++) {
-      const a = col * (rows + 1) + row;
+      const a = colA + row;
       const b = a + 1;
-      const c = (col + 1) * (rows + 1) + row;
+      const c = colB + row;
       const d = c + 1;
-
       const va = vertices[a];
       const vb = vertices[b];
       const vc = vertices[c];
       const vd = vertices[d];
-
-      const avgSin = (va.angle !== undefined) ?
-        (Math.sin(va.angle) + Math.sin(vb.angle) + Math.sin(vc.angle) + Math.sin(vd.angle)) * 0.25 : 0;
+      const avgSin = (Math.sin(va.angle) + Math.sin(vb.angle) + Math.sin(vc.angle) + Math.sin(vd.angle)) * 0.25;
       faces.push({
         indices: [a, b, d, c],
         vertices: [va, vb, vd, vc],
-        isTop: avgSin < 0,   // 上方 = -Y
+        isTop: avgSin < 0,
         isBottom: avgSin >= 0,
         column: col, row,
+      });
+    }
+  }
+
+  // 鼻端连接：apex → col=1 环，构成 rows 个三角面
+  {
+    const ringStart = 1; // col=1 顶点起始
+    for (let row = 0; row < rows; row++) {
+      const a = ringStart + row;
+      const b = ringStart + row + 1;
+      const va = vertices[a];
+      const vb = vertices[b];
+      const vApex = vertices[APEX_IDX];
+      const avgSin = (Math.sin(va.angle) + Math.sin(vb.angle)) * 0.5;
+      faces.push({
+        indices: [APEX_IDX, a, b],
+        vertices: [vApex, va, vb],
+        isTop: avgSin < 0,
+        isBottom: avgSin >= 0,
+        column: 0, row,
       });
     }
   }
@@ -565,8 +597,9 @@ function createSpindleMesh(options = {}) {
     const tailExtensionZ = 30;                         // 尾巴延伸长度（实际使用）
     const flukeTipBackZ = -bodyLength - headZ * 0.2 - tailExtensionZ; // 尾尖最终位置
 
-    // 主体最后一圈的中心（不重复计算 seam 端点）
-    const lastRingStart = columns * (rows + 1);
+    // 主体最后一圈的中心（不含 seam 端点重复）
+    // 顶点布局：[0]=apex，然后 col=1..columns，每列 rows+1 个顶点
+    const lastRingStart = 1 + (columns - 1) * (rows + 1);
     let bodyEndCenterX = 0, bodyEndCenterY = 0, bodyEndCenterZ = 0;
     for (let row = 0; row < rows; row++) {
       bodyEndCenterX += vertices[lastRingStart + row].x;
@@ -709,7 +742,8 @@ function createSpindleMesh(options = {}) {
     });
   } else {
     // 无尾鳍模式：简单从尾端中心扇形三角化到最后一圈
-    const lastRingStart = columns * (rows + 1);
+    // 顶点布局：[0]=apex，然后 col=1..columns，每列 rows+1 个顶点
+    const lastRingStart = 1 + (columns - 1) * (rows + 1);
     const tailIdx = vertices.length;
     let tailAvgX = 0, tailAvgY = 0, tailAvgZ = 0;
     for (let row = 0; row <= rows; row++) {
@@ -730,9 +764,10 @@ function createSpindleMesh(options = {}) {
     for (let row = 0; row < rows; row++) {
       const curr = lastRingStart + row;
       const next = lastRingStart + row + 1;
+      // 三角形面（不再重复 tailIdx 伪装成四边形）
       faces.push({
-        indices: [tailIdx, curr, next, tailIdx],
-        vertices: [vertices[tailIdx], vertices[curr], vertices[next], vertices[tailIdx]],
+        indices: [tailIdx, curr, next],
+        vertices: [vertices[tailIdx], vertices[curr], vertices[next]],
         isTop: false, isBottom: true,
         column: columns, row,
       });
@@ -768,46 +803,58 @@ function createSpindleMesh(options = {}) {
  * 这样，在渲染时，眉毛沿 tangent 画，嘴的垂直方向沿 binormal。
  * 旋转后再投影，侧视椭圆自然出现。
  */
+const BASIS_EPSILON = 1e-10;
+
+function normalizeVec3(x, y, z, fallback) {
+  const len = Math.sqrt(x * x + y * y + z * z);
+  if (!Number.isFinite(len) || len < BASIS_EPSILON) {
+    return { x: fallback.x, y: fallback.y, z: fallback.z };
+  }
+  return { x: x / len, y: y / len, z: z / len };
+}
+
+function crossVec3(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
 function computeFaceAnchorXYZ(mesh, _, horizOffset, vertOffset, depthOffset = 0.5) {
   const hx = mesh.headX, hy = mesh.headY, hz = mesh.headZ;
   const x = horizOffset;
   const y = vertOffset;
-  const inside = 1 - (x * x) / (hx * hx) - (y * y) / (hy * hy);
+  const invHx2 = 1 / (hx * hx);
+  const invHy2 = 1 / (hy * hy);
+  const invHz2 = 1 / (hz * hz);
+  const inside = 1 - x * x * invHx2 - y * y * invHy2;
   const zSurface = hz * Math.sqrt(Math.max(0.02, inside));
   const z = zSurface + depthOffset;
 
-  // 椭球表面法线 = (x/hx², y/hy², z/hz²) 方向
-  let nx = x / (hx * hx);
-  let ny = y / (hy * hy);
-  let nz = zSurface / (hz * hz);
-  const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-  nx /= nLen; ny /= nLen; nz /= nLen;
+  // 椭球表面法线：(x/hx², y/hy², z/hz²)
+  const n = normalizeVec3(x * invHx2, y * invHy2, zSurface * invHz2, { x: 0, y: 0, z: 1 });
 
-  // 两个切向量：在椭球表面上估计"右"和"下"
-  //   右方向 = (1, 0, -x/z * (hz²/hx²)) —— 近似保持在切平面；为稳定起见用 Gram-Schmidt：
-  //   先猜 right ≈ (1, 0, -x/z * something)，然后减去沿法线分量
-  const approxRX = 1.0;
-  const approxRY = 0.0;
-  const approxRZ = (Math.abs(zSurface) > 0.01) ? -(x * hz * hz) / (hx * hx * zSurface) : 0;
-  const dotRN = approxRX * nx + approxRY * ny + approxRZ * nz;
-  let tx = approxRX - dotRN * nx;
-  let ty = approxRY - dotRN * ny;
-  let tz = approxRZ - dotRN * nz;
-  const tLen = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1;
-  tx /= tLen; ty /= tLen; tz /= tLen;
+  // 稳定的水平切向量：(z/hz², 0, -x/hx²)，与椭球梯度点积为零，无除法
+  let t = normalizeVec3(zSurface * invHz2, 0, -x * invHx2, { x: 1, y: 0, z: 0 });
 
-  // "下"方向 = n × t （右手系，保证互相垂直）
-  let bx = ny * tz - nz * ty;
-  let by = nz * tx - nx * tz;
-  let bz = nx * ty - ny * tx;
-  const bLen = Math.sqrt(bx * bx + by * by + bz * bz) || 1;
-  bx /= bLen; by /= bLen; bz /= bLen;
+  // 下方向：n × t
+  const rawB = crossVec3(n, t);
+  let b = normalizeVec3(rawB.x, rawB.y, rawB.z, { x: 0, y: 1, z: 0 });
+
+  // 再做一次正交化：t = b × n
+  const rawT2 = crossVec3(b, n);
+  t = normalizeVec3(rawT2.x, rawT2.y, rawT2.z, { x: 1, y: 0, z: 0 });
+
+  // 最终 b = n × t（再次确保）
+  const rawB2 = crossVec3(n, t);
+  b = normalizeVec3(rawB2.x, rawB2.y, rawB2.z, { x: 0, y: 1, z: 0 });
 
   return {
     x, y, z,
-    nx, ny, nz,
-    tx, ty, tz,
-    bx, by, bz,
+    nx: n.x, ny: n.y, nz: n.z,
+    tx: t.x, ty: t.y, tz: t.z,
+    bx: b.x, by: b.y, bz: b.z,
     faceWeight: 1.0,
   };
 }
@@ -983,6 +1030,15 @@ function deformSpindle(mesh, params = {}) {
   return { ...mesh, vertices: transformed, faces: transformedFaces };
 }
 
+/**
+ * Compute nostril size scaled by head width.
+ * Break-even: 2.0 / 0.045 ≈ 44.44 — below this the floor dominates,
+ * above this the linear term dominates.
+ */
+function computeNostrilSize(headX) {
+  return Math.max(2.0, headX * 0.045);
+}
+
 
 // ========[ procedural-mesh-renderer ]========
 /**
@@ -1003,8 +1059,130 @@ function deformSpindle(mesh, params = {}) {
 
 // ---------------- 公共工具 ----------------
 
+const BASIS_EPSILON = 1e-10;
+
 function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+function isFiniteVec3(v) {
+  return v != null && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+}
+
+function normVec3(v, fallback) {
+  const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  if (!Number.isFinite(len) || len < BASIS_EPSILON) {
+    return { x: fallback.x, y: fallback.y, z: fallback.z };
+  }
+  return { x: v.x / len, y: v.y / len, z: v.z / len };
+}
+
+function dotVec3(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function crossVec3(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+function buildFaceBasis(local) {
+  const rawN = { x: local.nx, y: local.ny, z: local.nz };
+  const n = normVec3(isFiniteVec3(rawN) ? rawN : { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: 1 });
+
+  let rawT = { x: local.tx, y: local.ty, z: local.tz };
+
+  if (!isFiniteVec3(rawT)) {
+    // 从 n 构造一个正交的 rawT
+    rawT = { x: 1 - n.x * n.x, y: -n.x * n.y, z: -n.x * n.z };
+    if (Math.sqrt(rawT.x * rawT.x + rawT.y * rawT.y + rawT.z * rawT.z) < BASIS_EPSILON) {
+      rawT = { x: -n.y * n.x, y: 1 - n.y * n.y, z: -n.y * n.z };
+    }
+  }
+
+  // Gram-Schmidt 正交化
+  const tDotN = dotVec3(rawT, n);
+  let t = {
+    x: rawT.x - tDotN * n.x,
+    y: rawT.y - tDotN * n.y,
+    z: rawT.z - tDotN * n.z,
+  };
+
+  // 检查 t 是否退化（与 n 平行导致 Gram-Schmidt 给出零向量）
+  const tLen = Math.sqrt(t.x * t.x + t.y * t.y + t.z * t.z);
+  if (tLen < BASIS_EPSILON) {
+    // 选择与 n 的最小绝对分量对应的坐标轴（最不同于 n 的轴），作为参考向量
+    let ref;
+    if (Math.abs(n.x) <= Math.abs(n.y) && Math.abs(n.x) <= Math.abs(n.z)) {
+      ref = { x: 1, y: 0, z: 0 };
+    } else if (Math.abs(n.y) <= Math.abs(n.z)) {
+      ref = { x: 0, y: 1, z: 0 };
+    } else {
+      ref = { x: 0, y: 0, z: 1 };
+    }
+    // 将参考轴投影到 n 的法平面得到 t
+    const refDotN = dotVec3(ref, n);
+    t = {
+      x: ref.x - refDotN * n.x,
+      y: ref.y - refDotN * n.y,
+      z: ref.z - refDotN * n.z,
+    };
+  }
+
+  // 确保 t 单位长
+  t = normVec3(t, { x: 1, y: 0, z: 0 });
+
+  // 用双重叉积确保 t 与 n 正交：b = n × t，然后 t = b × n
+  let b = normVec3(crossVec3(n, t), { x: 0, y: 1, z: 0 });
+  t = normVec3(crossVec3(b, n), { x: 1, y: 0, z: 0 });
+  b = normVec3(crossVec3(n, t), { x: 0, y: 1, z: 0 });
+
+  return { n, t, b };
+}
+
+// 导出用于测试（仅限测试使用）
+function buildFaceBasisTest(local) {
+  return buildFaceBasis(local);
+}
+
+function computeProjectedEllipse(rx, ry, bx, by, halfWidth, halfHeight) {
+  const ax = rx * halfWidth;
+  const ay = ry * halfWidth;
+  const bxx = bx * halfHeight;
+  const byy = by * halfHeight;
+
+  const cxx = ax * ax + bxx * bxx;
+  const cxy = ax * ay + bxx * byy;
+  const cyy = ay * ay + byy * byy;
+
+  const trace = cxx + cyy;
+  const delta = Math.sqrt((cxx - cyy) * (cxx - cyy) + 4 * cxy * cxy);
+
+  const lambdaMajor = Math.max(0, (trace + delta) * 0.5);
+  const lambdaMinor = Math.max(0, (trace - delta) * 0.5);
+
+  let angle;
+  if (delta < 1e-10) {
+    angle = Math.atan2(ry, rx);
+  } else {
+    angle = 0.5 * Math.atan2(2 * cxy, cxx - cyy);
+  }
+
+  return {
+    radiusX: Math.sqrt(lambdaMajor),
+    radiusY: Math.sqrt(lambdaMinor),
+    angle,
+  };
+}
+
+function mapFaceLocalPoint(anchor, u, v) {
+  return {
+    x: anchor.screenX + anchor.rightVec.x * u + anchor.downVec.x * v,
+    y: anchor.screenY + anchor.rightVec.y * u + anchor.downVec.y * v,
+  };
 }
 
 function lerp(a, b, t) {
@@ -1036,13 +1214,14 @@ function parseHex(hex) {
   };
 }
 
-function applyLight(faceCenterNormal, lightDir, baseColor) {
+function applyLight(faceCenterNormal, lightDir, baseColor, ambient) {
   // 点积表示朝向光源的程度，映射到 [ambient, 1.0]
   const dot =
     (faceCenterNormal.x || 0) * lightDir.x +
     (faceCenterNormal.y || 0) * lightDir.y +
     (faceCenterNormal.z || 0) * lightDir.z;
-  const factor = 0.55 + 0.45 * clamp(dot, -0.2, 1.0);
+  const a = Number.isFinite(ambient) && ambient >= 0 && ambient <= 1 ? ambient : 0.55;
+  const factor = a + (1 - a) * clamp(dot, -0.2, 1.0);
   const rgb = parseRGB(baseColor);
   const r = Math.round(clamp(rgb.r * factor, 0, 255));
   const g = Math.round(clamp(rgb.g * factor, 0, 255));
@@ -1178,7 +1357,7 @@ class ProceduralMeshRenderer {
    * 和 (nx, ny, nz)。
    */
   _drawMesh(ctx, mesh, options) {
-    const { w, h, scale, originX, originY, baseColorTop, baseColorBottom, faceTopColor, faceBottomColor, lightDir } = options;
+    const { w, h, scale, originX, originY, baseColorTop, baseColorBottom, faceTopColor, faceBottomColor, lightDir, ambient } = options;
     const vertices = mesh.vertices;
     const faces = mesh.faces;
     if (!vertices || !faces || faces.length === 0) return;
@@ -1255,7 +1434,8 @@ class ProceduralMeshRenderer {
       const lit = applyLight(
         { x: avgNx / nLen, y: avgNy / nLen, z: avgNz / nLen },
         lightDir,
-        base
+        base,
+        ambient,
       );
 
       // 构建多边形点数组（支持任意顶点数）
@@ -1332,30 +1512,39 @@ class ProceduralMeshRenderer {
 
   _transformAnchor(local, rotParams, originX, originY, scale) {
     const p = this._transformVec(local.x, local.y, local.z, rotParams);
-    const n = this._transformVec(local.nx, local.ny, local.nz ?? 1, rotParams);
-    const t = this._transformVec(local.tx ?? 1, local.ty ?? 0, local.tz ?? 0, rotParams);
-    const b = this._transformVec(local.bx ?? 0, local.by ?? 1, local.bz ?? 0, rotParams);
+
+    const basis = buildFaceBasis(local);
+
+    const n = this._transformVec(basis.n.x, basis.n.y, basis.n.z, rotParams);
+    const t = this._transformVec(basis.t.x, basis.t.y, basis.t.z, rotParams);
+    const b = this._transformVec(basis.b.x, basis.b.y, basis.b.z, rotParams);
 
     return {
       worldX: p.x, worldY: p.y, worldZ: p.z,
       screenX: originX + p.x * scale,
       screenY: originY + p.y * scale,
       nx: n.x, ny: n.y, nz: n.z,
-      rightVec: { x: t.x, y: t.y },
-      downVec:  { x: b.x, y: b.y },
-      // 切向量的屏幕空间长度（作为透视压缩的简单度量）
-      rightLen: Math.hypot(t.x, t.y),
-      downLen:  Math.hypot(b.x, b.y),
+      rightVec: { x: t.x, y: t.y, z: t.z },
+      downVec:  { x: b.x, y: b.y, z: b.z },
+      rightLen: Math.sqrt(t.x * t.x + t.y * t.y),
+      downLen:  Math.sqrt(b.x * b.x + b.y * b.y),
     };
   }
 }
 
 // ---------------- 球体头像 ----------------
 
+// 默认光照配置（球体）
+const SPHERE_DEFAULT_LIGHT_DIR = { x: -0.35, y: -0.4, z: 0.8 };
+const SPHERE_DEFAULT_AMBIENT = 0.55;
+
 class ProceduralSphereAvatar extends ProceduralMeshRenderer {
-  constructor(canvasId) {
+  constructor(canvasId, options = {}) {
     super(canvasId);
     this.mesh = createSphereMesh({ rings: 18, segments: 28, radius: 85 });
+    // 光照参数（可选）
+    this.lightDir = options.lightDir ?? { ...SPHERE_DEFAULT_LIGHT_DIR };
+    this.ambient = options.ambient ?? SPHERE_DEFAULT_AMBIENT;
     this.draw();
   }
 
@@ -1407,17 +1596,16 @@ class ProceduralSphereAvatar extends ProceduralMeshRenderer {
     const originX = w * 0.5 + (np.headX - 0.5) * minSide * 0.30;
     const originY = h * 0.5 + (np.headY - 0.5) * minSide * 0.20;
 
-    const lightDir = { x: -0.35, y: -0.4, z: 0.8 };
-    // 球体的"上半=灰，下半=白"的简单配色：
-    // 球体是封闭凸形，用严格的背面剔除阈值 -0.05
+    // 球体是封闭凸形，使用严格的背面剔除阈值 -0.05，ambient 0.55 让暗部不糊死
     this._drawMesh(ctx, deformed, {
       w, h, scale, originX, originY,
       baseColorTop: '#bdb8aa',
       baseColorBottom: '#f3f0e6',
       faceTopColor: '#c8c2b4',
       faceBottomColor: '#fffaf0',
-      lightDir,
+      lightDir: this.lightDir,
       cullThreshold: -0.05,
+      ambient: this.ambient,
     });
 
     // 五官
@@ -1427,46 +1615,43 @@ class ProceduralSphereAvatar extends ProceduralMeshRenderer {
   _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
     const anchors = this.getAnchors(np);
 
-    // 统一画"一只眼睛"：
-    //   1) 先画椭圆眼白（完整椭圆，永远画满）
-    //   2) 在中心画瞳孔（圆形/小圆）
-    //   3) 用眼皮弧线从上下盖上去 —— 这一步的高度由 openness 控制：
-    //        openness=1 → 不盖；openness=0 → 完全盖住
-    //        睁开程度：上眼皮从上往下盖盖住 openRatio = 1-openness
+    // 统一画"一只眼睛"：使用完整投影椭圆计算主轴角度
     const drawEye = (anchor, openness) => {
       const local = computeSphereFaceAnchorXYZ(this.mesh, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
 
-      // 沿曲面切向量计算椭圆朝向
-      const rxRaw = Math.max(0.3, t.rightLen);  // "左右被压缩时变小
-      const ryRaw = Math.max(0.3, t.downLen);
+      // 眼睛椭圆的半宽/高：直接用 eyeSize，不预乘 rl/dl
+      // 因为 computeProjectedEllipse 会将 halfWidth/halfH 与 rightVec/downVec 分量相乘
+      // rightVec 已包含投影后的完整长度信息
       const eyeSize = 10 * scale;
-      // 椭圆尺寸：长轴 = rightVec 方向，短轴 = downVec 方向
-      const eyeHalfW = eyeSize * rxRaw;  // 切向长度
-      const eyeHalfH = eyeSize * ryRaw * (0.5 + 0.5 * 1) ; // 睁眼高度
+      const eyeHalfW = eyeSize;
+      const eyeHalfH = eyeSize;
 
-      // 绘制椭圆方向
-      // 计算椭圆中心
-      const angleOnScreen = Math.atan2(t.rightVec.y, t.rightVec.x);
+      // 使用完整投影椭圆（考虑 rightVec + downVec 可能不正交）
+      const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
+      const rx = Math.max(0.1, proj.radiusX);
+      const ry = Math.max(0.1, proj.radiusY);
+      const ang = proj.angle;
+
       ctx.save();
       ctx.globalAlpha = facing;
 
       // 1) 眼白
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, eyeHalfW, eyeHalfH, angleOnScreen, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
       ctx.lineWidth = Math.max(1, 1.8 * scale);
       ctx.strokeStyle = '#222';
       ctx.stroke();
 
-      // 2) 瞳孔 — 永远画（不因为 openness 消失）
-      const pupilW = eyeHalfW * 0.55;
-      const pupilH = eyeHalfH * 0.55;
+      // 2) 瞳孔（永远画）
+      const pupilRx = rx * 0.55;
+      const pupilRy = ry * 0.55;
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, pupilW, pupilH, angleOnScreen, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#1f1f1f';
       ctx.fill();
 
@@ -1474,17 +1659,14 @@ class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const cover = 1 - openness;
       if (cover > 0.01) {
         ctx.save();
-        // 裁剪到眼白区域（略放大一点避免细缝）
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY, eyeHalfW + 0.5, eyeHalfH + 0.5, angleOnScreen, 0, Math.PI * 2);
+        ctx.ellipse(t.screenX, t.screenY, rx + 0.5, ry + 0.5, ang, 0, Math.PI * 2);
         ctx.clip();
-
-        // 转到局部坐标，从顶部（-eyeHalfH）向下盖 cover*2*eyeHalfH
         ctx.translate(t.screenX, t.screenY);
-        ctx.rotate(angleOnScreen);
-        const coverH = 2 * eyeHalfH * cover;
-        ctx.fillStyle = this.mesh.faceTopColor || '#d9d2be';  // 与球体卡通肤色一致
-        ctx.fillRect(-eyeHalfW - 2, -eyeHalfH - 2, eyeHalfW * 2 + 4, coverH + 2);
+        ctx.rotate(ang);
+        const coverH = 2 * ry * cover;
+        ctx.fillStyle = this.mesh.faceTopColor || '#d9d2be';
+        ctx.fillRect(-rx - 2, -ry - 2, rx * 2 + 4, coverH + 2);
         ctx.restore();
       }
       ctx.restore();
@@ -1495,26 +1677,21 @@ class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      // 沿曲面的"右"方向画眉毛
-      const rl = Math.max(0.3, t.rightLen);
-      const dl = Math.max(0.3, t.downLen);
-      const len = 22 * scale * rl;
-      // 眉毛抬升：沿曲面"上"方向（-downVec）移动
-      // raise ∈ [0,1]，raise=1 时眉毛向上抬升最大
-      const upAmt = raise * 8 * scale * dl;
+      // 眉毛长度和抬升量：直接用 scale，不预乘 rl/dl
+      // 因为 mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
+      const len = 22 * scale;
+      const upAmt = raise * 8 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1, 2.2 * scale);
       ctx.beginPath();
-      // 起点 = screenX - rightVec.x * len * 0.5, screenY - rightVec.y * len * 0.5
-      // 眉毛沿 -downVec 方向抬升（向上）
-      const startX = t.screenX - t.rightVec.x * len * 0.5 - t.downVec.x * upAmt;
-      const startY = t.screenY - t.rightVec.y * len * 0.5 - t.downVec.y * upAmt;
-      const endX = t.screenX + t.rightVec.x * len * 0.5 - t.downVec.x * upAmt;
-      const endY = t.screenY + t.rightVec.y * len * 0.5 - t.downVec.y * upAmt;
-      ctx.moveTo(startX, startY);
-      ctx.lineTo(endX, endY);
+      // 使用 mapFaceLocalPoint：眉毛沿 rightVec 展开，顶部沿 -downVec 方向拱起
+      const left = mapFaceLocalPoint(t, -len * 0.5, -upAmt);
+      const peak = mapFaceLocalPoint(t, 0, -upAmt * 1.2);
+      const right = mapFaceLocalPoint(t, len * 0.5, -upAmt);
+      ctx.moveTo(left.x, left.y);
+      ctx.quadraticCurveTo(peak.x, peak.y, right.x, right.y);
       ctx.stroke();
       ctx.restore();
     };
@@ -1524,64 +1701,43 @@ class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      // smile: width 沿 rightVec，height 沿 downVec
-      const rl = Math.max(0.3, t.rightLen);
-      const dl = Math.max(0.3, t.downLen);
+      // 嘴巴尺寸参数：直接用 scale，不预乘 rl/dl
+      // mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
       const smileWiden = 1 + smile * 0.4;
-      const halfW = 22 * scale * rl * smileWiden;
-      const openH = (3 * scale + 14 * scale * open) * dl;
-      const cornerUp = -smile * 8 * scale * dl;
-      const centerUp = -smile * 3 * scale * dl;
+      const halfW = 22 * scale * smileWiden;
+      const openH = (3 * scale + 14 * scale * open);
+      const cornerUp = -smile * 8 * scale;
+      const centerUp = -smile * 3 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1, 2.2 * scale);
 
-      const centerX = t.screenX;
-      const centerY = t.screenY;
-      const rx = t.rightVec.x, ry = t.rightVec.y;
-      const dx = t.downVec.x, dy = t.downVec.y;
-
-      function alongRight(amount) {
-        return { x: centerX + rx * amount, y: centerY + ry * amount };
-      }
-      function alongDown(amount) {
-        return { x: centerX + dx * amount, y: centerY + dy * amount };
-      }
-      const leftCorner  = alongRight(-halfW);
-      const rightCorner = alongRight(halfW);
-      // 左角向上移动
-      leftCorner.x += dx * cornerUp; leftCorner.y += dy * cornerUp;
-      rightCorner.x += dx * cornerUp; rightCorner.y += dy * cornerUp;
-
       if (open < 0.05 && smile < 0.1) {
+        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
+        const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
-        ctx.moveTo(leftCorner.x, leftCorner.y);
-        ctx.lineTo(rightCorner.x, rightCorner.y);
+        ctx.moveTo(left.x, left.y);
+        ctx.lineTo(right.x, right.y);
         ctx.stroke();
       } else if (open < 0.05) {
+        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
+        const mid = mapFaceLocalPoint(t, 0, centerUp + 2 * scale);
+        const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
-        ctx.moveTo(leftCorner.x, leftCorner.y);
-        // 中点在中心往下 + centerUp down
-        const mid = alongRight(0);
-        mid.x += dx * centerUp; mid.y += dy * centerUp;
-        ctx.quadraticCurveTo(mid.x + dx * (2 * scale), mid.y + dy * (2 * scale),
-          rightCorner.x, rightCorner.y);
+        ctx.moveTo(left.x, left.y);
+        ctx.quadraticCurveTo(mid.x, mid.y, right.x, right.y);
         ctx.stroke();
       } else {
         ctx.fillStyle = '#4a2020';
+        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
+        const topMid = mapFaceLocalPoint(t, 0, centerUp - openH * 0.35);
+        const right = mapFaceLocalPoint(t, halfW, cornerUp);
+        const botMid = mapFaceLocalPoint(t, 0, centerUp + openH * 0.55);
         ctx.beginPath();
-        ctx.moveTo(leftCorner.x, leftCorner.y);
-        // 上唇弧
-        const topMid = alongRight(0);
-        topMid.x += dx * (centerUp - openH * 0.35);
-        topMid.y += dy * (centerUp - openH * 0.35);
-        ctx.quadraticCurveTo(topMid.x, topMid.y, rightCorner.x, rightCorner.y);
-        // 下唇弧
-        const botMid = alongRight(0);
-        botMid.x += dx * (centerUp + openH * 0.55);
-        botMid.y += dy * (centerUp + openH * 0.55);
-        ctx.quadraticCurveTo(botMid.x, botMid.y, leftCorner.x, leftCorner.y);
+        ctx.moveTo(left.x, left.y);
+        ctx.quadraticCurveTo(topMid.x, topMid.y, right.x, right.y);
+        ctx.quadraticCurveTo(botMid.x, botMid.y, left.x, left.y);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
@@ -1607,8 +1763,12 @@ function skinFill(ctx, coverH, halfW) {
 
 // ---------------- 纺锤鲸鱼 ----------------
 
+// 默认光照配置（纺锤鲸鱼）
+const SPINDLE_DEFAULT_LIGHT_DIR = { x: -0.3, y: -0.5, z: 0.8 };
+const SPINDLE_DEFAULT_AMBIENT = 0.58;
+
 class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
-  constructor(canvasId) {
+  constructor(canvasId, options = {}) {
     super(canvasId);
     this.spindleMesh = createSpindleMesh({
         headX: 70,
@@ -1628,6 +1788,9 @@ class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     this.baseYaw = 0;
     this.basePitch = 0;
     this.baseRoll = 0;
+    // 光照参数（可选）
+    this.lightDir = options.lightDir ?? { ...SPINDLE_DEFAULT_LIGHT_DIR };
+    this.ambient = options.ambient ?? SPINDLE_DEFAULT_AMBIENT;
     this.draw();
   }
 
@@ -1678,10 +1841,8 @@ class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const originX = w * 0.5 + (np.headX - 0.5) * minSide * 0.22;
     const originY = h * 0.48 + (np.headY - 0.5) * minSide * 0.18;
 
-    // 单 mesh 渲染：头部 + 身体 + 尾巴都已经在 spindleMesh 中
     // 萨卡班甲鱼是扁平椭球，旋转时侧面仍应可见，放宽到 -0.15
     // 尾鳍是双面的，不受这个阈值影响
-    const lightDir = { x: -0.3, y: -0.5, z: 0.8 };
     const deformedBody = deformSpindle(this.spindleMesh, rot);
     this._drawMesh(ctx, deformedBody, {
       w, h, scale, originX, originY,
@@ -1689,8 +1850,9 @@ class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       baseColorBottom: this.spindleMesh.bottomColor,
       faceTopColor: this.spindleMesh.faceTopColor,
       faceBottomColor: this.spindleMesh.faceBottomColor,
-      lightDir,
+      lightDir: this.lightDir,
       cullThreshold: -0.15,
+      ambient: this.ambient,
     });
 
     this._drawFaceFeatures(ctx, np, rot, originX, originY, scale);
@@ -1708,46 +1870,48 @@ class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
 
-      // 椭圆 = 切向/法向长度控制大小
-      const rl = Math.max(0.25, t.rightLen);
-      const dl = Math.max(0.25, t.downLen);
-      const angleOnScreen = Math.atan2(t.rightVec.y, t.rightVec.x);
-      const eyeHalfW = eyeBase * scale * rl;
-      const eyeHalfH = eyeBase * scale * dl;
+      // 眼睛椭圆的半宽/高：直接用 base size，不预乘 rl/dl
+      // 因为 computeProjectedEllipse 会将 halfWidth/halfH 与 rightVec/downVec 分量相乘
+      // rightVec 已包含投影后的完整长度信息
+      const eyeHalfW = eyeBase * scale;
+      const eyeHalfH = eyeBase * scale;
+
+      // 使用完整投影椭圆（考虑 rightVec + downVec 可能不正交）
+      const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
+      const rx = Math.max(0.1, proj.radiusX);
+      const ry = Math.max(0.1, proj.radiusY);
+      const ang = proj.angle;
 
       ctx.save();
       ctx.globalAlpha = facing;
 
       // 1) 眼白
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, eyeHalfW, eyeHalfH, angleOnScreen, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
       ctx.lineWidth = Math.max(1, 2.0 * scale);
       ctx.strokeStyle = '#222';
       ctx.stroke();
 
-      // 2) 瞳孔（永远画，大小不变 —— 形状随曲面被压缩）
+      // 2) 瞳孔
       ctx.beginPath();
-      const pupilW = eyeHalfW * 0.55;
-      const pupilH = eyeHalfH * 0.55;
-      ctx.ellipse(t.screenX, t.screenY, pupilW, pupilH, angleOnScreen, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, rx * 0.55, ry * 0.55, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#1f1f1f';
       ctx.fill();
 
-      // 3) 眨眼遮罩（在椭圆内，用同色块盖）
+      // 3) 眨眼遮罩
       const cover = 1 - openness;
       if (cover > 0.01) {
         ctx.save();
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY, eyeHalfW + 0.5, eyeHalfH + 0.5, angleOnScreen, 0, Math.PI * 2);
+        ctx.ellipse(t.screenX, t.screenY, rx + 0.5, ry + 0.5, ang, 0, Math.PI * 2);
         ctx.clip();
         ctx.translate(t.screenX, t.screenY);
-        ctx.rotate(angleOnScreen);
-        // 从 -eyeHalfH 顶部往下盖 cover*2*eyeHalfH
-        const coverH = 2 * eyeHalfH * cover;
-        ctx.fillStyle = mesh.faceTopColor || '#bdb8aa';  // 遮罩色与鱼头顶面部色一致，取代硬编码 #d4c78d
-        ctx.fillRect(-eyeHalfW - 2, -eyeHalfH - 2, eyeHalfW * 2 + 4, coverH + 2);
+        ctx.rotate(ang);
+        const coverH = 2 * ry * cover;
+        ctx.fillStyle = mesh.faceTopColor || '#bdb8aa';
+        ctx.fillRect(-rx - 2, -ry - 2, rx * 2 + 4, coverH + 2);
         ctx.restore();
       }
       ctx.restore();
@@ -1758,21 +1922,20 @@ class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      const rl = Math.max(0.25, t.rightLen);
-      const dl = Math.max(0.25, t.downLen);
-      const len = mesh.headX * 0.26 * scale * rl;
-      // 眉毛抬升：沿曲面"上"方向（-downVec）移动
-      const upAmt = raise * 8 * scale * dl;
+      // 眉毛长度和抬升量：直接用 scale，不预乘 rl/dl
+      // 因为 mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
+      const len = mesh.headX * 0.26 * scale;
+      const upAmt = raise * 8 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1.5, 2.5 * scale);
-      const dx = t.rightVec.x, dy = t.rightVec.y;
-      const bx = t.downVec.x, by = t.downVec.y;
       ctx.beginPath();
-      // 眉毛沿 -downVec 方向抬升（向上）
-      ctx.moveTo(t.screenX - dx * len * 0.5 - bx * upAmt, t.screenY - dy * len * 0.5 - by * upAmt);
-      ctx.lineTo(t.screenX + dx * len * 0.5 - bx * upAmt, t.screenY + dy * len * 0.5 - by * upAmt);
+      const left = mapFaceLocalPoint(t, -len * 0.5, -upAmt);
+      const peak = mapFaceLocalPoint(t, 0, -upAmt * 1.2);
+      const right = mapFaceLocalPoint(t, len * 0.5, -upAmt);
+      ctx.moveTo(left.x, left.y);
+      ctx.quadraticCurveTo(peak.x, peak.y, right.x, right.y);
       ctx.stroke();
       ctx.restore();
     };
@@ -1782,47 +1945,43 @@ class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      const rl = Math.max(0.25, t.rightLen);
-      const dl = Math.max(0.25, t.downLen);
+      // 嘴巴尺寸参数：直接用 scale，不预乘 rl/dl
+      // mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
       const smileWiden = 1 + smile * 0.40;
-      const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * rl;
-      const openH = (3 * scale + 12 * scale * open) * dl;
-      const cornerUp = -smile * 7 * scale * dl;
-      const centerUp = -smile * 3 * scale * dl;
+      const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden;
+      const openH = (3 * scale + 12 * scale * open);
+      const cornerUp = -smile * 7 * scale;
+      const centerUp = -smile * 3 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1.5, 2.5 * scale);
 
-      const cx = t.screenX, cy = t.screenY;
-      const rx = t.rightVec.x, ry = t.rightVec.y;
-      const dx = t.downVec.x, dy = t.downVec.y;
-      const posAlongRight = (a) => ({ x: cx + rx * a, y: cy + ry * a });
-      const posAlongDown = (a) => ({ x: cx + dx * a, y: cy + dy * a });
-      const combine = (p, amt) => ({ x: p.x + dx * amt, y: p.y + dy * amt });
-
-      const lc = combine(posAlongRight(-halfW), cornerUp);
-      const rc = combine(posAlongRight(halfW), cornerUp);
-
       if (open < 0.05 && smile < 0.1) {
+        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
+        const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
-        ctx.moveTo(lc.x, lc.y);
-        ctx.lineTo(rc.x, rc.y);
+        ctx.moveTo(left.x, left.y);
+        ctx.lineTo(right.x, right.y);
         ctx.stroke();
       } else if (open < 0.05) {
+        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
+        const mid = mapFaceLocalPoint(t, 0, centerUp + 2 * scale);
+        const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
-        ctx.moveTo(lc.x, lc.y);
-        const mid = combine(posAlongRight(0), centerUp + 2 * scale);
-        ctx.quadraticCurveTo(mid.x, mid.y, rc.x, rc.y);
+        ctx.moveTo(left.x, left.y);
+        ctx.quadraticCurveTo(mid.x, mid.y, right.x, right.y);
         ctx.stroke();
       } else {
         ctx.fillStyle = '#4a2020';
+        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
+        const topMid = mapFaceLocalPoint(t, 0, centerUp - openH * 0.35);
+        const right = mapFaceLocalPoint(t, halfW, cornerUp);
+        const botMid = mapFaceLocalPoint(t, 0, centerUp + openH * 0.55);
         ctx.beginPath();
-        ctx.moveTo(lc.x, lc.y);
-        const topMid = combine(posAlongRight(0), centerUp - openH * 0.35);
-        ctx.quadraticCurveTo(topMid.x, topMid.y, rc.x, rc.y);
-        const botMid = combine(posAlongRight(0), centerUp + openH * 0.55);
-        ctx.quadraticCurveTo(botMid.x, botMid.y, lc.x, lc.y);
+        ctx.moveTo(left.x, left.y);
+        ctx.quadraticCurveTo(topMid.x, topMid.y, right.x, right.y);
+        ctx.quadraticCurveTo(botMid.x, botMid.y, left.x, left.y);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
@@ -1830,13 +1989,10 @@ class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    // 鼻孔：两个位于灰白分界线附近（y≈0），稍向外分开
-    // 灰白分界线是头部中心线（y=0），鼻孔应在分界线附近而不是上方
-    // horizOffset = ±hx * 0.06（略向外，比眼睛更居中）
     const hx = mesh.headX, hy = mesh.headY;
     const nostrilHoriz = hx * 0.06;
-    const nostrilVert = -hy * 0.06;  // 略高于灰白分界线（y=0），但低于眼睛（y=-hy*0.15）
-    const nostrilSize = Math.max(2.0, hx * 0.045);
+    const nostrilVert = -hy * 0.06;
+    const nostrilSize = computeNostrilSize(hx);
     const drawNostril = (hSign) => {
       const local = computeFaceAnchorXYZ(mesh, 0, nostrilHoriz * hSign, nostrilVert, 0.2);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
@@ -1845,10 +2001,14 @@ class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.save();
       ctx.globalAlpha = 0.8 * facing;
       ctx.beginPath();
-      const rxN = nostrilSize * scale * Math.max(0.3, t.rightLen);
-      const ryN = nostrilSize * scale * Math.max(0.3, t.downLen);
-      const ang = Math.atan2(t.rightVec.y, t.rightVec.x);
-      ctx.ellipse(t.screenX, t.screenY, rxN, ryN, ang, 0, Math.PI * 2);
+      // 鼻孔椭圆的半宽/高：直接用 nostrilSize * scale，不预乘 rl/dl
+      // computeProjectedEllipse 会与 rightVec/downVec 分量相乘，已包含投影长度
+      const halfW = nostrilSize * scale;
+      const halfH = nostrilSize * scale;
+      const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, halfW, halfH);
+      ctx.ellipse(t.screenX, t.screenY,
+        Math.max(0.1, proj.radiusX), Math.max(0.1, proj.radiusY),
+        proj.angle, 0, Math.PI * 2);
       ctx.fillStyle = '#8a7a4a';
       ctx.fill();
       ctx.restore();

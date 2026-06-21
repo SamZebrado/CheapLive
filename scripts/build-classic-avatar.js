@@ -46,6 +46,10 @@ function stripModule(raw, moduleName) {
   out = out.replace(/^export\s+function\s+/gm, 'function ');
   // "export class Foo" -> "class Foo"
   out = out.replace(/^export\s+class\s+/gm, 'class ');
+  // "export const FOO = ..." -> "const FOO = ..."（保留赋值语句）
+  out = out.replace(/^export\s+const\s+/gm, 'const ');
+  // "export let FOO = ..." -> "let FOO = ..."（保留赋值语句）
+  out = out.replace(/^export\s+let\s+/gm, 'let ');
   // "export { ... }" -> 空行
   out = out.replace(/^export\s*\{[\s\S]*?\};?\s*\n?/gm, '');
   return `\n// ========[ ${moduleName} ]========\n${out}\n`;
