@@ -593,41 +593,58 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
 
-      // 眼睛椭圆的半宽/高：直接用 eyeSize，不预乘 rl/dl
-      // 因为 computeProjectedEllipse 会将 halfWidth/halfH 与 rightVec/downVec 分量相乘
-      // rightVec 已包含投影后的完整长度信息
       const eyeSize = 10 * scale;
       const eyeHalfW = eyeSize;
       const eyeHalfH = eyeSize;
 
-      // 使用完整投影椭圆（考虑 rightVec + downVec 可能不正交）
       const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
       const rx = Math.max(0.1, proj.radiusX);
       const ry = Math.max(0.1, proj.radiusY);
       const ang = proj.angle;
 
+      const tOpen = (openness - 0.15) / (0.5 - 0.15);
+      const easedOpen = Math.max(0, Math.min(1, tOpen * tOpen * (3 - 2 * tOpen)));
+      const easedClosed = 1 - easedOpen;
+
       ctx.save();
       ctx.globalAlpha = facing;
 
-      // 1) 眼白
+      const ryEffective = ry * (0.1 + 0.9 * easedOpen);
+
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, rx * easedOpen + rx * 0.1 * easedClosed, ryEffective, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
-      ctx.lineWidth = Math.max(1, 1.8 * scale);
+      ctx.lineWidth = Math.max(1, 1.8 * scale) * (0.5 + 0.5 * easedOpen);
       ctx.strokeStyle = '#222';
+      ctx.globalAlpha = facing * (0.3 + 0.7 * easedOpen);
       ctx.stroke();
+      ctx.globalAlpha = facing;
 
-      // 2) 瞳孔（永远画）
-      const pupilRx = rx * 0.55;
-      const pupilRy = ry * 0.55;
+      const pupilRx = rx * 0.55 * easedOpen;
+      const pupilRy = ry * 0.55 * easedOpen;
       ctx.beginPath();
       ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#1f1f1f';
+      ctx.globalAlpha = facing * easedOpen;
       ctx.fill();
+      ctx.globalAlpha = facing;
 
-      // 3) 眨眼遮罩（在椭圆内，用同色块盖）
-      const cover = 1 - openness;
+      if (easedClosed > 0.05) {
+        const lineLen = rx * 1.5;
+        const lineLeft = mapFaceLocalPoint(t, -lineLen, 0);
+        const lineRight = mapFaceLocalPoint(t, lineLen, 0);
+        ctx.beginPath();
+        ctx.moveTo(lineLeft.x, lineLeft.y);
+        ctx.lineTo(lineRight.x, lineRight.y);
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = Math.max(2, 3 * scale) * easedClosed;
+        ctx.globalAlpha = facing * easedClosed;
+        ctx.stroke();
+        ctx.globalAlpha = facing;
+      }
+
+      const cover = easedClosed;
       if (cover > 0.01) {
         ctx.save();
         ctx.beginPath();
@@ -841,38 +858,57 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
 
-      // 眼睛椭圆的半宽/高：直接用 base size，不预乘 rl/dl
-      // 因为 computeProjectedEllipse 会将 halfWidth/halfH 与 rightVec/downVec 分量相乘
-      // rightVec 已包含投影后的完整长度信息
       const eyeHalfW = eyeBase * scale;
       const eyeHalfH = eyeBase * scale;
 
-      // 使用完整投影椭圆（考虑 rightVec + downVec 可能不正交）
       const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
       const rx = Math.max(0.1, proj.radiusX);
       const ry = Math.max(0.1, proj.radiusY);
       const ang = proj.angle;
 
+      const tOpen = (openness - 0.15) / (0.5 - 0.15);
+      const easedOpen = Math.max(0, Math.min(1, tOpen * tOpen * (3 - 2 * tOpen)));
+      const easedClosed = 1 - easedOpen;
+
       ctx.save();
       ctx.globalAlpha = facing;
 
-      // 1) 眼白
+      const ryEffective = ry * (0.1 + 0.9 * easedOpen);
+
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, rx * easedOpen + rx * 0.1 * easedClosed, ryEffective, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
-      ctx.lineWidth = Math.max(1, 2.0 * scale);
+      ctx.lineWidth = Math.max(1, 2.0 * scale) * (0.5 + 0.5 * easedOpen);
       ctx.strokeStyle = '#222';
+      ctx.globalAlpha = facing * (0.3 + 0.7 * easedOpen);
       ctx.stroke();
+      ctx.globalAlpha = facing;
 
-      // 2) 瞳孔
+      const pupilRx = rx * 0.55 * easedOpen;
+      const pupilRy = ry * 0.55 * easedOpen;
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, rx * 0.55, ry * 0.55, ang, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#1f1f1f';
+      ctx.globalAlpha = facing * easedOpen;
       ctx.fill();
+      ctx.globalAlpha = facing;
 
-      // 3) 眨眼遮罩
-      const cover = 1 - openness;
+      if (easedClosed > 0.05) {
+        const lineLen = rx * 1.5;
+        const lineLeft = mapFaceLocalPoint(t, -lineLen, 0);
+        const lineRight = mapFaceLocalPoint(t, lineLen, 0);
+        ctx.beginPath();
+        ctx.moveTo(lineLeft.x, lineLeft.y);
+        ctx.lineTo(lineRight.x, lineRight.y);
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = Math.max(2, 3 * scale) * easedClosed;
+        ctx.globalAlpha = facing * easedClosed;
+        ctx.stroke();
+        ctx.globalAlpha = facing;
+      }
+
+      const cover = easedClosed;
       if (cover > 0.01) {
         ctx.save();
         ctx.beginPath();

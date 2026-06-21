@@ -701,22 +701,38 @@ export function createWhaleTailMesh(options = {}) {
 
 // -------------------- 变形与旋转 --------------------
 
-/**
- * 对网格应用 yaw/pitch/roll 旋转（角度制）。
- * 复制原有顶点并增加 (tx, ty, tz) 旋转后坐标。
- */
-function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
+const BEND_COEF_YAW = 0.70;
+const BEND_COEF_PITCH = 0.50;
+const SMOOTH_ALPHA = 0.65;
+
+function bendProfile(s) {
+  return Math.sin(Math.PI * s) * (1 - 0.3 * s);
+}
+
+function bendProfileDeriv(s) {
+  const h = 0.002;
+  if (s <= h) return (bendProfile(s + h) - bendProfile(s)) / h;
+  if (s >= 1 - h) return (bendProfile(s) - bendProfile(s - h)) / h;
+  return (bendProfile(s + h) - bendProfile(s - h)) / (2 * h);
+}
+
+function applySoftRotation(x, y, z, nx, ny, nz, s, params) {
   const { angleY = 0, angleX = 0, angleZ = 0 } = params;
-  const radY = angleY * Math.PI / 180;
-  const radX = angleX * Math.PI / 180;
-  const radZ = angleZ * Math.PI / 180;
+  
+  const eased = Math.pow(s, SMOOTH_ALPHA);
+  const bend = bendProfile(eased);
+  
+  const effectiveYaw = angleY * (1 - BEND_COEF_YAW * bend);
+  const effectivePitch = angleX * (1 - BEND_COEF_PITCH * bend);
+  const effectiveRoll = angleZ * (1 - 0.35 * bend);
+
+  const radY = effectiveYaw * Math.PI / 180;
+  const radX = effectivePitch * Math.PI / 180;
+  const radZ = effectiveRoll * Math.PI / 180;
   const cosY = Math.cos(radY), sinY = Math.sin(radY);
   const cosX = Math.cos(radX), sinX = Math.sin(radX);
   const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
 
-  // 旋转顺序: Z → X → Y (先 roll, 再 pitch, 最后 yaw)
-  // 与 _transformVec 保持一致，避免 yaw+pitch 组合时五官横过来
-  // Z (roll):
   let x1 = x * cosZ - y * sinZ;
   let y1 = x * sinZ + y * cosZ;
   let z1 = z;
@@ -724,7 +740,6 @@ function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
   let ny1 = nx * sinZ + ny * cosZ;
   let nz1 = nz;
 
-  // X (pitch):
   let y2 = y1 * cosX - z1 * sinX;
   let z2 = y1 * sinX + z1 * cosX;
   let x2 = x1;
@@ -732,7 +747,6 @@ function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
   let nz2 = ny1 * sinX + nz1 * cosX;
   let nx2 = nx1;
 
-  // Y (yaw):
   let x3 = x2 * cosY + z2 * sinY;
   let z3 = -x2 * sinY + z2 * cosY;
   let y3 = y2;
@@ -745,7 +759,8 @@ function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
 
 export function deformSpindle(mesh, params = {}) {
   const transformed = mesh.vertices.map((v) => {
-    const r = applyYawPitchRoll(v.x, v.y, v.z, v.nx, v.ny, v.nz, params);
+    const s = v.t !== undefined ? v.t : 0;
+    const r = applySoftRotation(v.x, v.y, v.z, v.nx, v.ny, v.nz, s, params);
     return { ...v, tx: r.x, ty: r.y, tz: r.z, nx: r.nx, ny: r.ny, nz: r.nz };
   });
   const transformedFaces = mesh.faces.map((f) => ({

@@ -369,7 +369,7 @@ describe('光照参数化', () => {
       getContext: () => ({
         clearRect: () => {}, fillRect: () => {},
         save: () => {}, restore: () => {},
-        translate: () => {}, scale: () => {},
+        translate: () => {}, scale: () => {}, rotate: () => {},
         beginPath: () => {}, moveTo: () => {}, lineTo: () => {},
         closePath: () => {}, stroke: () => {}, fill: () => {},
         ellipse: () => {}, fillText: () => {},
@@ -378,6 +378,7 @@ describe('光照参数化', () => {
         arc: () => {}, arcTo: () => {},
         quadraticCurveTo: () => {}, bezierCurveTo: () => {},
         rect: () => {}, clip: () => {},
+        globalAlpha: 1, fillStyle: '', strokeStyle: '', lineWidth: 1,
       }),
     });
 
