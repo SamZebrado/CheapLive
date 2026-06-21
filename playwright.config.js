@@ -4,9 +4,9 @@
 // separate from functional tests so the two categories can be run
 // independently.
 
-const { defineConfig, devices } = require('@playwright/test');
+import { defineConfig, devices } from '@playwright/test';
 
-module.exports = defineConfig({
+export default defineConfig({
   testDir: 'tests',
   fullyParallel: true,
   retries: 0,

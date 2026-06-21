@@ -14,12 +14,15 @@
  * 该测试是 gate 可靠性的自验证：不改动生产代码，不污染正常测试统计。
  */
 
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { spawnSync } = require('node:child_process');
-const fs = require('node:fs');
-const path = require('node:path');
-const os = require('node:os');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TEST_TMP_DIR = path.join(
   os.tmpdir(),

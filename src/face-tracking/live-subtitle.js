@@ -56,16 +56,29 @@ class LiveSubtitle {
 
   initBroadcastChannel() {
     if ('BroadcastChannel' in window) {
-      this.broadcastChannel = new BroadcastChannel('cheaplive-subtitle');
-      this.broadcastChannel.onmessage = (event) => {
-        if (event.data && this.isReceiver) {
-          this.transcript = event.data.final || event.data.transcript || '';
-          this.interimTranscript = event.data.interim || '';
-          if (this.onResult) {
-            this.onResult(this.getDisplayText());
+      try {
+        this.broadcastChannel = new BroadcastChannel('cheaplive-subtitle');
+        this.broadcastChannel.onmessage = (event) => {
+          if (event.data && this.isReceiver) {
+            this.transcript = event.data.final || event.data.transcript || '';
+            this.interimTranscript = event.data.interim || '';
+            if (this.onResult) {
+              this.onResult(this.getDisplayText());
+            }
           }
-        }
-      };
+        };
+        this.broadcastChannel.onerror = (event) => {
+          console.warn('BroadcastChannel error:', event);
+        };
+      } catch (e) {
+        console.warn('BroadcastChannel creation failed:', e);
+        this.broadcastChannel = null;
+      }
+    } else {
+      console.warn('BroadcastChannel not supported - cross-tab subtitle sync disabled');
+      if (this.onError) {
+        this.onError('broadcast-channel-not-supported');
+      }
     }
   }
 
