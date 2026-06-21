@@ -14,6 +14,7 @@
 | 程序化球形头像 | 可体验 | 支持头部和表情参数 |
 | 程序化纺锤鲸鱼 | 可体验 | 支持表情及尾巴动画 |
 | 实时变声 | 实验性 | 自动测试覆盖有限，真实麦克风和听感待验证 |
+| 多设备信令服务器 | 扩展玩法/待开发 | 局域网内多设备协作，需手动搭建 Node.js 服务 |
 | 网页旧多端模式 | 实验性 | 当前部署和真实跨设备连接仍有限制 |
 | CheapLive Capture Android App | ⏸️ 暂停开发 | 功能已移交参赛项目独立开发，比赛结束后酌情恢复 |
 | Live2D Cubism | 规划中 | Demo 阶段冻结，当前不能实际渲染 Live2D 模型 |
@@ -104,6 +105,41 @@ CheapLive/
 
 - **实时变声**：基于 Web Audio API，功能存在但听感和跨浏览器兼容仍待验证
 - **网页旧多端模式**：保留在 `src/multi-device/`，依赖本地局域网信令服务；作为开发者实验入口保留，不作为当前推荐用户路径
+
+### 🛠️ 扩展玩法 / 待开发：多设备信令服务器
+
+> **手动搭建，不包含在默认体验中**。适合有一定 Node.js 使用经验的开发者。
+
+局域网内多设备协作扩展。支持：
+
+- 设备注册与发现（HTTP + JSON API）
+- 心跳保活与自动清理（5秒心跳，15秒 TTL）
+- Server-Sent Events (SSE) 实时推送
+- WebRTC 信令消息转发
+
+**快速启动**：
+
+```bash
+cd CheapLive
+node src/multi-device/signaling-server.js
+# 服务监听端口 8766
+```
+
+然后在浏览器访问 <http://localhost:8766/devices> 验证服务运行。
+
+**完整搭建说明**：请参阅 [docs/signaling-server-setup.md](docs/signaling-server-setup.md)，包含：
+
+- 所有 API 参考（注册/心跳/设备列表/信令/SSE 事件流）
+- 浏览器端 JavaScript 示例代码
+- 生产部署（systemd/launchd）
+- 故障排查与安全提示
+- 单元测试验证方法
+
+**注意事项**：
+
+- 此服务仅推荐在受信任的局域网内使用
+- 不包含认证机制，不要暴露到公网
+- 所有信令消息为 HTTP 明文传输（WebRTC 媒体流自身加密）
 
 ### ⏸️ 暂停开发：CheapLive Capture Android App
 
