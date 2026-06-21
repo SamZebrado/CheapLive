@@ -33,7 +33,11 @@ const rendererModule = await import(`file://${path.join(SRC, 'procedural-mesh-re
 
 const { createSphereMesh, deformSphere, computeSphereFaceAnchor } = meshSphere;
 const { createSpindleMesh, createWhaleTailMesh, deformSpindle, computeFaceAnchor, computeNostrilSize } = meshWhale;
-const { buildFaceBasisTest } = rendererModule;
+const {
+  buildFaceBasisTest,
+  SPHERE_DEFAULT_LIGHT_DIR, SPHERE_DEFAULT_AMBIENT,
+  SPINDLE_DEFAULT_LIGHT_DIR, SPINDLE_DEFAULT_AMBIENT,
+} = rendererModule;
 
 // ========== 几何辅助 ==========
 function approx(a, b, eps = 1e-6) {
@@ -309,6 +313,53 @@ describe('镜像字段名称一致性', () => {
     for (const f of mirrorBranchFields) {
       assert.ok(returnedKeys.has(f), `镜像分支字段 "${f}" 不在 getAnchors 返回键中`);
     }
+  });
+});
+
+// ========== 光照参数化 ==========
+describe('光照参数化', () => {
+  describe('默认光照配置', () => {
+    it('Sphere: 默认 lightDir 等于旧硬编码值 { x: -0.35, y: -0.4, z: 0.8 }', () => {
+      assert.ok(SPHERE_DEFAULT_LIGHT_DIR.x === -0.35, `x 应为 -0.35, 实际 ${SPHERE_DEFAULT_LIGHT_DIR.x}`);
+      assert.ok(SPHERE_DEFAULT_LIGHT_DIR.y === -0.4, `y 应为 -0.4, 实际 ${SPHERE_DEFAULT_LIGHT_DIR.y}`);
+      assert.ok(SPHERE_DEFAULT_LIGHT_DIR.z === 0.8, `z 应为 0.8, 实际 ${SPHERE_DEFAULT_LIGHT_DIR.z}`);
+    });
+
+    it('Sphere: 默认 ambient 等于旧硬编码值 0.55', () => {
+      assert.ok(SPHERE_DEFAULT_AMBIENT === 0.55, `ambient 应为 0.55, 实际 ${SPHERE_DEFAULT_AMBIENT}`);
+    });
+
+    it('Spindle: 默认 lightDir 等于旧硬编码值 { x: -0.3, y: -0.5, z: 0.8 }', () => {
+      assert.ok(SPINDLE_DEFAULT_LIGHT_DIR.x === -0.3, `x 应为 -0.3, 实际 ${SPINDLE_DEFAULT_LIGHT_DIR.x}`);
+      assert.ok(SPINDLE_DEFAULT_LIGHT_DIR.y === -0.5, `y 应为 -0.5, 实际 ${SPINDLE_DEFAULT_LIGHT_DIR.y}`);
+      assert.ok(SPINDLE_DEFAULT_LIGHT_DIR.z === 0.8, `z 应为 0.8, 实际 ${SPINDLE_DEFAULT_LIGHT_DIR.z}`);
+    });
+
+    it('Spindle: 默认 ambient 等于旧硬编码值 0.58', () => {
+      assert.ok(SPINDLE_DEFAULT_AMBIENT === 0.58, `ambient 应为 0.58, 实际 ${SPINDLE_DEFAULT_AMBIENT}`);
+    });
+  });
+
+  describe('光照向量不变量', () => {
+    it('默认 lightDir 向量长度大于 0（合法方向）', () => {
+      const sphereLen = Math.sqrt(
+        SPHERE_DEFAULT_LIGHT_DIR.x ** 2 +
+        SPHERE_DEFAULT_LIGHT_DIR.y ** 2 +
+        SPHERE_DEFAULT_LIGHT_DIR.z ** 2
+      );
+      const spindleLen = Math.sqrt(
+        SPINDLE_DEFAULT_LIGHT_DIR.x ** 2 +
+        SPINDLE_DEFAULT_LIGHT_DIR.y ** 2 +
+        SPINDLE_DEFAULT_LIGHT_DIR.z ** 2
+      );
+      assert.ok(sphereLen > 0, `sphere lightDir 长度应 > 0`);
+      assert.ok(spindleLen > 0, `spindle lightDir 长度应 > 0`);
+    });
+
+    it('ambient 在合法范围 [0, 1]', () => {
+      assert.ok(SPHERE_DEFAULT_AMBIENT >= 0 && SPHERE_DEFAULT_AMBIENT <= 1, 'sphere ambient 应在 [0,1]');
+      assert.ok(SPINDLE_DEFAULT_AMBIENT >= 0 && SPINDLE_DEFAULT_AMBIENT <= 1, 'spindle ambient 应在 [0,1]');
+    });
   });
 });
 

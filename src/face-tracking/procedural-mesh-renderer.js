@@ -505,13 +505,17 @@ class ProceduralMeshRenderer {
 
 // ---------------- 球体头像 ----------------
 
+// 默认光照配置（球体）
+export const SPHERE_DEFAULT_LIGHT_DIR = { x: -0.35, y: -0.4, z: 0.8 };
+export const SPHERE_DEFAULT_AMBIENT = 0.55;
+
 export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
   constructor(canvasId, options = {}) {
     super(canvasId);
     this.mesh = createSphereMesh({ rings: 18, segments: 28, radius: 85 });
     // 光照参数（可选）
-    this.lightDir = options.lightDir ?? { x: -0.35, y: -0.4, z: 0.8 };
-    this.ambient = options.ambient ?? 0.55;
+    this.lightDir = options.lightDir ?? { ...SPHERE_DEFAULT_LIGHT_DIR };
+    this.ambient = options.ambient ?? SPHERE_DEFAULT_AMBIENT;
     this.draw();
   }
 
@@ -730,6 +734,10 @@ function skinFill(ctx, coverH, halfW) {
 
 // ---------------- 纺锤鲸鱼 ----------------
 
+// 默认光照配置（纺锤鲸鱼）
+export const SPINDLE_DEFAULT_LIGHT_DIR = { x: -0.3, y: -0.5, z: 0.8 };
+export const SPINDLE_DEFAULT_AMBIENT = 0.58;
+
 export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
   constructor(canvasId, options = {}) {
     super(canvasId);
@@ -752,8 +760,8 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     this.basePitch = 0;
     this.baseRoll = 0;
     // 光照参数（可选）
-    this.lightDir = options.lightDir ?? { x: -0.3, y: -0.5, z: 0.8 };
-    this.ambient = options.ambient ?? 0.58;
+    this.lightDir = options.lightDir ?? { ...SPINDLE_DEFAULT_LIGHT_DIR };
+    this.ambient = options.ambient ?? SPINDLE_DEFAULT_AMBIENT;
     this.draw();
   }
 
