@@ -18,9 +18,11 @@
  */
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const SRC_DIR = path.join(ROOT, 'src', 'face-tracking');
 // ANDROID_DEMO 输出路径已冻结（2026-06-20）

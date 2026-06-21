@@ -13,8 +13,8 @@
  * - SSE 实时推送（GET /events/:id）
  */
 
-const http = require('http');
-const url = require('url');
+import http from 'http';
+import url from 'url';
 
 const PORT = process.env.SIGNAL_PORT || 8766;
 const HEARTBEAT_INTERVAL_MS = process.env.TEST_MODE ? 1000 : 5000;
@@ -230,4 +230,4 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Heartbeat interval: ${HEARTBEAT_INTERVAL_MS}ms`);
 });
 
-module.exports = { server, devices, sseClients };
+export { server, devices, sseClients };
