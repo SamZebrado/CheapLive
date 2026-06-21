@@ -361,6 +361,69 @@ describe('光照参数化', () => {
       assert.ok(SPINDLE_DEFAULT_AMBIENT >= 0 && SPINDLE_DEFAULT_AMBIENT <= 1, 'spindle ambient 应在 [0,1]');
     });
   });
+
+  describe('自定义光照实例化', () => {
+    // 完整 DOM mock：canvas 和 context
+    const makeMockCanvas = () => ({
+      width: 100, height: 100,
+      getContext: () => ({
+        clearRect: () => {}, fillRect: () => {},
+        save: () => {}, restore: () => {},
+        translate: () => {}, scale: () => {},
+        beginPath: () => {}, moveTo: () => {}, lineTo: () => {},
+        closePath: () => {}, stroke: () => {}, fill: () => {},
+        ellipse: () => {}, fillText: () => {},
+        measureText: () => ({ width: 0 }),
+        createLinearGradient: () => ({ addColorStop: () => {} }),
+        arc: () => {}, arcTo: () => {},
+        quadraticCurveTo: () => {}, bezierCurveTo: () => {},
+        rect: () => {}, clip: () => {},
+      }),
+    });
+
+    it('Sphere: 传入自定义 lightDir 和 ambient 后实例属性等于自定义值', async () => {
+      const customLightDir = { x: 1, y: 2, z: 3 };
+      const customAmbient = 0.25;
+      const mockCanvas = makeMockCanvas();
+      const originalDoc = globalThis.document;
+      const originalWindow = globalThis.window;
+      try {
+        globalThis.document = { getElementById: () => mockCanvas };
+        globalThis.window = { addEventListener: () => {}, removeEventListener: () => {} };
+        // 动态导入以获取最新类定义
+        const rendererMod = await import(`file://${path.join(SRC, 'procedural-mesh-renderer.js')}`);
+        const SphereAvatar = rendererMod.ProceduralSphereAvatar;
+        const sphere = new SphereAvatar('test-canvas', { lightDir: customLightDir, ambient: customAmbient });
+        assert.ok(sphere.lightDir.x === 1 && sphere.lightDir.y === 2 && sphere.lightDir.z === 3,
+          `lightDir 应为 {x:1,y:2,z:3}, 实际 ${JSON.stringify(sphere.lightDir)}`);
+        assert.ok(sphere.ambient === 0.25, `ambient 应为 0.25, 实际 ${sphere.ambient}`);
+      } finally {
+        globalThis.document = originalDoc;
+        globalThis.window = originalWindow;
+      }
+    });
+
+    it('Spindle: 传入自定义 lightDir 和 ambient 后实例属性等于自定义值', async () => {
+      const customLightDir = { x: -0.5, y: 0.5, z: 0.9 };
+      const customAmbient = 0.42;
+      const mockCanvas = makeMockCanvas();
+      const originalDoc = globalThis.document;
+      const originalWindow = globalThis.window;
+      try {
+        globalThis.document = { getElementById: () => mockCanvas };
+        globalThis.window = { addEventListener: () => {}, removeEventListener: () => {} };
+        const rendererMod = await import(`file://${path.join(SRC, 'procedural-mesh-renderer.js')}`);
+        const SpindleAvatar = rendererMod.ProceduralSpindleWhaleAvatar;
+        const spindle = new SpindleAvatar('test-canvas', { lightDir: customLightDir, ambient: customAmbient });
+        assert.ok(spindle.lightDir.x === -0.5 && spindle.lightDir.y === 0.5 && spindle.lightDir.z === 0.9,
+          `lightDir 应为 {x:-0.5,y:0.5,z:0.9}, 实际 ${JSON.stringify(spindle.lightDir)}`);
+        assert.ok(spindle.ambient === 0.42, `ambient 应为 0.42, 实际 ${spindle.ambient}`);
+      } finally {
+        globalThis.document = originalDoc;
+        globalThis.window = originalWindow;
+      }
+    });
+  });
 });
 
 // ========== 测试：构造顺序 ==========
