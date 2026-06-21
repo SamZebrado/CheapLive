@@ -13,7 +13,7 @@
  */
 
 class LiveSubtitle {
-  constructor() {
+  constructor(options = {}) {
     this.recognition = null;
     this.isActive = false;
     this.lang = 'zh-CN';
@@ -23,6 +23,8 @@ class LiveSubtitle {
     this.onError = null;
     this.broadcastChannel = null;
     this.isReceiver = false;
+    this._window = options.window || (typeof globalThis !== 'undefined' ? globalThis.window : (typeof window !== 'undefined' ? window : undefined));
+    this._localStorage = options.localStorage || (typeof globalThis !== 'undefined' ? globalThis.localStorage : (typeof localStorage !== 'undefined' ? localStorage : undefined));
 
     // 样式设置
     this.style = {
@@ -41,7 +43,7 @@ class LiveSubtitle {
 
   loadSettings() {
     try {
-      const saved = localStorage.getItem('subtitleSettings');
+      const saved = this._localStorage && this._localStorage.getItem('subtitleSettings');
       if (saved) {
         this.style = { ...this.style, ...JSON.parse(saved) };
       }
@@ -50,14 +52,14 @@ class LiveSubtitle {
 
   saveSettings() {
     try {
-      localStorage.setItem('subtitleSettings', JSON.stringify(this.style));
+      this._localStorage && this._localStorage.setItem('subtitleSettings', JSON.stringify(this.style));
     } catch (e) {}
   }
 
   initBroadcastChannel() {
-    if ('BroadcastChannel' in window) {
+    if (this._window && 'BroadcastChannel' in this._window) {
       try {
-        this.broadcastChannel = new BroadcastChannel('cheaplive-subtitle');
+        this.broadcastChannel = new this._window.BroadcastChannel('cheaplive-subtitle');
         this.broadcastChannel.onmessage = (event) => {
           if (event.data && this.isReceiver) {
             this.transcript = event.data.final || event.data.transcript || '';
@@ -97,7 +99,7 @@ class LiveSubtitle {
   }
 
   isSupported() {
-    return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+    return !!(this._window && (this._window.webkitSpeechRecognition || this._window.SpeechRecognition));
   }
 
   init() {
