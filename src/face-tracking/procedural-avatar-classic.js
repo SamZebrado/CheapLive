@@ -977,22 +977,37 @@ function createWhaleTailMesh(options = {}) {
 
 // -------------------- 变形与旋转 --------------------
 
-/**
- * 对网格应用 yaw/pitch/roll 旋转（角度制）。
- * 复制原有顶点并增加 (tx, ty, tz) 旋转后坐标。
- */
-function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
+const BEND_COEF_YAW = 0.70;
+const BEND_COEF_PITCH = 0.50;
+
+function bendProfile(s) {
+  const t = Math.max(0, Math.min(1, s));
+  return t * t * (3 - 2 * t);
+}
+
+function bendProfileDeriv(s) {
+  const h = 0.002;
+  if (s <= h) return (bendProfile(s + h) - bendProfile(s)) / h;
+  if (s >= 1 - h) return (bendProfile(s) - bendProfile(s - h)) / h;
+  return (bendProfile(s + h) - bendProfile(s - h)) / (2 * h);
+}
+
+function applySoftRotation(x, y, z, nx, ny, nz, s, params) {
   const { angleY = 0, angleX = 0, angleZ = 0 } = params;
-  const radY = angleY * Math.PI / 180;
-  const radX = angleX * Math.PI / 180;
-  const radZ = angleZ * Math.PI / 180;
+  
+  const bend = bendProfile(s);
+  
+  const effectiveYaw = angleY * (1 - BEND_COEF_YAW * bend);
+  const effectivePitch = angleX * (1 - BEND_COEF_PITCH * bend);
+  const effectiveRoll = angleZ * (1 - 0.35 * bend);
+
+  const radY = effectiveYaw * Math.PI / 180;
+  const radX = effectivePitch * Math.PI / 180;
+  const radZ = effectiveRoll * Math.PI / 180;
   const cosY = Math.cos(radY), sinY = Math.sin(radY);
   const cosX = Math.cos(radX), sinX = Math.sin(radX);
   const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
 
-  // 旋转顺序: Z → X → Y (先 roll, 再 pitch, 最后 yaw)
-  // 与 _transformVec 保持一致，避免 yaw+pitch 组合时五官横过来
-  // Z (roll):
   let x1 = x * cosZ - y * sinZ;
   let y1 = x * sinZ + y * cosZ;
   let z1 = z;
@@ -1000,7 +1015,6 @@ function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
   let ny1 = nx * sinZ + ny * cosZ;
   let nz1 = nz;
 
-  // X (pitch):
   let y2 = y1 * cosX - z1 * sinX;
   let z2 = y1 * sinX + z1 * cosX;
   let x2 = x1;
@@ -1008,7 +1022,6 @@ function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
   let nz2 = ny1 * sinX + nz1 * cosX;
   let nx2 = nx1;
 
-  // Y (yaw):
   let x3 = x2 * cosY + z2 * sinY;
   let z3 = -x2 * sinY + z2 * cosY;
   let y3 = y2;
@@ -1021,7 +1034,8 @@ function applyYawPitchRoll(x, y, z, nx, ny, nz, params) {
 
 function deformSpindle(mesh, params = {}) {
   const transformed = mesh.vertices.map((v) => {
-    const r = applyYawPitchRoll(v.x, v.y, v.z, v.nx, v.ny, v.nz, params);
+    const s = v.t !== undefined ? v.t : 0;
+    const r = applySoftRotation(v.x, v.y, v.z, v.nx, v.ny, v.nz, s, params);
     return { ...v, tx: r.x, ty: r.y, tz: r.z, nx: r.nx, ny: r.ny, nz: r.nz };
   });
   const transformedFaces = mesh.faces.map((f) => ({
@@ -1621,41 +1635,58 @@ class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
 
-      // 眼睛椭圆的半宽/高：直接用 eyeSize，不预乘 rl/dl
-      // 因为 computeProjectedEllipse 会将 halfWidth/halfH 与 rightVec/downVec 分量相乘
-      // rightVec 已包含投影后的完整长度信息
       const eyeSize = 10 * scale;
       const eyeHalfW = eyeSize;
       const eyeHalfH = eyeSize;
 
-      // 使用完整投影椭圆（考虑 rightVec + downVec 可能不正交）
       const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
       const rx = Math.max(0.1, proj.radiusX);
       const ry = Math.max(0.1, proj.radiusY);
       const ang = proj.angle;
 
+      const tOpen = (openness - 0.15) / (0.5 - 0.15);
+      const easedOpen = Math.max(0, Math.min(1, tOpen * tOpen * (3 - 2 * tOpen)));
+      const easedClosed = 1 - easedOpen;
+
       ctx.save();
       ctx.globalAlpha = facing;
 
-      // 1) 眼白
+      const ryEffective = ry * (0.1 + 0.9 * easedOpen);
+
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, rx * easedOpen + rx * 0.1 * easedClosed, ryEffective, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
-      ctx.lineWidth = Math.max(1, 1.8 * scale);
+      ctx.lineWidth = Math.max(1, 1.8 * scale) * (0.5 + 0.5 * easedOpen);
       ctx.strokeStyle = '#222';
+      ctx.globalAlpha = facing * (0.3 + 0.7 * easedOpen);
       ctx.stroke();
+      ctx.globalAlpha = facing;
 
-      // 2) 瞳孔（永远画）
-      const pupilRx = rx * 0.55;
-      const pupilRy = ry * 0.55;
+      const pupilRx = rx * 0.55 * easedOpen;
+      const pupilRy = ry * 0.55 * easedOpen;
       ctx.beginPath();
       ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#1f1f1f';
+      ctx.globalAlpha = facing * easedOpen;
       ctx.fill();
+      ctx.globalAlpha = facing;
 
-      // 3) 眨眼遮罩（在椭圆内，用同色块盖）
-      const cover = 1 - openness;
+      if (easedClosed > 0.05) {
+        const lineLen = rx * 1.5;
+        const lineLeft = mapFaceLocalPoint(t, -lineLen, 0);
+        const lineRight = mapFaceLocalPoint(t, lineLen, 0);
+        ctx.beginPath();
+        ctx.moveTo(lineLeft.x, lineLeft.y);
+        ctx.lineTo(lineRight.x, lineRight.y);
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = Math.max(2, 3 * scale) * easedClosed;
+        ctx.globalAlpha = facing * easedClosed;
+        ctx.stroke();
+        ctx.globalAlpha = facing;
+      }
+
+      const cover = easedClosed;
       if (cover > 0.01) {
         ctx.save();
         ctx.beginPath();
@@ -1869,38 +1900,57 @@ class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
 
-      // 眼睛椭圆的半宽/高：直接用 base size，不预乘 rl/dl
-      // 因为 computeProjectedEllipse 会将 halfWidth/halfH 与 rightVec/downVec 分量相乘
-      // rightVec 已包含投影后的完整长度信息
       const eyeHalfW = eyeBase * scale;
       const eyeHalfH = eyeBase * scale;
 
-      // 使用完整投影椭圆（考虑 rightVec + downVec 可能不正交）
       const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
       const rx = Math.max(0.1, proj.radiusX);
       const ry = Math.max(0.1, proj.radiusY);
       const ang = proj.angle;
 
+      const tOpen = (openness - 0.15) / (0.5 - 0.15);
+      const easedOpen = Math.max(0, Math.min(1, tOpen * tOpen * (3 - 2 * tOpen)));
+      const easedClosed = 1 - easedOpen;
+
       ctx.save();
       ctx.globalAlpha = facing;
 
-      // 1) 眼白
+      const ryEffective = ry * (0.1 + 0.9 * easedOpen);
+
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, rx * easedOpen + rx * 0.1 * easedClosed, ryEffective, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
-      ctx.lineWidth = Math.max(1, 2.0 * scale);
+      ctx.lineWidth = Math.max(1, 2.0 * scale) * (0.5 + 0.5 * easedOpen);
       ctx.strokeStyle = '#222';
+      ctx.globalAlpha = facing * (0.3 + 0.7 * easedOpen);
       ctx.stroke();
+      ctx.globalAlpha = facing;
 
-      // 2) 瞳孔
+      const pupilRx = rx * 0.55 * easedOpen;
+      const pupilRy = ry * 0.55 * easedOpen;
       ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, rx * 0.55, ry * 0.55, ang, 0, Math.PI * 2);
+      ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#1f1f1f';
+      ctx.globalAlpha = facing * easedOpen;
       ctx.fill();
+      ctx.globalAlpha = facing;
 
-      // 3) 眨眼遮罩
-      const cover = 1 - openness;
+      if (easedClosed > 0.05) {
+        const lineLen = rx * 1.5;
+        const lineLeft = mapFaceLocalPoint(t, -lineLen, 0);
+        const lineRight = mapFaceLocalPoint(t, lineLen, 0);
+        ctx.beginPath();
+        ctx.moveTo(lineLeft.x, lineLeft.y);
+        ctx.lineTo(lineRight.x, lineRight.y);
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = Math.max(2, 3 * scale) * easedClosed;
+        ctx.globalAlpha = facing * easedClosed;
+        ctx.stroke();
+        ctx.globalAlpha = facing;
+      }
+
+      const cover = easedClosed;
       if (cover > 0.01) {
         ctx.save();
         ctx.beginPath();

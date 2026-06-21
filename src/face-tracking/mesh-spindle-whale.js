@@ -703,10 +703,10 @@ export function createWhaleTailMesh(options = {}) {
 
 const BEND_COEF_YAW = 0.70;
 const BEND_COEF_PITCH = 0.50;
-const SMOOTH_ALPHA = 0.65;
 
 function bendProfile(s) {
-  return Math.sin(Math.PI * s) * (1 - 0.3 * s);
+  const t = Math.max(0, Math.min(1, s));
+  return t * t * (3 - 2 * t);
 }
 
 function bendProfileDeriv(s) {
@@ -719,8 +719,7 @@ function bendProfileDeriv(s) {
 function applySoftRotation(x, y, z, nx, ny, nz, s, params) {
   const { angleY = 0, angleX = 0, angleZ = 0 } = params;
   
-  const eased = Math.pow(s, SMOOTH_ALPHA);
-  const bend = bendProfile(eased);
+  const bend = bendProfile(s);
   
   const effectiveYaw = angleY * (1 - BEND_COEF_YAW * bend);
   const effectivePitch = angleX * (1 - BEND_COEF_PITCH * bend);
