@@ -754,3 +754,12 @@ export function deformSpindle(mesh, params = {}) {
   }));
   return { ...mesh, vertices: transformed, faces: transformedFaces };
 }
+
+/**
+ * Compute nostril size scaled by head width.
+ * Break-even: 2.0 / 0.045 ≈ 44.44 — below this the floor dominates,
+ * above this the linear term dominates.
+ */
+export function computeNostrilSize(headX) {
+  return Math.max(2.0, headX * 0.045);
+}

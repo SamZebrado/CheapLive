@@ -32,7 +32,7 @@ const meshWhale = await import(`file://${path.join(SRC, 'mesh-spindle-whale.js')
 const rendererModule = await import(`file://${path.join(SRC, 'procedural-mesh-renderer.js')}`);
 
 const { createSphereMesh, deformSphere, computeSphereFaceAnchor } = meshSphere;
-const { createSpindleMesh, createWhaleTailMesh, deformSpindle, computeFaceAnchor } = meshWhale;
+const { createSpindleMesh, createWhaleTailMesh, deformSpindle, computeFaceAnchor, computeNostrilSize } = meshWhale;
 const { buildFaceBasisTest } = rendererModule;
 
 // ========== 几何辅助 ==========
@@ -509,31 +509,27 @@ describe('瞳孔尺寸不变量', () => {
 
 // ========== 鼻孔尺寸自适应不变量 ==========
 // nostrilSize = Math.max(2.0, hx * 0.045)
-// hx < 44 时受保底 2.0 限制，hx >= 44 时线性增长
+// Break-even: 2.0 / 0.045 ≈ 44.44 — below this the floor dominates, above this the linear term dominates.
 describe('鼻孔尺寸自适应', () => {
-  function nostrilSize(hx) {
-    return Math.max(2.0, hx * 0.045);
-  }
-
   it('小鱼(hx=40)鼻孔保底为 2.0', () => {
-    assert.ok(Math.abs(nostrilSize(40) - 2.0) < 0.01, `hx=40 应保底 2.0, 实际 ${nostrilSize(40)}`);
+    assert.ok(Math.abs(computeNostrilSize(40) - 2.0) < 0.01, `hx=40 应保底 2.0, 实际 ${computeNostrilSize(40)}`);
   });
 
   it('中鱼(hx=52)鼻孔为 2.34（大于保底）', () => {
-    const ns = nostrilSize(52);
+    const ns = computeNostrilSize(52);
     assert.ok(ns > 2.0, `hx=52 应超过保底, 实际 ${ns}`);
     assert.ok(Math.abs(ns - 2.34) < 0.01, `hx=52 应为 2.34, 实际 ${ns}`);
   });
 
   it('大鱼(hx=80)鼻孔为 3.6（明显更大）', () => {
-    const ns = nostrilSize(80);
+    const ns = computeNostrilSize(80);
     assert.ok(ns > 2.5, `hx=80 应明显大于默认值, 实际 ${ns}`);
     assert.ok(Math.abs(ns - 3.6) < 0.01, `hx=80 应为 3.6, 实际 ${ns}`);
   });
 
   it('鼻孔尺寸与头宽成正比（大鱼鼻孔更大）', () => {
-    assert.ok(nostrilSize(80) > nostrilSize(52), '大鱼鼻孔应大于中鱼');
-    assert.ok(nostrilSize(52) > nostrilSize(40), '中鱼鼻孔应大于小鱼');
+    assert.ok(computeNostrilSize(80) > computeNostrilSize(52), '大鱼鼻孔应大于中鱼');
+    assert.ok(computeNostrilSize(52) > computeNostrilSize(40), '中鱼鼻孔应大于小鱼');
   });
 });
 // ========== buildFaceBasis 退化分支测试 ==========
