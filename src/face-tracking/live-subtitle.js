@@ -21,6 +21,8 @@ class LiveSubtitle {
     this.interimTranscript = '';
     this.onResult = null;
     this.onError = null;
+    this.broadcastChannel = null;
+    this.isReceiver = false;
 
     // 样式设置
     this.style = {
@@ -34,6 +36,7 @@ class LiveSubtitle {
     };
 
     this.loadSettings();
+    this.initBroadcastChannel();
   }
 
   loadSettings() {
@@ -49,6 +52,35 @@ class LiveSubtitle {
     try {
       localStorage.setItem('subtitleSettings', JSON.stringify(this.style));
     } catch (e) {}
+  }
+
+  initBroadcastChannel() {
+    if ('BroadcastChannel' in window) {
+      this.broadcastChannel = new BroadcastChannel('cheaplive-subtitle');
+      this.broadcastChannel.onmessage = (event) => {
+        if (event.data && this.isReceiver) {
+          this.transcript = event.data.transcript || '';
+          this.interimTranscript = event.data.interim || '';
+          if (this.onResult) {
+            this.onResult(this.getDisplayText());
+          }
+        }
+      };
+    }
+  }
+
+  broadcast() {
+    if (this.broadcastChannel && !this.isReceiver) {
+      this.broadcastChannel.postMessage({
+        interim: this.interimTranscript,
+        final: this.transcript,
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  setReceiverMode(isReceiver) {
+    this.isReceiver = isReceiver;
   }
 
   isSupported() {
@@ -79,7 +111,6 @@ class LiveSubtitle {
 
       if (final) {
         this.transcript += final + ' ';
-        // 限制历史长度
         const maxLen = 500;
         if (this.transcript.length > maxLen) {
           this.transcript = this.transcript.slice(-maxLen);
@@ -91,6 +122,8 @@ class LiveSubtitle {
       if (this.onResult) {
         this.onResult(this.getDisplayText());
       }
+
+      this.broadcast();
     };
 
     this.recognition.onerror = (event) => {

@@ -379,12 +379,24 @@
             <span class="toggle-label">实时字幕</span>
             <span class="toggle-hint">Web Speech API 本地识别</span>
           </div>
+          <div class="feature-toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="subtitleBelowToggle">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">底部字幕</span>
+            <span class="toggle-hint">在头像下方显示字幕</span>
+          </div>
+          <button id="openSubtitlePage" class="feature-btn">📝 打开独立字幕页</button>
         </div>
       </div>
     </div>
 
-    <!-- 字幕显示区域 -->
+    <!-- 字幕显示区域（主页面底部） -->
     <div id="subtitleDisplay" class="subtitle-display"></div>
+    
+    <!-- 头像下方字幕区 -->
+    <div id="subtitleBelowAvatar" class="subtitle-below-avatar"></div>
   </div>
 
   <script type="module" src="face-tracker.js"></script>

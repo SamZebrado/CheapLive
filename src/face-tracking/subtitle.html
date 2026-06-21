@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>CheapLive - 独立字幕</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Noto Sans SC', sans-serif;
+      background: #000;
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    #subtitleArea {
+      width: 100%;
+      max-width: 1200px;
+      padding: 40px;
+      text-align: center;
+      font-size: 48px;
+      font-weight: 600;
+      line-height: 1.6;
+      color: #fff;
+      text-shadow: 
+        0 0 10px rgba(0,0,0,0.8),
+        0 2px 4px rgba(0,0,0,0.6);
+      word-wrap: break-word;
+      opacity: 0.9;
+      transition: opacity 0.3s;
+    }
+    #subtitleArea.empty {
+      opacity: 0.3;
+    }
+    #subtitleArea.interim {
+      color: #aaa;
+    }
+    #controls {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      padding: 16px 24px;
+      background: rgba(20, 20, 30, 0.9);
+      border-radius: 16px;
+      border: 1px solid rgba(255, 107, 74, 0.3);
+      backdrop-filter: blur(10px);
+      z-index: 100;
+    }
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .control-group label {
+      font-size: 12px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .control-group select,
+    .control-group input[type="range"] {
+      background: #2a2a42;
+      border: 1px solid #3a3a52;
+      border-radius: 8px;
+      padding: 6px 12px;
+      color: #fff;
+      font-size: 14px;
+      font-family: inherit;
+    }
+    .control-group input[type="range"] {
+      width: 100px;
+      height: 6px;
+      -webkit-appearance: none;
+      appearance: none;
+      cursor: pointer;
+    }
+    .control-group input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #ff6b4a;
+      cursor: pointer;
+    }
+    .control-group input[type="range"]::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #ff6b4a;
+      cursor: pointer;
+      border: none;
+    }
+    .control-group select:focus,
+    .control-group input[type="range"]:focus {
+      outline: none;
+      border-color: #ff6b4a;
+    }
+    #status {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 8px 16px;
+      background: rgba(20, 20, 30, 0.8);
+      border-radius: 8px;
+      font-size: 12px;
+      color: #888;
+      z-index: 100;
+    }
+    .position-option {
+      display: flex;
+      gap: 8px;
+    }
+    .position-option label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 13px;
+      color: #aaa;
+      cursor: pointer;
+    }
+    .position-option input[type="radio"] {
+      accent-color: #ff6b4a;
+    }
+    @media (max-width: 768px) {
+      #subtitleArea {
+        font-size: 32px;
+        padding: 20px;
+      }
+      #controls {
+        flex-wrap: wrap;
+        justify-content: center;
+        padding: 12px 16px;
+      }
+      .control-group {
+        flex-direction: row;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="status">等待字幕信号...</div>
+  <div id="subtitleArea" class="empty">等待中...</div>
+  <div id="controls">
+    <div class="control-group">
+      <label>字号</label>
+      <select id="fontSize">
+        <option value="32">32px</option>
+        <option value="48" selected>48px</option>
+        <option value="64">64px</option>
+        <option value="80">80px</option>
+        <option value="100">100px</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label>语言</label>
+      <select id="language">
+        <option value="zh-CN" selected>中文</option>
+        <option value="en-US">English</option>
+        <option value="ja-JP">日本語</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label>位置</label>
+      <div class="position-option">
+        <label><input type="radio" name="position" value="bottom" checked>底</label>
+        <label><input type="radio" name="position" value="center">中</label>
+        <label><input type="radio" name="position" value="top">顶</label>
+      </div>
+    </div>
+    <div class="control-group">
+      <label>背景透明度</label>
+      <input type="range" id="bgOpacity" min="0" max="100" value="0">
+    </div>
+  </div>
+
+  <script type="module">
+    import { LiveSubtitle } from './live-subtitle.js';
+
+    const subtitleArea = document.getElementById('subtitleArea');
+    const statusEl = document.getElementById('status');
+    const fontSizeEl = document.getElementById('fontSize');
+    const langEl = document.getElementById('language');
+    const positionRadios = document.querySelectorAll('input[name="position"]');
+    const bgOpacityEl = document.getElementById('bgOpacity');
+
+    const subtitle = new LiveSubtitle();
+    subtitle.setReceiverMode(true);
+
+    subtitle.onResult = (text) => {
+      if (!text.trim()) {
+        subtitleArea.textContent = '等待中...';
+        subtitleArea.classList.add('empty');
+        subtitleArea.classList.remove('interim');
+      } else {
+        subtitleArea.textContent = text;
+        subtitleArea.classList.remove('empty');
+      }
+    };
+
+    fontSizeEl.addEventListener('change', (e) => {
+      subtitleArea.style.fontSize = e.target.value + 'px';
+    });
+
+    bgOpacityEl.addEventListener('input', (e) => {
+      const opacity = e.target.value / 100;
+      subtitleArea.style.background = opacity > 0 
+        ? `rgba(0, 0, 0, ${opacity})` 
+        : 'transparent';
+      subtitleArea.style.padding = opacity > 0 ? '20px 40px' : '40px';
+    });
+
+    positionRadios.forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        const pos = e.target.value;
+        subtitleArea.style.justifyContent = pos === 'top' ? 'flex-start' : 
+                                            pos === 'bottom' ? 'flex-end' : 'center';
+      });
+    });
+
+    if ('BroadcastChannel' in window) {
+      const bc = new BroadcastChannel('cheaplive-subtitle');
+      bc.onmessage = (event) => {
+        statusEl.textContent = '已连接到字幕源';
+        const text = (event.data.final || '') + (event.data.interim || '');
+        if (!text.trim()) {
+          subtitleArea.textContent = '等待中...';
+          subtitleArea.classList.add('empty');
+          subtitleArea.classList.remove('interim');
+        } else {
+          subtitleArea.textContent = text;
+          subtitleArea.classList.remove('empty');
+          if (event.data.interim && !event.data.final) {
+            subtitleArea.classList.add('interim');
+          } else {
+            subtitleArea.classList.remove('interim');
+          }
+        }
+      };
+    } else {
+      statusEl.textContent = '浏览器不支持 BroadcastChannel';
+    }
+  </script>
+</body>
+</html>

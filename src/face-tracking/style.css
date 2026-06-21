@@ -928,7 +928,7 @@ body.app-mode .avatar-version-select {
   color: var(--muted);
 }
 
-/* 字幕显示 */
+/* 字幕显示（浮动） */
 .subtitle-display {
   position: fixed;
   bottom: 20px;
@@ -951,6 +951,44 @@ body.app-mode .avatar-version-select {
 
 .subtitle-display.active {
   display: block;
+}
+
+/* 头像下方字幕区 */
+.subtitle-below-avatar {
+  width: 100%;
+  padding: 10px 16px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 8px;
+  color: #ddd;
+  font-size: 0.9rem;
+  text-align: center;
+  line-height: 1.4;
+  display: none;
+  border: 1px solid var(--rule);
+}
+
+.subtitle-below-avatar.active {
+  display: block;
+}
+
+/* 功能按钮 */
+.feature-btn {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg3);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  color: var(--accent2);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 8px;
+}
+
+.feature-btn:hover {
+  background: rgba(78, 205, 196, 0.15);
+  border-color: var(--accent2);
 }
 
 /* 变声控制面板 */

@@ -683,7 +683,6 @@ class FaceTracker {
       subToggle.addEventListener('change', async (e) => {
         this.subtitleEnabled = e.target.checked;
         if (this.subtitleEnabled) {
-          // 先检查浏览器支持
           const supported =
             'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
           if (!supported) {
@@ -712,12 +711,36 @@ class FaceTracker {
         }
       });
     }
+
+    const subBelowToggle = document.getElementById('subtitleBelowToggle');
+    if (subBelowToggle) {
+      subBelowToggle.addEventListener('change', (e) => {
+        const subtitleBelow = document.getElementById('subtitleBelowAvatar');
+        if (subtitleBelow) {
+          subtitleBelow.classList.toggle('active', e.target.checked);
+        }
+      });
+    }
+
+    const openSubtitleBtn = document.getElementById('openSubtitlePage');
+    if (openSubtitleBtn) {
+      openSubtitleBtn.addEventListener('click', () => {
+        window.open('./subtitle.html', '_blank');
+      });
+    }
   }
 
   updateSubtitle(text) {
     const subtitleDisplay = document.getElementById('subtitleDisplay');
+    const subtitleBelow = document.getElementById('subtitleBelowAvatar');
+    
     if (subtitleDisplay) {
       subtitleDisplay.textContent = text;
+      subtitleDisplay.classList.toggle('active', !!text.trim());
+    }
+    
+    if (subtitleBelow && subtitleBelow.classList.contains('active')) {
+      subtitleBelow.textContent = text || '';
     }
   }
 
