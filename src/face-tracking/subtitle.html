@@ -225,8 +225,8 @@
     positionRadios.forEach(radio => {
       radio.addEventListener('change', (e) => {
         const pos = e.target.value;
-        subtitleArea.style.justifyContent = pos === 'top' ? 'flex-start' : 
-                                            pos === 'bottom' ? 'flex-end' : 'center';
+        document.body.style.justifyContent = pos === 'top' ? 'flex-start' : 
+                                             pos === 'bottom' ? 'flex-end' : 'center';
       });
     });
 

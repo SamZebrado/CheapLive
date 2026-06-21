@@ -59,7 +59,7 @@ class LiveSubtitle {
       this.broadcastChannel = new BroadcastChannel('cheaplive-subtitle');
       this.broadcastChannel.onmessage = (event) => {
         if (event.data && this.isReceiver) {
-          this.transcript = event.data.transcript || '';
+          this.transcript = event.data.final || event.data.transcript || '';
           this.interimTranscript = event.data.interim || '';
           if (this.onResult) {
             this.onResult(this.getDisplayText());
