@@ -24,21 +24,12 @@ class VoiceChanger {
     this.outputGain = null;
     this.inputGain = null;
 
-    // 初始化状态标志，防止重复初始化
     this.initialized = false;
-    // 启动状态标志，防止重复 start
     this.started = false;
 
-    // 监听模式: 'original' | 'changed' | 'mute'
-    // original: 听原声（变声仅推流）
-    // changed: 听变声（主播自己听到变声效果）
-    // mute: 静音监听（不本地播放，仅推流）
     this.monitorMode = 'changed';
-
-    // 原始音频旁路（用于原声监听模式）
     this.bypassGain = null;
 
-    // 预设模式
     this.presets = {
       normal: { pitch: 1.0, tempo: 1.0, name: '原声' },
       loli: { pitch: 1.5, tempo: 1.05, name: '萝莉' },
@@ -46,6 +37,15 @@ class VoiceChanger {
       robot: { pitch: 1.0, tempo: 1.0, name: '机器人' },
       monster: { pitch: 0.5, tempo: 0.8, name: '怪兽' },
     };
+
+    // 段落模式状态
+    this.mode = 'realtime'; // 'realtime' | 'paragraph'
+    this.paragraphBuffer = [];
+    this.paragraphRecorder = null;
+    this.isRecording = false;
+    this.paragraphDestination = null;
+    this.paragraphSource = null;
+    this.onParagraphComplete = null;
   }
 
   async init() {
@@ -280,6 +280,164 @@ class VoiceChanger {
     this.initialized = false;
     this.started = false;
     this.soundTouch = null;
+  }
+
+  setMode(mode) {
+    if (mode !== 'realtime' && mode !== 'paragraph') return;
+    if (this.mode === mode) return;
+    
+    if (this.mode === 'paragraph' && this.isRecording) {
+      this.stopParagraphRecording();
+    }
+    
+    this.mode = mode;
+    
+    if (this.mode === 'realtime' && this.started && !this.isActive) {
+      this.startRealtime();
+    }
+  }
+
+  async startRealtime() {
+    if (this.started && this.isActive) return;
+    if (!this.initialized) await this.init();
+    
+    if (!this.source && this.stream) {
+      this.source = this.audioContext.createMediaStreamSource(this.stream);
+      this.source.connect(this.inputGain);
+    }
+    
+    if (!this.soundTouch) {
+      this.soundTouch = new window.soundtouch.SoundTouch(
+        this.audioContext.sampleRate,
+        1
+      );
+      this.soundTouch.pitch = this.pitch;
+      this.soundTouch.tempo = this.tempo;
+      this.soundTouch.rate = this.rate;
+    }
+    
+    this.isActive = true;
+  }
+
+  stopRealtime() {
+    this.isActive = false;
+    if (this.source) {
+      this.source.disconnect();
+      this.source = null;
+    }
+    if (this.soundTouch) {
+      this.soundTouch = null;
+    }
+  }
+
+  async startParagraphRecording() {
+    if (this.mode !== 'paragraph') return;
+    if (this.isRecording) return;
+    
+    await this.init();
+    
+    if (!this.stream) {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+    
+    this.isRecording = true;
+    this.paragraphBuffer = [];
+    this.paragraphDestination = this.audioContext.createMediaStreamDestination();
+    this.paragraphRecorder = new MediaRecorder(this.paragraphDestination.stream);
+    
+    this.paragraphRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) {
+        this.paragraphBuffer.push(e.data);
+      }
+    };
+    
+    const source = this.audioContext.createMediaStreamSource(this.stream);
+    source.connect(this.paragraphDestination);
+    
+    this.paragraphRecorder.start(100);
+  }
+
+  async stopParagraphRecording() {
+    if (!this.isRecording || !this.paragraphRecorder) return;
+    
+    return new Promise((resolve) => {
+      this.paragraphRecorder.onstop = async () => {
+        this.isRecording = false;
+        
+        if (this.paragraphBuffer.length === 0) {
+          resolve();
+          return;
+        }
+        
+        const blob = new Blob(this.paragraphBuffer, { type: 'audio/webm' });
+        await this.processAndPlayParagraph(blob);
+        resolve();
+      };
+      
+      this.paragraphRecorder.stop();
+    });
+  }
+
+  async processAndPlayParagraph(blob) {
+    if (!this.audioContext) return;
+    
+    try {
+      const arrayBuffer = await blob.arrayBuffer();
+      const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+      
+      const processedBuffer = await this.applySoundTouchToBuffer(audioBuffer);
+      
+      const source = this.audioContext.createBufferSource();
+      source.buffer = processedBuffer;
+      source.connect(this.outputGain);
+      
+      source.onended = () => {
+        source.disconnect();
+        if (this.onParagraphComplete) {
+          this.onParagraphComplete();
+        }
+      };
+      
+      source.start(0);
+    } catch (err) {
+      console.error('段落模式处理失败:', err);
+    }
+  }
+
+  async applySoundTouchToBuffer(audioBuffer) {
+    if (!window.soundtouch) {
+      await this.loadSoundTouch();
+    }
+    
+    const sampleRate = audioBuffer.sampleRate;
+    const channelData = audioBuffer.getChannelData(0);
+    
+    const st = new window.soundtouch.SoundTouch(sampleRate, 1);
+    st.pitch = this.pitch;
+    st.tempo = this.tempo;
+    st.rate = this.rate;
+    
+    const inputBuffer = new window.soundtouch.Float32AudioBuffer(channelData.length);
+    for (let i = 0; i < channelData.length; i++) {
+      inputBuffer.vector[i] = channelData[i];
+    }
+    st.putSamples(inputBuffer);
+    
+    const outputLength = Math.ceil(channelData.length / this.tempo);
+    const outputBuffer = new window.soundtouch.Float32AudioBuffer(outputLength);
+    const received = st.receiveSamples(outputBuffer);
+    
+    const processedAudioBuffer = this.audioContext.createBuffer(
+      1,
+      received,
+      sampleRate
+    );
+    const outputChannel = processedAudioBuffer.getChannelData(0);
+    for (let i = 0; i < received; i++) {
+      outputChannel[i] = outputBuffer.vector[i];
+    }
+    
+    return processedAudioBuffer;
   }
 }
 

@@ -679,6 +679,57 @@ class FaceTracker {
       });
     }
 
+    const vcMode = document.getElementById('voiceChangerMode');
+    const paragraphControls = document.getElementById('paragraphControls');
+    const paragraphRecordBtn = document.getElementById('paragraphRecordBtn');
+
+    if (vcMode) {
+      vcMode.addEventListener('change', (e) => {
+        if (this.voiceChanger) {
+          this.voiceChanger.setMode(e.target.value);
+          const labels = { realtime: '实时变声', paragraph: '段落变声' };
+          this.status.textContent = `变声模式: ${labels[e.target.value]}`;
+        }
+        if (paragraphControls) {
+          paragraphControls.classList.toggle('active', e.target.value === 'paragraph');
+        }
+      });
+    }
+
+    if (paragraphRecordBtn) {
+      const startRecording = async () => {
+        if (!this.voiceChanger) return;
+        paragraphRecordBtn.classList.add('recording');
+        paragraphRecordBtn.textContent = '录音中...';
+        try {
+          await this.voiceChanger.startParagraphRecording();
+          this.status.textContent = '录音中...';
+        } catch (err) {
+          this.status.textContent = '录音失败: ' + err.message;
+          paragraphRecordBtn.classList.remove('recording');
+          paragraphRecordBtn.textContent = '按住录音';
+        }
+      };
+
+      const stopRecording = async () => {
+        if (!this.voiceChanger) return;
+        paragraphRecordBtn.classList.remove('recording');
+        paragraphRecordBtn.textContent = '按住录音';
+        try {
+          await this.voiceChanger.stopParagraphRecording();
+          this.status.textContent = '变声处理完成';
+        } catch (err) {
+          this.status.textContent = '处理失败: ' + err.message;
+        }
+      };
+
+      paragraphRecordBtn.addEventListener('mousedown', startRecording);
+      paragraphRecordBtn.addEventListener('mouseup', stopRecording);
+      paragraphRecordBtn.addEventListener('mouseleave', stopRecording);
+      paragraphRecordBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startRecording(); });
+      paragraphRecordBtn.addEventListener('touchend', (e) => { e.preventDefault(); stopRecording(); });
+    }
+
     if (subToggle) {
       subToggle.addEventListener('change', async (e) => {
         this.subtitleEnabled = e.target.checked;

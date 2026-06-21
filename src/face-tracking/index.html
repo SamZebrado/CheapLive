@@ -353,6 +353,13 @@
           </div>
           <div id="voiceChangerPanel" class="voice-changer-panel hidden">
             <div class="vc-control-row">
+              <label for="voiceChangerMode">模式:</label>
+              <select id="voiceChangerMode">
+                <option value="realtime">实时变声</option>
+                <option value="paragraph">段落变声</option>
+              </select>
+            </div>
+            <div class="vc-control-row">
               <label for="voiceChangerPreset">预设:</label>
               <select id="voiceChangerPreset">
                 <option value="normal">原声</option>
@@ -369,6 +376,9 @@
                 <option value="original">听原声</option>
                 <option value="mute">静音</option>
               </select>
+            </div>
+            <div class="vc-control-row paragraph-controls" id="paragraphControls">
+              <button id="paragraphRecordBtn" class="paragraph-record-btn">按住录音</button>
             </div>
           </div>
           <div class="feature-toggle-row">
