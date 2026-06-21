@@ -11,6 +11,7 @@ rules/chatgpt-bridge-collaboration.md
 # 含 ChatGPT 引用的 Prompt 文件：永远禁止推到公共仓库
 docs/cheaplive-scheduler-aggressive.md
 docs/trae-code-start-prompt-20260618.md
+docs/handoff-to-trae-code-20260618.md
 rules/prompt-structure.md
 
 # Playwright test artifacts (randomly named, non-deterministic)
