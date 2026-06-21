@@ -506,9 +506,12 @@ class ProceduralMeshRenderer {
 // ---------------- 球体头像 ----------------
 
 export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
-  constructor(canvasId) {
+  constructor(canvasId, options = {}) {
     super(canvasId);
     this.mesh = createSphereMesh({ rings: 18, segments: 28, radius: 85 });
+    // 光照参数（可选）
+    this.lightDir = options.lightDir ?? { x: -0.35, y: -0.4, z: 0.8 };
+    this.ambient = options.ambient ?? 0.55;
     this.draw();
   }
 
@@ -560,7 +563,6 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
     const originX = w * 0.5 + (np.headX - 0.5) * minSide * 0.30;
     const originY = h * 0.5 + (np.headY - 0.5) * minSide * 0.20;
 
-    const lightDir = { x: -0.35, y: -0.4, z: 0.8 };
     // 球体是封闭凸形，使用严格的背面剔除阈值 -0.05，ambient 0.55 让暗部不糊死
     this._drawMesh(ctx, deformed, {
       w, h, scale, originX, originY,
@@ -568,9 +570,9 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       baseColorBottom: '#f3f0e6',
       faceTopColor: '#c8c2b4',
       faceBottomColor: '#fffaf0',
-      lightDir,
+      lightDir: this.lightDir,
       cullThreshold: -0.05,
-      ambient: 0.55,
+      ambient: this.ambient,
     });
 
     // 五官
@@ -729,7 +731,7 @@ function skinFill(ctx, coverH, halfW) {
 // ---------------- 纺锤鲸鱼 ----------------
 
 export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
-  constructor(canvasId) {
+  constructor(canvasId, options = {}) {
     super(canvasId);
     this.spindleMesh = createSpindleMesh({
         headX: 70,
@@ -749,6 +751,9 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     this.baseYaw = 0;
     this.basePitch = 0;
     this.baseRoll = 0;
+    // 光照参数（可选）
+    this.lightDir = options.lightDir ?? { x: -0.3, y: -0.5, z: 0.8 };
+    this.ambient = options.ambient ?? 0.58;
     this.draw();
   }
 
@@ -801,7 +806,6 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
 
     // 萨卡班甲鱼是扁平椭球，旋转时侧面仍应可见，放宽到 -0.15
     // 尾鳍是双面的，不受这个阈值影响
-    const lightDir = { x: -0.3, y: -0.5, z: 0.8 };
     const deformedBody = deformSpindle(this.spindleMesh, rot);
     this._drawMesh(ctx, deformedBody, {
       w, h, scale, originX, originY,
@@ -809,9 +813,9 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       baseColorBottom: this.spindleMesh.bottomColor,
       faceTopColor: this.spindleMesh.faceTopColor,
       faceBottomColor: this.spindleMesh.faceBottomColor,
-      lightDir,
+      lightDir: this.lightDir,
       cullThreshold: -0.15,
-      ambient: 0.58,
+      ambient: this.ambient,
     });
 
     this._drawFaceFeatures(ctx, np, rot, originX, originY, scale);
