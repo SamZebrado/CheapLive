@@ -89,3 +89,42 @@ test('applyLight: exact output for ambient=0.55, dot=-0.2, white', () => {
   const expected = Math.round(255 * factor);
   assert.ok(result.includes(`rgb(${expected}, ${expected}, ${expected})`), 'clamped dot product');
 });
+
+test('applyLight: 不同 ambient 输出不同（ambient 改变亮度）', () => {
+  const normal = { x: 0, y: 0, z: 0 };
+  const light = { x: 0, y: 0, z: 1 };
+  const a = applyLightTest(normal, light, '#bdb8aa', 0.2);
+  const b = applyLightTest(normal, light, '#bdb8aa', 0.8);
+  assert.notEqual(a, b, 'different ambient should produce different output');
+});
+
+test('applyLight: 不同 lightDir 输出不同（朝向不同会影响光照强度）', () => {
+  const normal = { x: 0, y: 0, z: 1 };
+  const front = { x: 0, y: 0, z: 1 };
+  const side = { x: 1, y: 0, z: 0 };
+  const a = applyLightTest(normal, front, '#ffffff', 0.55);
+  const b = applyLightTest(normal, side, '#ffffff', 0.55);
+  assert.notEqual(a, b, 'different lightDir should produce different output');
+  const aMatch = a.match(/rgb\((\d+),/);
+  const bMatch = b.match(/rgb\((\d+),/);
+  assert.ok(aMatch && bMatch, 'both match rgb');
+  assert.ok(parseInt(aMatch[1], 10) > parseInt(bMatch[1], 10), 'front-lit brighter than side-lit');
+});
+
+test('parseRGB: 无效颜色回退为黑色（不抛错）', () => {
+  assert.deepEqual(parseRGBTest(null), { r: 0, g: 0, b: 0 });
+  assert.deepEqual(parseRGBTest(undefined), { r: 0, g: 0, b: 0 });
+  assert.deepEqual(parseRGBTest('invalid'), { r: 0, g: 0, b: 0 });
+  assert.deepEqual(parseRGBTest('rgb(100, 200)'), { r: 0, g: 0, b: 0 });
+});
+
+test('applyLight: 基于不同 nz 输出应不同（表面法线朝向影响）', () => {
+  const light = { x: 0, y: 0, z: 1 };
+  const base = '#ffffff';
+  const a = applyLightTest({ x: 0, y: 0, z: 1 }, light, base, 0.55);
+  const b = applyLightTest({ x: 0, y: 0, z: 0 }, light, base, 0.55);
+  const c = applyLightTest({ x: 0, y: 0, z: -1 }, light, base, 0.55);
+  const rOf = (s) => parseInt(s.match(/rgb\((\d+),/)[1], 10);
+  assert.ok(rOf(a) > rOf(b), 'z=1 brighter than z=0');
+  assert.ok(rOf(b) >= rOf(c), 'z=0 at least as bright as z=-1 (ambient clamp)');
+});
