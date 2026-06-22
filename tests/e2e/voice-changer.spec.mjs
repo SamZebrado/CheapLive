@@ -269,3 +269,132 @@ test('voice changer mock success path - toggle/preset/monitor update VoiceChange
 
   expect(afterOriginal.monitorMode).toBe('original');
 });
+
+test('voice changer mode selection: realtime and paragraph options exist', async ({ page }) => {
+  await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForTimeout(1500);
+
+  // Verify voiceChangerMode select has both options
+  const modeSelect = await page.$('#voiceChangerMode');
+  expect(modeSelect).not.toBeNull();
+
+  const options = await page.$$eval('#voiceChangerMode option', els => els.map(el => el.value));
+  expect(options).toContain('realtime');
+  expect(options).toContain('paragraph');
+});
+
+test('voice changer paragraph mode toggle activates paragraphControls', async ({ page }) => {
+  await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForTimeout(1500);
+
+  // Initially paragraphControls should not have 'active' class (realtime mode is default)
+  let paragraphActive = await page.$eval('#paragraphControls', el => el.classList.contains('active'));
+  // If VoiceChanger is not loaded (no mic), paragraphControls might not exist or have different behavior
+  // Just verify the element exists
+  const paragraphControls = await page.$('#paragraphControls');
+  expect(paragraphControls).not.toBeNull();
+
+  // Switch to paragraph mode
+  await page.selectOption('#voiceChangerMode', 'paragraph', { force: true });
+  await page.waitForTimeout(300);
+
+  // Verify paragraphControls is now active
+  paragraphActive = await page.$eval('#paragraphControls', el => el.classList.contains('active'));
+  expect(paragraphActive).toBe(true);
+
+  // Switch back to realtime mode
+  await page.selectOption('#voiceChangerMode', 'realtime', { force: true });
+  await page.waitForTimeout(300);
+
+  paragraphActive = await page.$eval('#paragraphControls', el => el.classList.contains('active'));
+  expect(paragraphActive).toBe(false);
+});
+
+test('voice changer paragraph mode is stored in VoiceChanger instance', async ({ page }) => {
+  // Use the mock setup from the existing mock success path test
+  await page.addInitScript(() => {
+    window.soundtouch = {
+      SoundTouch: function(sampleRate, channels) {
+        this.sampleRate = sampleRate;
+        this.channels = channels;
+        this.pitch = 1.0;
+        this.tempo = 1.0;
+        this.rate = 1.0;
+        this._buffer = null;
+      }
+    };
+    const fakeStream = {
+      getAudioTracks: () => [{ kind: 'audio' }],
+      getTracks: () => [{ kind: 'audio' }],
+      getVideoTracks: () => [],
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => true,
+    };
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+      value: async () => fakeStream,
+      writable: true,
+    });
+    const mockAudioContext = {
+      state: 'running',
+      sampleRate: 44100,
+      destination: { context: this },
+      createGain: () => ({ gain: { value: 0.8 }, connect: () => {} }),
+      createScriptProcessor: () => ({
+        onaudioprocess: null,
+        connect: () => {},
+      }),
+      createMediaStreamSource: () => ({ connect: () => {} }),
+      createMediaStreamDestination: () => ({
+        stream: { getAudioTracks: () => [] }
+      }),
+      resume: async () => {},
+      close: async () => {},
+    };
+    window.AudioContext = function() { return mockAudioContext; };
+    window.webkitAudioContext = function() { return mockAudioContext; };
+  });
+
+  await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForTimeout(500);
+
+  // Enable voice changer first
+  await page.evaluate(() => {
+    const toggle = document.getElementById('voiceChangerToggle');
+    Object.defineProperty(toggle, 'checked', { value: true, writable: true });
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForTimeout(1500);
+
+  // Switch to paragraph mode
+  await page.selectOption('#voiceChangerMode', 'paragraph', { force: true });
+  await page.waitForTimeout(300);
+
+  // Verify VoiceChanger instance mode is 'paragraph'
+  const modeResult = await page.evaluate(() => {
+    const ft = window.faceTracker;
+    if (!ft?.voiceChanger) return { ok: false, error: 'no voiceChanger' };
+    return {
+      ok: true,
+      mode: ft.voiceChanger.mode,
+      isRecording: ft.voiceChanger.isRecording,
+    };
+  });
+
+  expect(modeResult.ok).toBe(true);
+  expect(modeResult.mode).toBe('paragraph');
+
+  // Switch back to realtime
+  await page.selectOption('#voiceChangerMode', 'realtime', { force: true });
+  await page.waitForTimeout(300);
+
+  const realtimeResult = await page.evaluate(() => {
+    const ft = window.faceTracker;
+    return {
+      mode: ft.voiceChanger?.mode,
+    };
+  });
+
+  expect(realtimeResult.mode).toBe('realtime');
+});

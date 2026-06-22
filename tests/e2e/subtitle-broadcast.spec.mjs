@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const RUN_ID = 'run-20260621-012';
+const RUN_ID = 'run-20260622-016';
 const ARTIFACT_DIR = `.automation/artifacts/${RUN_ID}`;
 
 test('subtitle page loads without JS error', async ({ page }) => {
