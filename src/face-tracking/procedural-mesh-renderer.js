@@ -670,13 +670,16 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       if (cover > 0.01) {
         ctx.save();
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY, rx + 0.5, ry + 0.5, ang, 0, Math.PI * 2);
-        ctx.clip();
-        ctx.translate(t.screenX, t.screenY);
-        ctx.rotate(ang);
-        const coverH = 2 * ry * cover;
+        // Use an ellipse for the eyelid cover instead of a rectangle.
+        // The ellipse is anchored at the top of the eye (center at -ry)
+        // and grows downward as cover increases, creating a curved
+        // upper eyelid that follows the eye's natural elliptical shape.
+        const eyelidRx = rx + 0.5;
+        const eyelidRy = (ry + 1) * cover;
+        const eyelidCY = -ry - 0.5;
+        ctx.ellipse(t.screenX, t.screenY + eyelidCY, eyelidRx, eyelidRy, ang, 0, Math.PI * 2);
         ctx.fillStyle = this.mesh.faceTopColor || '#d9d2be';
-        ctx.fillRect(-rx - 2, -ry - 2, rx * 2 + 4, coverH + 2);
+        ctx.fill();
         ctx.restore();
       }
       ctx.restore();
@@ -938,13 +941,16 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       if (cover > 0.01) {
         ctx.save();
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY, rx + 0.5, ry + 0.5, ang, 0, Math.PI * 2);
-        ctx.clip();
-        ctx.translate(t.screenX, t.screenY);
-        ctx.rotate(ang);
-        const coverH = 2 * ry * cover;
+        // Use an ellipse for the eyelid cover instead of a rectangle.
+        // The ellipse is anchored at the top of the eye (center at -ry)
+        // and grows downward as cover increases, creating a curved
+        // upper eyelid that follows the eye's natural elliptical shape.
+        const eyelidRx = rx + 0.5;
+        const eyelidRy = (ry + 1) * cover;
+        const eyelidCY = -ry - 0.5;
+        ctx.ellipse(t.screenX, t.screenY + eyelidCY, eyelidRx, eyelidRy, ang, 0, Math.PI * 2);
         ctx.fillStyle = mesh.faceTopColor || '#bdb8aa';
-        ctx.fillRect(-rx - 2, -ry - 2, rx * 2 + 4, coverH + 2);
+        ctx.fill();
         ctx.restore();
       }
       ctx.restore();
