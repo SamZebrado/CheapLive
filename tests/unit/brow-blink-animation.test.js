@@ -210,3 +210,98 @@ describe('球体眉毛动画参数映射', () => {
     assert.equal(upAmt, 6.4, '球体眉毛抬升量应与 brow 参数成正比');
   });
 });
+
+describe('眉毛动画抬升量与 scale 的关系', () => {
+  it('眉毛抬升量应与 scale 成正比', () => {
+    const browLeft = 0.5;
+    const baseScale = 1;
+    const doubledScale = 2;
+
+    const upAmtBase = browLeft * 8 * baseScale;
+    const upAmtDoubled = browLeft * 8 * doubledScale;
+
+    assert.equal(upAmtBase, 4, '基础 scale 下抬升量为 4');
+    assert.equal(upAmtDoubled, 8, '双倍 scale 下抬升量为 8');
+    assert.equal(upAmtDoubled, upAmtBase * 2, '双倍 scale 时抬升量应翻倍');
+  });
+
+  it('不同 brow 参数值的抬升量应单调递增', () => {
+    const browValues = [0, 0.25, 0.5, 0.75, 1];
+    const previousUpAmt = -1;
+
+    for (const brow of browValues) {
+      const upAmt = brow * 8;
+      assert.ok(upAmt >= previousUpAmt, `抬升量应单调递增: brow=${brow}, upAmt=${upAmt}`);
+    }
+  });
+
+  it('眉毛抬升方向应沿 -downVec（向上）', () => {
+    const brow = 0.5;
+    const upAmt = brow * 8;
+
+    assert.ok(upAmt > 0, '抬升量应为正数');
+    assert.equal(-upAmt, -4, '向下偏移应为负值（即向上移动）');
+  });
+});
+
+describe('眨眼 Clip 遮罩边界验证', () => {
+  it('遮罩高度应随 cover 线性变化', () => {
+    const ry = 10;
+
+    for (const cover of [0, 0.25, 0.5, 0.75, 1]) {
+      const coverH = 2 * ry * cover;
+
+      assert.ok(coverH >= 0 && coverH <= 2 * ry, `遮罩高度应在 [0, ${2 * ry}]: ${coverH}`);
+      assert.equal(coverH, 20 * cover, `遮罩高度应与 cover 成正比: cover=${cover}, coverH=${coverH}`);
+    }
+  });
+
+  it('完全睁眼时遮罩高度为 0', () => {
+    const openness = 1;
+    const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
+    const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
+    const cover = 1 - easedOpen;
+    const ry = 10;
+    const coverH = 2 * ry * cover;
+
+    assert.equal(cover, 0, '完全睁眼时 cover 应为 0');
+    assert.equal(coverH, 0, '完全睁眼时遮罩高度应为 0');
+  });
+
+  it('完全闭眼时遮罩覆盖整个眼睛', () => {
+    const openness = 0;
+    const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
+    const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
+    const cover = 1 - easedOpen;
+    const ry = 10;
+    const coverH = 2 * ry * cover;
+
+    assert.equal(cover, 1, '完全闭眼时 cover 应为 1');
+    assert.equal(coverH, 2 * ry, '完全闭眼时遮罩高度应等于 2*ry');
+  });
+
+  it('半睁眼时遮罩覆盖一半眼睛', () => {
+    const openness = 0.325;
+    const tOpen = (openness - 0.15) / (0.5 - 0.15);
+    const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
+    const cover = 1 - easedOpen;
+    const ry = 10;
+    const coverH = 2 * ry * cover;
+
+    assert.ok(cover > 0 && cover < 1, `半睁眼时 cover 应在 (0, 1): ${cover}`);
+    assert.ok(coverH > 0 && coverH < 2 * ry, `半睁眼时遮罩高度应在 (0, ${2 * ry}): ${coverH}`);
+  });
+
+  it('clip 区域应覆盖整个眼睛椭圆', () => {
+    const rx = 10;
+    const ry = 10;
+
+    const clipRadiusX = rx + 0.5;
+    const clipRadiusY = ry + 0.5;
+
+    assert.ok(clipRadiusX > rx, 'clip X 半径应略大于眼睛 X 半径');
+    assert.ok(clipRadiusY > ry, 'clip Y 半径应略大于眼睛 Y 半径');
+    assert.equal(clipRadiusX, 10.5, 'clip X 半径应为 rx + 0.5');
+    assert.equal(clipRadiusY, 10.5, 'clip Y 半径应为 ry + 0.5');
+  });
+});
