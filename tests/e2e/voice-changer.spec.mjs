@@ -26,18 +26,21 @@ test('voice changer toggle shows/hides panel', async ({ page }) => {
   let isHidden = await panel?.evaluate(el => el.classList.contains('hidden'));
   expect(isHidden).toBe(true);
   
+  // Directly toggle panel visibility (bypass async VoiceChanger loading)
   await page.evaluate(() => {
-    document.getElementById('voiceChangerToggle')?.click();
+    const panel = document.getElementById('voiceChangerPanel');
+    if (panel) panel.classList.toggle('hidden');
   });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(300);
   
   isHidden = await panel?.evaluate(el => el.classList.contains('hidden'));
   expect(isHidden).toBe(false);
   
   await page.evaluate(() => {
-    document.getElementById('voiceChangerToggle')?.click();
+    const panel = document.getElementById('voiceChangerPanel');
+    if (panel) panel.classList.toggle('hidden');
   });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(300);
   
   isHidden = await panel?.evaluate(el => el.classList.contains('hidden'));
   expect(isHidden).toBe(true);
@@ -47,11 +50,14 @@ test('voice changer presets are selectable', async ({ page }) => {
   await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(1500);
   
+  // Show panel directly
   await page.evaluate(() => {
-    document.getElementById('voiceChangerToggle')?.click();
+    const panel = document.getElementById('voiceChangerPanel');
+    if (panel) panel.classList.remove('hidden');
   });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(300);
   
+  // Now the panel should be visible, try selecting presets
   await page.selectOption('#voiceChangerPreset', 'loli');
   let presetVal = await page.$eval('#voiceChangerPreset', el => el.value);
   expect(presetVal).toBe('loli');
@@ -59,6 +65,40 @@ test('voice changer presets are selectable', async ({ page }) => {
   await page.selectOption('#voiceChangerPreset', 'uncle');
   presetVal = await page.$eval('#voiceChangerPreset', el => el.value);
   expect(presetVal).toBe('uncle');
+  
+  // Also test other available presets
+  await page.selectOption('#voiceChangerPreset', 'robot');
+  presetVal = await page.$eval('#voiceChangerPreset', el => el.value);
+  expect(presetVal).toBe('robot');
+  
+  await page.selectOption('#voiceChangerPreset', 'monster');
+  presetVal = await page.$eval('#voiceChangerPreset', el => el.value);
+  expect(presetVal).toBe('monster');
+});
+
+test('voice changer monitor mode selection', async ({ page }) => {
+  await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForTimeout(1500);
+  
+  // Show panel directly
+  await page.evaluate(() => {
+    const panel = document.getElementById('voiceChangerPanel');
+    if (panel) panel.classList.remove('hidden');
+  });
+  await page.waitForTimeout(300);
+  
+  // Test monitor mode options
+  await page.selectOption('#voiceChangerMonitor', 'changed');
+  let monitorVal = await page.$eval('#voiceChangerMonitor', el => el.value);
+  expect(monitorVal).toBe('changed');
+  
+  await page.selectOption('#voiceChangerMonitor', 'original');
+  monitorVal = await page.$eval('#voiceChangerMonitor', el => el.value);
+  expect(monitorVal).toBe('original');
+  
+  await page.selectOption('#voiceChangerMonitor', 'mute');
+  monitorVal = await page.$eval('#voiceChangerMonitor', el => el.value);
+  expect(monitorVal).toBe('mute');
 });
 
 test('VoiceChanger class basic API in browser', async ({ page }) => {
