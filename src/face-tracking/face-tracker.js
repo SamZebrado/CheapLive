@@ -1066,6 +1066,22 @@ class FaceTracker {
     this.setParam('eyeLeft', this.mirrorData ? eyeRightOut : eyeLeftOut);
     this.setParam('eyeRight', this.mirrorData ? eyeLeftOut : eyeRightOut);
 
+    // === eyeWide：眼睛变大（惊讶表情），0=正常，1=最大
+    const eyeWideLeftRaw = map['eyeWideLeft'] || 0;
+    const eyeWideRightRaw = map['eyeWideRight'] || 0;
+    const eyeWideLeftOut = applyMagnitudeScale(eyeWideLeftRaw, this.calibration.eyeWideLeft || 0.5, this.scale.eyeWide || 0.5, false);
+    const eyeWideRightOut = applyMagnitudeScale(eyeWideRightRaw, this.calibration.eyeWideRight || 0.5, this.scale.eyeWide || 0.5, false);
+    this.setParam('eyeWideLeft', this.mirrorData ? eyeWideRightOut : eyeWideLeftOut);
+    this.setParam('eyeWideRight', this.mirrorData ? eyeWideLeftOut : eyeWideRightOut);
+
+    // === eyeSquint：眯眼（0=正常，1=最窄），与 blink 不同：squint 保持眼睛睁开但变窄
+    const eyeSquintLeftRaw = map['eyeSquintLeft'] || 0;
+    const eyeSquintRightRaw = map['eyeSquintRight'] || 0;
+    const eyeSquintLeftOut = applyMagnitudeScale(eyeSquintLeftRaw, this.calibration.eyeSquintLeft || 0.5, this.scale.eyeSquint || 0.5, false);
+    const eyeSquintRightOut = applyMagnitudeScale(eyeSquintRightRaw, this.calibration.eyeSquintRight || 0.5, this.scale.eyeSquint || 0.5, false);
+    this.setParam('eyeSquintLeft', this.mirrorData ? eyeSquintRightOut : eyeSquintLeftOut);
+    this.setParam('eyeSquintRight', this.mirrorData ? eyeSquintLeftOut : eyeSquintRightOut);
+
     // === 嘴巴：jawOpen 是嘴张开程度（0=闭合，1=最大）
     const mouthRaw = map['jawOpen'] || 0;
     const mouthOut = applyMagnitudeScale(mouthRaw, this.calibration.mouthOpen, this.scale.mouth, false);
@@ -1079,6 +1095,18 @@ class FaceTracker {
     const smileOut = applyMagnitudeScale(smileRaw, this.calibration.mouthSmile, this.scale.smile, false);
     const smileSmoothed = this.smoother('mouthSmile', smileOut);
     this.setParam('mouthSmile', smileSmoothed);
+
+    // === mouthFunnel：嘟嘴/圆嘴（0=正常，1=最嘟）
+    const mouthFunnelRaw = map['mouthFunnel'] || 0;
+    const mouthFunnelOut = applyMagnitudeScale(mouthFunnelRaw, this.calibration.mouthFunnel || 0.5, this.scale.mouthFunnel || 0.5, false);
+    this.setParam('mouthFunnel', this.smoother('mouthFunnel', mouthFunnelOut));
+
+    // === mouthPress：抿嘴/压嘴（0=正常，1=最压）
+    const mouthPressLeftRaw = map['mouthPressLeft'] || 0;
+    const mouthPressRightRaw = map['mouthPressRight'] || 0;
+    const mouthPressRaw = (mouthPressLeftRaw + mouthPressRightRaw) / 2;
+    const mouthPressOut = applyMagnitudeScale(mouthPressRaw, this.calibration.mouthPress || 0.5, this.scale.mouthPress || 0.5, false);
+    this.setParam('mouthPress', this.smoother('mouthPress', mouthPressOut));
 
     // === 眉毛：browInnerUpLeft/Right + browOuterUpLeft/Right （0=放松，1=抬起）
     // MediaPipe 使用明确的 Left/Right 后缀

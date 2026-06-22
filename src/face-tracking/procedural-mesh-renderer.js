@@ -709,7 +709,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    const drawMouth = (anchor, open, smile) => {
+    const drawMouth = (anchor, open, smile, mouthFunnel, mouthPress) => {
       const local = computeSphereFaceAnchorXYZ(this.mesh, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
@@ -717,8 +717,16 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       // 嘴巴尺寸参数：直接用 scale，不预乘 rl/dl
       // mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
       const smileWiden = 1 + smile * 0.4;
-      const halfW = 22 * scale * smileWiden;
-      const openH = (3 * scale + 14 * scale * open);
+
+      // mouthPress: 抿嘴效果，降低 open
+      const effectiveOpen = Math.max(0, open - (mouthPress || 0) * 0.3);
+
+      // mouthFunnel: 嘟嘴效果，使嘴巴变圆（宽度减少，高度增加）
+      const funnelNarrow = 1 - (mouthFunnel || 0) * 0.5;
+      const funnelTall = 1 + (mouthFunnel || 0) * 0.8;
+
+      const halfW = 22 * scale * smileWiden * funnelNarrow;
+      const openH = (3 * scale + 14 * scale * effectiveOpen) * funnelTall;
       const cornerUp = -smile * 8 * scale;
       const centerUp = -smile * 3 * scale;
       ctx.save();
@@ -726,14 +734,14 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1, 2.2 * scale);
 
-      if (open < 0.05 && smile < 0.1) {
+      if (effectiveOpen < 0.05 && smile < 0.1) {
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
         const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
         ctx.lineTo(right.x, right.y);
         ctx.stroke();
-      } else if (open < 0.05) {
+      } else if (effectiveOpen < 0.05) {
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
         const mid = mapFaceLocalPoint(t, 0, centerUp + 2 * scale);
         const right = mapFaceLocalPoint(t, halfW, cornerUp);
@@ -758,11 +766,11 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    drawEye(anchors.leftEye, np.eyeLeft);
-    drawEye(anchors.rightEye, np.eyeRight);
+    drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft);
+    drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight);
     drawBrow(anchors.browLeft, np.browLeft);
     drawBrow(anchors.browRight, np.browRight);
-    drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile);
+    drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile, np.mouthFunnel, np.mouthPress);
   }
 }
 
@@ -880,7 +888,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
 
     const eyeBase = Math.max(8, mesh.headX * 0.25);
 
-    const drawEye = (anchor, openness) => {
+    const drawEye = (anchor, openness, eyeWide, eyeSquint) => {
       const local = computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, -0.2, 1.0);
@@ -890,8 +898,21 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const eyeHalfH = eyeBase * scale;
 
       const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
-      const rx = Math.max(0.1, proj.radiusX);
-      const ry = Math.max(0.1, proj.radiusY);
+      let rx = Math.max(0.1, proj.radiusX);
+      let ry = Math.max(0.1, proj.radiusY);
+
+      // eyeWide: 眼睛变大（惊讶表情），0=正常，1=最大
+      // 效果：rx/ry 都增加，但瞳孔大小不变
+      const wideScale = 1 + (eyeWide || 0) * 0.3;
+      rx *= wideScale;
+      ry *= wideScale;
+
+      // eyeSquint: 眯眼，0=正常，1=最窄
+      // 效果：ry 减少使眼睛变窄，但 rx 略增
+      const squintScaleY = 1 - (eyeSquint || 0) * 0.5;
+      const squintScaleX = 1 + (eyeSquint || 0) * 0.15;
+      rx *= squintScaleX;
+      ry *= squintScaleY;
       const ang = proj.angle;
 
       const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
@@ -979,7 +1000,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    const drawMouth = (anchor, open, smile) => {
+    const drawMouth = (anchor, open, smile, mouthFunnel, mouthPress) => {
       const local = computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
@@ -987,8 +1008,16 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       // 嘴巴尺寸参数：直接用 scale，不预乘 rl/dl
       // mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
       const smileWiden = 1 + smile * 0.40;
-      const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden;
-      const openH = (3 * scale + 12 * scale * open);
+
+      // mouthPress: 抿嘴效果，降低 open
+      const effectiveOpen = Math.max(0, open - (mouthPress || 0) * 0.3);
+
+      // mouthFunnel: 嘟嘴效果，使嘴巴变圆（宽度减少，高度增加）
+      const funnelNarrow = 1 - (mouthFunnel || 0) * 0.5;
+      const funnelTall = 1 + (mouthFunnel || 0) * 0.8;
+
+      const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * funnelNarrow;
+      const openH = (3 * scale + 12 * scale * effectiveOpen) * funnelTall;
       const cornerUp = -smile * 7 * scale;
       const centerUp = -smile * 3 * scale;
       ctx.save();
@@ -996,14 +1025,14 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1.5, 2.5 * scale);
 
-      if (open < 0.05 && smile < 0.1) {
+      if (effectiveOpen < 0.05 && smile < 0.1) {
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
         const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
         ctx.lineTo(right.x, right.y);
         ctx.stroke();
-      } else if (open < 0.05) {
+      } else if (effectiveOpen < 0.05) {
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
         const mid = mapFaceLocalPoint(t, 0, centerUp + 2 * scale);
         const right = mapFaceLocalPoint(t, halfW, cornerUp);
@@ -1053,11 +1082,11 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    drawEye(anchors.leftEye, np.eyeLeft);
-    drawEye(anchors.rightEye, np.eyeRight);
+    drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft);
+    drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight);
     drawBrow(anchors.browLeft, np.browLeft);
     drawBrow(anchors.browRight, np.browRight);
-    drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile);
+    drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile, np.mouthFunnel, np.mouthPress);
     drawNostril(-1);
     drawNostril(+1);
   }
