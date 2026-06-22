@@ -42,7 +42,7 @@ const SPHERE_END = 0.26;  // 头部最大半径位置（s=0 是鼻端，s=SPHERE
  * 用户要求：增大的速度要慢于减小的速度，这样才会有细长身体。
  * 用余弦衰减确保后半段平滑且持续收窄。
  */
-function radiusScale(s) {
+export function radiusScale(s) {
   if (s <= SPHERE_END) {
     // 前半球：椭球方程，确保头部轮廓圆润无肩
     const rel = SPHERE_END - s;  // rel ∈ [SPHERE_END, 0]
@@ -62,7 +62,7 @@ function radiusScale(s) {
  * 数值计算半径曲线的导数 dR/ds（用于法线计算）。
  * 用中心差分，端点用单边差分。
  */
-function radiusScaleDeriv(s) {
+export function radiusScaleDeriv(s) {
   const h = 0.002;
   if (s <= h) return (radiusScale(s + h) - radiusScale(s)) / h;
   if (s >= 1 - h) return (radiusScale(s) - radiusScale(s - h)) / h;

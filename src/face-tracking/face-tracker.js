@@ -8,6 +8,38 @@
 import { DebugAvatar } from './debug-avatar.js';
 import { createAvatar, AVATAR_VERSIONS } from './avatar-versions.js';
 
+export function applyMagnitudeScale(raw, calib, scaleFactor, invert = false) {
+  let delta;
+  if (invert) {
+    delta = calib - raw;
+  } else {
+    delta = raw - calib;
+  }
+  const scaledDelta = delta * scaleFactor;
+  let result;
+  if (invert) {
+    result = 1.0 - Math.max(0, scaledDelta);
+  } else {
+    result = Math.max(0, Math.min(1, scaledDelta));
+  }
+  return result;
+}
+
+export function applyCenterScale(raw, center, scaleFactor) {
+  const delta = raw - center;
+  const scaled = delta * scaleFactor;
+  return Math.max(0, Math.min(1, center + scaled));
+}
+
+export function createSmoother(smoothFactor = 0.25) {
+  const smoothed = {};
+  return function smoothValue(key, target) {
+    const current = smoothed[key] || 0;
+    smoothed[key] = current + (target - current) * (1 - smoothFactor);
+    return smoothed[key];
+  };
+}
+
 class FaceTracker {
   constructor() {
     this.faceLandmarker = null;
@@ -69,11 +101,8 @@ class FaceTracker {
     this.calibStartTime = 0;
 
     // 平滑值（用于嘴部等需要平滑的参数）
-    this.smoothed = {
-      mouthOpen: 0,
-      mouthSmile: 0,
-    };
     this.smoothFactor = 0.25; // 0=不平滑, 1=完全平滑（不更新）
+    this.smoother = createSmoother(this.smoothFactor);
 
     // 调试小人
     this.avatar = null;
@@ -161,43 +190,6 @@ class FaceTracker {
     this.saveSettings();
   }
 
-  // 程度型参数缩放：从 0 开始的量（嘴开合、微笑、眉毛抬起、眼睛开合从闭合态算）
-  // raw: 原始值；calib: 中性基准值；scaleFactor: 放大系数；invert: 是否反转方向
-  applyMagnitudeScale(raw, calib, scaleFactor, invert = false) {
-    let delta;
-    if (invert) {
-      // 对于眼睛，calib 是"自然睁眼"的高值，值低于 calib 表示闭眼程度
-      delta = calib - raw;  // >0 表示闭眼程度
-    } else {
-      // 对于嘴/眉/微笑，calib 是"放松"的低值，值高于 calib 表示程度
-      delta = raw - calib;  // >0 表示动作程度
-    }
-    // 放大偏差后映射回 0~1
-    const scaledDelta = delta * scaleFactor;
-    let result;
-    if (invert) {
-      // 输出：1 = 完全睁眼, 0 = 完全闭眼
-      result = 1.0 - Math.max(0, scaledDelta);
-    } else {
-      // 输出：0 = 中性, 1 = 完全动作
-      result = Math.max(0, Math.min(1, scaledDelta));
-    }
-    return result;
-  }
-
-  // 位置型参数缩放：围绕中心值的量（头姿态、位置）
-  applyCenterScale(raw, center, scaleFactor) {
-    const delta = raw - center;
-    const scaled = delta * scaleFactor;
-    return Math.max(0, Math.min(1, center + scaled));
-  }
-
-  // 平滑插值：避免嘴部动作跳变
-  smoothValue(key, target) {
-    const current = this.smoothed[key] || 0;
-    this.smoothed[key] = current + (target - current) * (1 - this.smoothFactor);
-    return this.smoothed[key];
-  }
   loadSettings() {
     try {
       const settings = JSON.parse(localStorage.getItem('cheaplive_settings') || '{}');
@@ -1067,23 +1059,23 @@ class FaceTracker {
     const eyeLeftRaw = 1 - (map['eyeBlinkLeft'] || 0);
     const eyeRightRaw = 1 - (map['eyeBlinkRight'] || 0);
     // 以"自然睁眼"的校准值为基准，低于此值表示闭眼
-    const eyeLeftOut = this.applyMagnitudeScale(eyeLeftRaw, this.calibration.eyeLeft, this.scale.eye, true);
-    const eyeRightOut = this.applyMagnitudeScale(eyeRightRaw, this.calibration.eyeRight, this.scale.eye, true);
+    const eyeLeftOut = applyMagnitudeScale(eyeLeftRaw, this.calibration.eyeLeft, this.scale.eye, true);
+    const eyeRightOut = applyMagnitudeScale(eyeRightRaw, this.calibration.eyeRight, this.scale.eye, true);
     this.setParam('eyeLeft', this.mirrorData ? eyeRightOut : eyeLeftOut);
     this.setParam('eyeRight', this.mirrorData ? eyeLeftOut : eyeRightOut);
 
     // === 嘴巴：jawOpen 是嘴张开程度（0=闭合，1=最大）
     const mouthRaw = map['jawOpen'] || 0;
-    const mouthOut = this.applyMagnitudeScale(mouthRaw, this.calibration.mouthOpen, this.scale.mouth, false);
-    const mouthSmoothed = this.smoothValue('mouthOpen', mouthOut);
+    const mouthOut = applyMagnitudeScale(mouthRaw, this.calibration.mouthOpen, this.scale.mouth, false);
+    const mouthSmoothed = this.smoother('mouthOpen', mouthOut);
     this.setParam('mouthOpen', mouthSmoothed);
 
     // === 微笑：mouthSmileLeft/Right （0=中性，1=大笑）
     const smileLeft = map['mouthSmileLeft'] || 0;
     const smileRight = map['mouthSmileRight'] || 0;
     const smileRaw = (smileLeft + smileRight) / 2;
-    const smileOut = this.applyMagnitudeScale(smileRaw, this.calibration.mouthSmile, this.scale.smile, false);
-    const smileSmoothed = this.smoothValue('mouthSmile', smileOut);
+    const smileOut = applyMagnitudeScale(smileRaw, this.calibration.mouthSmile, this.scale.smile, false);
+    const smileSmoothed = this.smoother('mouthSmile', smileOut);
     this.setParam('mouthSmile', smileSmoothed);
 
     // === 眉毛：browInnerUpLeft/Right + browOuterUpLeft/Right （0=放松，1=抬起）
@@ -1094,8 +1086,8 @@ class FaceTracker {
     const browRightOuter = map['browOuterUpRight'] || 0;
     const browLeftRaw = (browLeftInner + browLeftOuter) / 2;
     const browRightRaw = (browRightInner + browRightOuter) / 2;
-    const browLeftOut = this.applyMagnitudeScale(browLeftRaw, this.calibration.browLeft, this.scale.brow, false);
-    const browRightOut = this.applyMagnitudeScale(browRightRaw, this.calibration.browRight, this.scale.brow, false);
+    const browLeftOut = applyMagnitudeScale(browLeftRaw, this.calibration.browLeft, this.scale.brow, false);
+    const browRightOut = applyMagnitudeScale(browRightRaw, this.calibration.browRight, this.scale.brow, false);
     // 镜像：用户抬起他的左眉 → 在屏幕右侧，对应头像的右眉
     this.setParam('browLeft', this.mirrorData ? browRightOut : browLeftOut);
     this.setParam('browRight', this.mirrorData ? browLeftOut : browRightOut);
@@ -1157,9 +1149,9 @@ class FaceTracker {
     }
 
     // 应用头部姿态：围绕校准中心值放大
-    this.setParam('headYaw', this.applyCenterScale(headYawNorm, this.calibration.headYaw, this.scale.head));
-    this.setParam('headPitch', this.applyCenterScale(headPitchNorm, this.calibration.headPitch, this.scale.head));
-    this.setParam('headRoll', this.applyCenterScale(headRollNorm, this.calibration.headRoll, this.scale.head));
+    this.setParam('headYaw', applyCenterScale(headYawNorm, this.calibration.headYaw, this.scale.head));
+    this.setParam('headPitch', applyCenterScale(headPitchNorm, this.calibration.headPitch, this.scale.head));
+    this.setParam('headRoll', applyCenterScale(headRollNorm, this.calibration.headRoll, this.scale.head));
 
     // 头部在画面中的位置（基于 landmarks 的鼻子中心点）
     let headXRaw = 0.5, headYRaw = 0.5;
@@ -1169,8 +1161,8 @@ class FaceTracker {
       headYRaw = nose.y;
     }
     // 应用位置缩放：围绕校准中心
-    this.setParam('headX', this.applyCenterScale(headXRaw, this.calibration.headX, this.scale.pos));
-    this.setParam('headY', this.applyCenterScale(headYRaw, this.calibration.headY, this.scale.pos));
+    this.setParam('headX', applyCenterScale(headXRaw, this.calibration.headX, this.scale.pos));
+    this.setParam('headY', applyCenterScale(headYRaw, this.calibration.headY, this.scale.pos));
 
     // 校准：记录头部姿态原始值（用于下次 finishCalibration 时合并）
     if (this.calibrating) {
@@ -1208,8 +1200,9 @@ class FaceTracker {
   }
 }
 
-// 初始化并暴露到 window
-const faceTracker = new FaceTracker();
-if (typeof window !== 'undefined') {
+// 初始化并暴露到 window（仅在浏览器环境）
+let faceTracker = null;
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  faceTracker = new FaceTracker();
   window.faceTracker = faceTracker;
 }
