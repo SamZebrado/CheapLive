@@ -119,6 +119,18 @@ export function buildFaceBasisTest(local) {
   return buildFaceBasis(local);
 }
 
+export function applyLightTest(faceCenterNormal, lightDir, baseColor, ambient) {
+  return applyLight(faceCenterNormal, lightDir, baseColor, ambient);
+}
+
+export function parseRGBTest(c) {
+  return parseRGB(c);
+}
+
+export function parseHexTest(hex) {
+  return parseHex(hex);
+}
+
 function computeProjectedEllipse(rx, ry, bx, by, halfWidth, halfHeight) {
   const ax = rx * halfWidth;
   const ay = ry * halfWidth;
