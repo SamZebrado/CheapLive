@@ -304,26 +304,19 @@ export function createSpindleMesh(options = {}) {
     }
   }
 
-  // --- 尾鳍（Tail）：萨卡班甲鱼式对称尾鳍叶 ---
-  //     设计（GPT审阅后修正）：
-  //       R：尾柄中心（主体最后一圈的中心）
-  //       A：尾鳍上顶点（-Y）
-  //       C：尾鳍下端点（+Y）
-  //       BL：尾鳍左边缘（-X）
-  //       BR：尾鳍右边缘（+X）
-  //       T：尾尖（向 -Z 延伸）
-  //     上下尾叶是真正对称的：R-A-T（上）和 R-C-T（下）
-  //     尾鳍是薄鳍结构（doubleSided），从左右两侧都可见
-  //     尾鳍是三角面原生表示，不是退化四边形
+  // --- 尾鳍（Tail）：3D 扇尾，从主体平滑延伸 ---
+  //     设计：
+  //       - 尾鳍从主体最后一圈平滑过渡
+  //       - 尾鳍沿 -Z 方向延伸，形成扇尾形状
+  //       - 尾尖略上翘，形成鱼雷形尾部
+  //       - 所有面都是三角形，避免退化问题
   if (flukeEnabled) {
     const flukeStartIdx = vertices.length;
-    const flukeHalfWidth = headX * 0.18 * flukeSize;   // 尾鳍左右宽度（较窄）
-    const flukeHalfHeight = headY * 0.22 * flukeSize;  // 尾鳍上下高度
-    const tailExtensionZ = 30;                         // 尾巴延伸长度（实际使用）
-    const flukeTipBackZ = -bodyLength - headZ * 0.2 - tailExtensionZ; // 尾尖最终位置
+    const flukeHalfWidth = headX * 0.18 * flukeSize;
+    const flukeHalfHeight = headY * 0.22 * flukeSize;
+    const tailExtensionZ = 35;
+    const flukeTipBackZ = -bodyLength - headZ * 0.2 - tailExtensionZ;
 
-    // 主体最后一圈的中心（不含 seam 端点重复）
-    // 顶点布局：[0]=apex，然后 col=1..columns，每列 rows+1 个顶点
     const lastRingStart = 1 + (columns - 1) * (rows + 1);
     let bodyEndCenterX = 0, bodyEndCenterY = 0, bodyEndCenterZ = 0;
     for (let row = 0; row < rows; row++) {
@@ -335,45 +328,46 @@ export function createSpindleMesh(options = {}) {
     bodyEndCenterY /= rows;
     bodyEndCenterZ /= rows;
 
-    // 尾柄中心 R（基础位置 = 主体末端后 3 单位）
-    const flukeBaseZ = bodyEndCenterZ - 3;
+    const flukeBaseZ = bodyEndCenterZ - 5;
+
+    const eps = 1.0;
+
     const vR = {
-      x: bodyEndCenterX, y: bodyEndCenterY, z: flukeBaseZ,
+      x: bodyEndCenterX + eps, y: bodyEndCenterY + eps * 0.5, z: flukeBaseZ,
       nx: 0, ny: 0, nz: -1, t: 1.03, angle: 0, col: columns + 1, row: 0,
       isTop: false, isBottom: false, faceWeight: 0, isHead: false,
     };
-    // 上顶点 A
+
     const vA = {
-      x: bodyEndCenterX, y: bodyEndCenterY - flukeHalfHeight, z: flukeBaseZ - 10,
+      x: bodyEndCenterX + eps * 0.8, y: bodyEndCenterY - flukeHalfHeight + eps, z: flukeBaseZ - 12,
       nx: 0, ny: -1, nz: 0, t: 1.04, angle: -Math.PI / 2, col: columns + 1, row: 0,
       isTop: true, isBottom: false, faceWeight: 0, isHead: false,
     };
-    // 下顶点 C
+
     const vC = {
-      x: bodyEndCenterX, y: bodyEndCenterY + flukeHalfHeight, z: flukeBaseZ - 10,
+      x: bodyEndCenterX + eps * 0.8, y: bodyEndCenterY + flukeHalfHeight + eps, z: flukeBaseZ - 12,
       nx: 0, ny: 1, nz: 0, t: 1.04, angle: Math.PI / 2, col: columns + 1, row: 0,
       isTop: false, isBottom: true, faceWeight: 0, isHead: false,
     };
-    // 左边缘 BL
+
     const vBL = {
-      x: bodyEndCenterX - flukeHalfWidth, y: bodyEndCenterY, z: flukeBaseZ,
+      x: bodyEndCenterX - flukeHalfWidth + eps, y: bodyEndCenterY + eps * 0.5, z: flukeBaseZ - 6,
       nx: -1, ny: 0, nz: 0, t: 1.03, angle: Math.PI, col: columns + 1, row: 0,
-      isTop: false, isBottom: true, faceWeight: 0, isHead: false,
+      isTop: false, isBottom: false, faceWeight: 0, isHead: false,
     };
-    // 右边缘 BR
+
     const vBR = {
-      x: bodyEndCenterX + flukeHalfWidth, y: bodyEndCenterY, z: flukeBaseZ,
+      x: bodyEndCenterX + flukeHalfWidth + eps, y: bodyEndCenterY + eps * 0.5, z: flukeBaseZ - 6,
       nx: 1, ny: 0, nz: 0, t: 1.03, angle: 0, col: columns + 1, row: 0,
-      isTop: false, isBottom: true, faceWeight: 0, isHead: false,
+      isTop: false, isBottom: false, faceWeight: 0, isHead: false,
     };
-    // 尾尖 T（向 -Z 延伸，略上翘）
+
     const vT = {
-      x: bodyEndCenterX, y: bodyEndCenterY - headY * 0.05, z: flukeTipBackZ,
+      x: bodyEndCenterX + eps * 2, y: bodyEndCenterY - headY * 0.05 + eps, z: flukeTipBackZ,
       nx: 0, ny: 0, nz: -1, t: 1.1, angle: 0, col: columns + 2, row: 0,
       isTop: true, isBottom: false, faceWeight: 0, isHead: false,
     };
 
-    // 顶点 push 顺序：R, A, C, BL, BR, T
     vertices.push(vR, vA, vC, vBL, vBR, vT);
     const iR = flukeStartIdx + 0;
     const iA = flukeStartIdx + 1;
@@ -382,8 +376,6 @@ export function createSpindleMesh(options = {}) {
     const iBR = flukeStartIdx + 4;
     const iT = flukeStartIdx + 5;
 
-    // --- 真正对称的上下尾鳍叶（原生三角面，非退化四边形） ---
-    // 上尾叶：R -> A -> T（从尾柄到上顶点到尾尖）
     faces.push({
       indices: [iR, iA, iT],
       vertices: [vR, vA, vT],
@@ -392,7 +384,6 @@ export function createSpindleMesh(options = {}) {
       doubleSided: true,
     });
 
-    // 下尾叶：R -> T -> C（从尾柄到尾尖到下顶点）
     faces.push({
       indices: [iR, iT, iC],
       vertices: [vR, vT, vC],
@@ -401,8 +392,6 @@ export function createSpindleMesh(options = {}) {
       doubleSided: true,
     });
 
-    // 左右侧尾鳍连接（薄鳍的左右边缘补充）
-    // 左尾叶：R -> BL -> T
     faces.push({
       indices: [iR, iBL, iT],
       vertices: [vR, vBL, vT],
@@ -411,7 +400,6 @@ export function createSpindleMesh(options = {}) {
       doubleSided: true,
     });
 
-    // 右尾叶：R -> T -> BR
     faces.push({
       indices: [iR, iT, iBR],
       vertices: [vR, vT, vBR],
@@ -420,8 +408,6 @@ export function createSpindleMesh(options = {}) {
       doubleSided: true,
     });
 
-    // --- 连接主体最后一圈到尾鳍边缘：非交叉顺序 ---
-    // 找到主体最后一圈的四个关键点（top/bottom/left/right）
     let topIdx = lastRingStart, bottomIdx = lastRingStart, leftIdx = lastRingStart, rightIdx = lastRingStart;
     let topDiff = Infinity, bottomDiff = Infinity, leftDiff = Infinity, rightDiff = Infinity;
     for (let row = 0; row < rows; row++) {
@@ -436,32 +422,54 @@ export function createSpindleMesh(options = {}) {
       if (d4 < rightDiff) { rightDiff = d4; rightIdx = lastRingStart + row; }
     }
 
-    // 连接四边形（绕序正确，避免 bowtie）
-    // 上-右连接：主体上 -> 主体右 -> BR -> R
     faces.push({
-      indices: [topIdx, rightIdx, iBR, iR],
-      vertices: [vertices[topIdx], vertices[rightIdx], vBR, vR],
+      indices: [topIdx, rightIdx, iBR],
+      vertices: [vertices[topIdx], vertices[rightIdx], vBR],
       isTop: true, isBottom: false,
       column: columns, row: 0,
     });
-    // 右-下连接：主体右 -> 主体下 -> C -> R
     faces.push({
-      indices: [rightIdx, bottomIdx, iC, iR],
-      vertices: [vertices[rightIdx], vertices[bottomIdx], vC, vR],
+      indices: [topIdx, iBR, iR],
+      vertices: [vertices[topIdx], vBR, vR],
+      isTop: true, isBottom: false,
+      column: columns, row: 0,
+    });
+
+    faces.push({
+      indices: [rightIdx, bottomIdx, iC],
+      vertices: [vertices[rightIdx], vertices[bottomIdx], vC],
       isTop: false, isBottom: true,
       column: columns, row: 0,
     });
-    // 下-左连接：主体下 -> 主体左 -> BL -> R
     faces.push({
-      indices: [bottomIdx, leftIdx, iBL, iR],
-      vertices: [vertices[bottomIdx], vertices[leftIdx], vBL, vR],
+      indices: [rightIdx, iC, iR],
+      vertices: [vertices[rightIdx], vC, vR],
       isTop: false, isBottom: true,
       column: columns, row: 0,
     });
-    // 左-上连接：主体左 -> 主体上 -> A -> R
+
     faces.push({
-      indices: [leftIdx, topIdx, iA, iR],
-      vertices: [vertices[leftIdx], vertices[topIdx], vA, vR],
+      indices: [bottomIdx, leftIdx, iBL],
+      vertices: [vertices[bottomIdx], vertices[leftIdx], vBL],
+      isTop: false, isBottom: true,
+      column: columns, row: 0,
+    });
+    faces.push({
+      indices: [bottomIdx, iBL, iR],
+      vertices: [vertices[bottomIdx], vBL, vR],
+      isTop: false, isBottom: true,
+      column: columns, row: 0,
+    });
+
+    faces.push({
+      indices: [leftIdx, topIdx, iA],
+      vertices: [vertices[leftIdx], vertices[topIdx], vA],
+      isTop: true, isBottom: false,
+      column: columns, row: 0,
+    });
+    faces.push({
+      indices: [leftIdx, iA, iR],
+      vertices: [vertices[leftIdx], vA, vR],
       isTop: true, isBottom: false,
       column: columns, row: 0,
     });

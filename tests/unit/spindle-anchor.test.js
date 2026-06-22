@@ -25,10 +25,10 @@ function classifyFaces(mesh) {
   return { tri, quad, other, indexOutOfRange };
 }
 
-test('createSpindleMesh: 默认含尾鳍，鼻端扇形 24 + fluke 内部 4 = 28 三角，退化 0', () => {
+test('createSpindleMesh: 默认含尾鳍，鼻端扇形 24 + fluke 内部 4 + fluke连接 8 = 36 三角，退化 0', () => {
   const m = createSpindleMesh();
   const c = classifyFaces(m);
-  assert.equal(c.tri, 28, 'expected 28 triangle faces (nose fan 24 + fluke inner 4)');
+  assert.equal(c.tri, 36, 'expected 36 triangle faces (nose fan 24 + fluke inner 4 + fluke connection 8)');
   assert.ok(c.quad > 0, 'quad faces present');
   assert.equal(c.other, 0, 'no unexpected polygon sizes');
   assert.equal(c.indexOutOfRange, 0, 'indices in range');
