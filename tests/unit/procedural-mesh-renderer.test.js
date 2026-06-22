@@ -547,6 +547,51 @@ describe('Avatar 构造顺序', () => {
     assert.ok(sm.vertices.length > 0, 'spindleMesh 应非空');
     assert.ok(tm.vertices.length > 0, 'tailMesh 应非空');
   });
+
+  it('Whale flukeEnabled: 尾鳍顶点延伸超出主体范围', () => {
+    // 默认 headZ=50, bodyLength=180, tailExtensionZ=35
+    // 主体尾端约 -bodyLength - headZ*0.2 = -190
+    // 尾尖约 -bodyLength - headZ*0.2 - tailExtensionZ = -225
+    const sm = createSpindleMesh({ headR: 75, bodyLength: 180, headZ: 50 });
+    const bodyEndZ = -180 - 50 * 0.2; // 约 -190
+    const flukeTipZ = bodyEndZ - 35; // 约 -225
+    const minZ = Math.min(...sm.vertices.map(v => v.z));
+    const maxZ = Math.max(...sm.vertices.map(v => v.z));
+    // 鼻端应在 +Z，尾尖应在 -Z
+    assert.ok(maxZ > 0, `鼻端应在 +Z 方向，最大 z=${maxZ}`);
+    assert.ok(minZ < flukeTipZ + 5, `尾尖应延伸至 ${flukeTipZ} 附近，最小 z=${minZ}`);
+  });
+
+  it('Whale flukeEnabled: 尾鳍为三角形面且无退化', () => {
+    const sm = createSpindleMesh({ headR: 75, bodyLength: 150 });
+    // 找到尾鳍顶点（col > columns）
+    const flukeVerts = sm.vertices.filter(v => v.col > 34);
+    assert.ok(flukeVerts.length === 6, `尾鳍应有 6 个顶点，实际 ${flukeVerts.length}`);
+    // 验证尾鳍面是三角形且非退化
+    const flukeFaces = sm.faces.filter(f => f.column > 34);
+    assert.ok(flukeFaces.length === 4, `尾鳍应有 4 个三角形面，实际 ${flukeFaces.length}`);
+    for (const face of flukeFaces) {
+      const [i0, i1, i2] = face.indices;
+      const v0 = sm.vertices[i0], v1 = sm.vertices[i1], v2 = sm.vertices[i2];
+      // 计算叉积面积（三角形面积）
+      const ax = v1.x - v0.x, ay = v1.y - v0.y, az = v1.z - v0.z;
+      const bx = v2.x - v0.x, by = v2.y - v0.y, bz = v2.z - v0.z;
+      const cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx;
+      const area = Math.sqrt(cx*cx + cy*cy + cz*cz) * 0.5;
+      assert.ok(area > 0.1, `面 [${i0},${i1},${i2}] 面积过小 (${area}), 可能退化`);
+    }
+  });
+
+  it('Whale flukeEnabled=false: 无尾鳍面', () => {
+    const smNoFluke = createSpindleMesh({ headR: 75, bodyLength: 150, flukeEnabled: false });
+    const smWithFluke = createSpindleMesh({ headR: 75, bodyLength: 150, flukeEnabled: true });
+    // 无尾鳍时顶点应更少（因为没有 6 个尾鳍顶点）
+    assert.ok(smNoFluke.vertices.length < smWithFluke.vertices.length,
+      `flukeEnabled=false 时顶点应少于 true，false=${smNoFluke.vertices.length}, true=${smWithFluke.vertices.length}`);
+    // 无尾鳍时没有 column > 34 的顶点
+    const flukeVertsNoFluke = smNoFluke.vertices.filter(v => v.col > 34);
+    assert.ok(flukeVertsNoFluke.length === 0, `flukeEnabled=false 时不应有尾鳍顶点，${flukeVertsNoFluke.length}`);
+  });
 });
 
 describe('deform 函数一致性（yaw 改变形状）', () => {
