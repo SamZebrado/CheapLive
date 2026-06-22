@@ -231,12 +231,13 @@ function normalizeParams(p) {
     mouthSmile: clamp(p.mouthSmile ?? 0, 0, 1),
     browLeft: clamp(p.browLeft ?? 0, 0, 1),
     browRight: clamp(p.browRight ?? 0, 0, 1),
-    // headYaw/Pitch/Roll: 0.5 居中；向外扩展到 ±60° yaw, ±45° pitch, ±40° roll
     headYaw: (clamp(p.headYaw ?? 0.5, 0, 1) - 0.5) * 120,
     headPitch: (clamp(p.headPitch ?? 0.5, 0, 1) - 0.5) * 90,
     headRoll: (clamp(p.headRoll ?? 0.5, 0, 1) - 0.5) * 80,
     headX: clamp(p.headX ?? 0.5, 0, 1),
     headY: clamp(p.headY ?? 0.5, 0, 1),
+    lightDir: p.lightDir,
+    ambient: p.ambient,
   };
 }
 
@@ -579,16 +580,18 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
     const originX = w * 0.5 + (np.headX - 0.5) * minSide * 0.30;
     const originY = h * 0.5 + (np.headY - 0.5) * minSide * 0.20;
 
-    // 球体是封闭凸形，使用严格的背面剔除阈值 -0.05，ambient 0.55 让暗部不糊死
+    const renderLightDir = np.lightDir ?? this.lightDir;
+    const renderAmbient = np.ambient ?? this.ambient;
+
     this._drawMesh(ctx, deformed, {
       w, h, scale, originX, originY,
       baseColorTop: '#bdb8aa',
       baseColorBottom: '#f3f0e6',
       faceTopColor: '#c8c2b4',
       faceBottomColor: '#fffaf0',
-      lightDir: this.lightDir,
+      lightDir: renderLightDir,
       cullThreshold: -0.05,
-      ambient: this.ambient,
+      ambient: renderAmbient,
     });
 
     // 五官
@@ -844,16 +847,19 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
 
     // 萨卡班甲鱼是扁平椭球，旋转时侧面仍应可见，放宽到 -0.15
     // 尾鳍是双面的，不受这个阈值影响
+    const renderLightDir = np.lightDir ?? this.lightDir;
+    const renderAmbient = np.ambient ?? this.ambient;
+
     const deformedBody = deformSpindle(this.spindleMesh, rot);
     this._drawMesh(ctx, deformedBody, {
       w, h, scale, originX, originY,
       baseColorTop: this.spindleMesh.topColor,
       baseColorBottom: this.spindleMesh.bottomColor,
       faceTopColor: this.spindleMesh.faceTopColor,
-      faceBottomColor: this.spindleMesh.faceBottomColor,
-      lightDir: this.lightDir,
+      faceBottomColor: this.spindleMesh.bottomColor,
+      lightDir: renderLightDir,
       cullThreshold: -0.15,
-      ambient: this.ambient,
+      ambient: renderAmbient,
     });
 
     this._drawFaceFeatures(ctx, np, rot, originX, originY, scale);

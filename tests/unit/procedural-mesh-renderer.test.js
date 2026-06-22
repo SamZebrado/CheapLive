@@ -424,6 +424,69 @@ describe('光照参数化', () => {
         globalThis.window = originalWindow;
       }
     });
+
+    it('Sphere: updateParams 传入 lightDir 后渲染时使用动态参数', async () => {
+      const mockCanvas = makeMockCanvas();
+      const originalDoc = globalThis.document;
+      const originalWindow = globalThis.window;
+      try {
+        globalThis.document = { getElementById: () => mockCanvas };
+        globalThis.window = { addEventListener: () => {}, removeEventListener: () => {} };
+        const rendererMod = await import(`file://${path.join(SRC, 'procedural-mesh-renderer.js')}`);
+        const SphereAvatar = rendererMod.ProceduralSphereAvatar;
+        const sphere = new SphereAvatar('test-canvas');
+        const dynamicLightDir = { x: 0.5, y: 0.3, z: 0.7 };
+        const dynamicAmbient = 0.8;
+        sphere.updateParams({ lightDir: dynamicLightDir, ambient: dynamicAmbient });
+        assert.ok(sphere.params.lightDir === dynamicLightDir, 'params 应包含动态 lightDir');
+        assert.ok(sphere.params.ambient === dynamicAmbient, 'params 应包含动态 ambient');
+      } finally {
+        globalThis.document = originalDoc;
+        globalThis.window = originalWindow;
+      }
+    });
+
+    it('Spindle: updateParams 传入 lightDir 后渲染时使用动态参数', async () => {
+      const mockCanvas = makeMockCanvas();
+      const originalDoc = globalThis.document;
+      const originalWindow = globalThis.window;
+      try {
+        globalThis.document = { getElementById: () => mockCanvas };
+        globalThis.window = { addEventListener: () => {}, removeEventListener: () => {} };
+        const rendererMod = await import(`file://${path.join(SRC, 'procedural-mesh-renderer.js')}`);
+        const SpindleAvatar = rendererMod.ProceduralSpindleWhaleAvatar;
+        const spindle = new SpindleAvatar('test-canvas');
+        const dynamicLightDir = { x: -0.6, y: -0.2, z: 0.8 };
+        const dynamicAmbient = 0.3;
+        spindle.updateParams({ lightDir: dynamicLightDir, ambient: dynamicAmbient });
+        assert.ok(spindle.params.lightDir === dynamicLightDir, 'params 应包含动态 lightDir');
+        assert.ok(spindle.params.ambient === dynamicAmbient, 'params 应包含动态 ambient');
+      } finally {
+        globalThis.document = originalDoc;
+        globalThis.window = originalWindow;
+      }
+    });
+
+    it('动态光照参数为 undefined 时回退到实例默认值', async () => {
+      const mockCanvas = makeMockCanvas();
+      const originalDoc = globalThis.document;
+      const originalWindow = globalThis.window;
+      try {
+        globalThis.document = { getElementById: () => mockCanvas };
+        globalThis.window = { addEventListener: () => {}, removeEventListener: () => {} };
+        const rendererMod = await import(`file://${path.join(SRC, 'procedural-mesh-renderer.js')}`);
+        const SphereAvatar = rendererMod.ProceduralSphereAvatar;
+        const sphere = new SphereAvatar('test-canvas');
+        sphere.updateParams({});
+        assert.ok(sphere.params.lightDir === undefined, '未传入 lightDir 时应为 undefined');
+        assert.ok(sphere.params.ambient === undefined, '未传入 ambient 时应为 undefined');
+        assert.ok(sphere.lightDir !== undefined, '实例默认 lightDir 应存在');
+        assert.ok(sphere.ambient !== undefined, '实例默认 ambient 应存在');
+      } finally {
+        globalThis.document = originalDoc;
+        globalThis.window = originalWindow;
+      }
+    });
   });
 });
 
