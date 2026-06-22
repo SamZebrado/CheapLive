@@ -829,3 +829,120 @@ describe('buildFaceBasis 退化分支', () => {
     assert.ok(Math.abs(dot(basis.t, basis.b)) < 1e-6, `t·b should be 0, got ${dot(basis.t, basis.b)}`);
   });
 });
+
+// ========== appMode 背景色编号显示测试 ==========
+describe('appMode 背景色编号显示', () => {
+  it('appMode=true 时调用 ctx.fillText 显示 #F7F5EE', async () => {
+    const originalDoc = globalThis.document;
+    const originalWindow = globalThis.window;
+    try {
+      // 创建 mock canvas 和 ctx（包含所有必要方法）
+      const fillTextCalls = [];
+      const mockCtx = {
+        clearRect: () => {},
+        fillRect: () => {},
+        fillStyle: null,
+        font: null,
+        textAlign: null,
+        textBaseline: null,
+        fillText: (text, x, y) => {
+          fillTextCalls.push({ text, x, y });
+        },
+        beginPath: () => {},
+        moveTo: () => {},
+        lineTo: () => {},
+        closePath: () => {},
+        stroke: () => {},
+        save: () => {},
+        restore: () => {},
+        arc: () => {},
+        ellipse: () => {},
+        fill: () => {},
+        bezierCurveTo: () => {},
+        quadraticCurveTo: () => {},
+        clip: () => {},
+        scale: () => {},
+        translate: () => {},
+        rotate: () => {},
+      };
+      const mockCanvas = {
+        width: 400,
+        height: 400,
+        getContext: () => mockCtx,
+      };
+      globalThis.document = { getElementById: () => mockCanvas };
+      globalThis.window = { addEventListener: () => {}, removeEventListener: () => {} };
+
+      // 动态 import 以获取新代码
+      const rendererMod = await import(`file://${path.join(SRC, 'procedural-mesh-renderer.js')}?t=${Date.now()}`);
+      const SphereAvatar = rendererMod.ProceduralSphereAvatar;
+      const sphere = new SphereAvatar('test-canvas');
+      sphere.setAppMode(true);
+      sphere.draw();
+
+      // 验证 fillText 被调用且参数正确
+      const bgLabelCall = fillTextCalls.find(c => c.text === '#F7F5EE');
+      assert.ok(bgLabelCall, 'appMode 下应调用 fillText("#F7F5EE")');
+      assert.ok(bgLabelCall.x === 10, `x 应为 10，实际 ${bgLabelCall.x}`);
+      assert.ok(bgLabelCall.y === 20, `y 应为 20，实际 ${bgLabelCall.y}`);
+    } finally {
+      globalThis.document = originalDoc;
+      globalThis.window = originalWindow;
+    }
+  });
+
+  it('appMode=false 时不应显示背景色编号', async () => {
+    const originalDoc = globalThis.document;
+    const originalWindow = globalThis.window;
+    try {
+      const fillTextCalls = [];
+      const mockCtx = {
+        clearRect: () => {},
+        fillRect: () => {},
+        fillStyle: null,
+        font: null,
+        textAlign: null,
+        textBaseline: null,
+        fillText: (text, x, y) => {
+          fillTextCalls.push({ text, x, y });
+        },
+        beginPath: () => {},
+        moveTo: () => {},
+        lineTo: () => {},
+        closePath: () => {},
+        stroke: () => {},
+        save: () => {},
+        restore: () => {},
+        arc: () => {},
+        ellipse: () => {},
+        fill: () => {},
+        bezierCurveTo: () => {},
+        quadraticCurveTo: () => {},
+        clip: () => {},
+        scale: () => {},
+        translate: () => {},
+        rotate: () => {},
+      };
+      const mockCanvas = {
+        width: 400,
+        height: 400,
+        getContext: () => mockCtx,
+      };
+      globalThis.document = { getElementById: () => mockCanvas };
+      globalThis.window = { addEventListener: () => {}, removeEventListener: () => {} };
+
+      const rendererMod = await import(`file://${path.join(SRC, 'procedural-mesh-renderer.js')}?t=${Date.now()}`);
+      const SphereAvatar = rendererMod.ProceduralSphereAvatar;
+      const sphere = new SphereAvatar('test-canvas');
+      sphere.setAppMode(false);
+      sphere.draw();
+
+      // 非 appMode 不应显示背景色编号
+      const bgLabelCall = fillTextCalls.find(c => c.text === '#F7F5EE');
+      assert.ok(!bgLabelCall, '非 appMode 下不应调用 fillText("#F7F5EE")');
+    } finally {
+      globalThis.document = originalDoc;
+      globalThis.window = originalWindow;
+    }
+  });
+});

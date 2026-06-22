@@ -325,7 +325,7 @@ class ProceduralMeshRenderer {
       ctx.font = '14px monospace';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText('#F7F5EE', 10, 10);
+      ctx.fillText('#F7F5EE', 10, 20);
     }
 
     this._render(ctx, w, h);
