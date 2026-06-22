@@ -438,8 +438,21 @@ describe('光照参数化', () => {
         const dynamicLightDir = { x: 0.5, y: 0.3, z: 0.7 };
         const dynamicAmbient = 0.8;
         sphere.updateParams({ lightDir: dynamicLightDir, ambient: dynamicAmbient });
-        assert.ok(sphere.params.lightDir === dynamicLightDir, 'params 应包含动态 lightDir');
-        assert.ok(sphere.params.ambient === dynamicAmbient, 'params 应包含动态 ambient');
+
+        // Spy _drawMesh to verify it receives the dynamic values
+        const capturedCalls = [];
+        const originalDrawMesh = sphere._drawMesh.bind(sphere);
+        sphere._drawMesh = function(ctx, deformed, opts) {
+          capturedCalls.push({ lightDir: opts.lightDir, ambient: opts.ambient });
+          return originalDrawMesh(ctx, deformed, opts);
+        };
+
+        sphere.draw();
+        assert.ok(capturedCalls.length > 0, '_drawMesh 应至少被调用一次');
+        assert.ok(capturedCalls[0].lightDir === dynamicLightDir,
+          `动态 lightDir 应传给 _drawMesh，实际 ${JSON.stringify(capturedCalls[0].lightDir)}`);
+        assert.ok(capturedCalls[0].ambient === dynamicAmbient,
+          `动态 ambient 应传给 _drawMesh，实际 ${capturedCalls[0].ambient}`);
       } finally {
         globalThis.document = originalDoc;
         globalThis.window = originalWindow;
@@ -459,8 +472,21 @@ describe('光照参数化', () => {
         const dynamicLightDir = { x: -0.6, y: -0.2, z: 0.8 };
         const dynamicAmbient = 0.3;
         spindle.updateParams({ lightDir: dynamicLightDir, ambient: dynamicAmbient });
-        assert.ok(spindle.params.lightDir === dynamicLightDir, 'params 应包含动态 lightDir');
-        assert.ok(spindle.params.ambient === dynamicAmbient, 'params 应包含动态 ambient');
+
+        // Spy _drawMesh to verify it receives the dynamic values
+        const capturedCalls = [];
+        const originalDrawMesh = spindle._drawMesh.bind(spindle);
+        spindle._drawMesh = function(ctx, deformed, opts) {
+          capturedCalls.push({ lightDir: opts.lightDir, ambient: opts.ambient });
+          return originalDrawMesh(ctx, deformed, opts);
+        };
+
+        spindle.draw();
+        assert.ok(capturedCalls.length > 0, '_drawMesh 应至少被调用一次');
+        assert.ok(capturedCalls[0].lightDir === dynamicLightDir,
+          `动态 lightDir 应传给 _drawMesh，实际 ${JSON.stringify(capturedCalls[0].lightDir)}`);
+        assert.ok(capturedCalls[0].ambient === dynamicAmbient,
+          `动态 ambient 应传给 _drawMesh，实际 ${capturedCalls[0].ambient}`);
       } finally {
         globalThis.document = originalDoc;
         globalThis.window = originalWindow;
@@ -477,11 +503,24 @@ describe('光照参数化', () => {
         const rendererMod = await import(`file://${path.join(SRC, 'procedural-mesh-renderer.js')}`);
         const SphereAvatar = rendererMod.ProceduralSphereAvatar;
         const sphere = new SphereAvatar('test-canvas');
+        const defaultLightDir = sphere.lightDir;
+        const defaultAmbient = sphere.ambient;
         sphere.updateParams({});
-        assert.ok(sphere.params.lightDir === undefined, '未传入 lightDir 时应为 undefined');
-        assert.ok(sphere.params.ambient === undefined, '未传入 ambient 时应为 undefined');
-        assert.ok(sphere.lightDir !== undefined, '实例默认 lightDir 应存在');
-        assert.ok(sphere.ambient !== undefined, '实例默认 ambient 应存在');
+
+        // Spy _drawMesh to verify it receives the instance default values, not undefined
+        const capturedCalls = [];
+        const originalDrawMesh = sphere._drawMesh.bind(sphere);
+        sphere._drawMesh = function(ctx, deformed, opts) {
+          capturedCalls.push({ lightDir: opts.lightDir, ambient: opts.ambient });
+          return originalDrawMesh(ctx, deformed, opts);
+        };
+
+        sphere.draw();
+        assert.ok(capturedCalls.length > 0, '_drawMesh 应至少被调用一次');
+        assert.ok(capturedCalls[0].lightDir === defaultLightDir,
+          `回退时应传实例默认 lightDir，实际 ${JSON.stringify(capturedCalls[0].lightDir)}`);
+        assert.ok(capturedCalls[0].ambient === defaultAmbient,
+          `回退时应传实例默认 ambient，实际 ${capturedCalls[0].ambient}`);
       } finally {
         globalThis.document = originalDoc;
         globalThis.window = originalWindow;
