@@ -614,8 +614,8 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const ry = Math.max(0.1, proj.radiusY);
       const ang = proj.angle;
 
-      const tOpen = (openness - 0.15) / (0.5 - 0.15);
-      const easedOpen = Math.max(0, Math.min(1, tOpen * tOpen * (3 - 2 * tOpen)));
+      const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
+      const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
       ctx.save();
@@ -642,10 +642,9 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.fill();
       ctx.globalAlpha = facing;
 
-      // 眼睑线：宽度精确匹配眼睛宽度（不再超出 50%），眼睑从闭到开平滑过渡
       if (easedClosed > 0.05) {
-        const lineHalfLen = rx; // 眼睑宽度精确等于眼睛宽度，不再超出
-        const lineYOffset = -ry * easedClosed; // 闭眼时眼睑线移到眼睛顶部（-ry），随睁眼向上偏移消失
+        const lineHalfLen = rx;
+        const lineYOffset = -ry * easedClosed;
         const lineLeft = mapFaceLocalPoint(t, -lineHalfLen, lineYOffset);
         const lineRight = mapFaceLocalPoint(t, lineHalfLen, lineYOffset);
         ctx.beginPath();
@@ -880,8 +879,8 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const ry = Math.max(0.1, proj.radiusY);
       const ang = proj.angle;
 
-      const tOpen = (openness - 0.15) / (0.5 - 0.15);
-      const easedOpen = Math.max(0, Math.min(1, tOpen * tOpen * (3 - 2 * tOpen)));
+      const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
+      const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
       ctx.save();
@@ -908,10 +907,9 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.fill();
       ctx.globalAlpha = facing;
 
-      // 眼睑线：宽度精确匹配眼睛宽度（不再超出 50%），眼睑从闭到开平滑过渡
       if (easedClosed > 0.05) {
-        const lineHalfLen = rx; // 眼睑宽度精确等于眼睛宽度，不再超出
-        const lineYOffset = -ry * easedClosed; // 闭眼时眼睑线移到眼睛顶部（-ry），随睁眼向上偏移消失
+        const lineHalfLen = rx;
+        const lineYOffset = -ry * easedClosed;
         const lineLeft = mapFaceLocalPoint(t, -lineHalfLen, lineYOffset);
         const lineRight = mapFaceLocalPoint(t, lineHalfLen, lineYOffset);
         ctx.beginPath();
