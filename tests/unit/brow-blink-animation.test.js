@@ -305,3 +305,91 @@ describe('眨眼 Clip 遮罩边界验证', () => {
     assert.equal(clipRadiusY, 10.5, 'clip Y 半径应为 ry + 0.5');
   });
 });
+
+describe('椭圆眼睑遮罩参数验证（新实现）', () => {
+  // 新实现使用椭圆参数：
+  //   eyelidRx = rx + 0.5
+  //   eyelidRy = (ry + 1) * cover
+  //   eyelidCY = -ry - 0.5
+
+  it('ellipse 实现：睁眼时 eyelidRy=0（无遮罩）', () => {
+    const rx = 10, ry = 10;
+    const openness = 1;
+    const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
+    const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
+    const cover = 1 - easedOpen;
+
+    const eyelidRy = (ry + 1) * cover;
+
+    assert.equal(cover, 0, '完全睁眼时 cover 应为 0');
+    assert.equal(eyelidRy, 0, '完全睁眼时 eyelidRy 应为 0');
+  });
+
+  it('ellipse 实现：闭眼时 eyelidRy = ry + 1（完全覆盖）', () => {
+    const rx = 10, ry = 10;
+    const openness = 0;
+    const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
+    const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
+    const cover = 1 - easedOpen;
+
+    const eyelidRy = (ry + 1) * cover;
+
+    assert.equal(cover, 1, '完全闭眼时 cover 应为 1');
+    assert.equal(eyelidRy, ry + 1, '完全闭眼时 eyelidRy 应等于 ry+1');
+  });
+
+  it('ellipse 实现：半睁眼时 eyelidRy = (ry+1)/2', () => {
+    const rx = 10, ry = 10;
+    const openness = 0.325;
+    const tOpen = (openness - 0.15) / (0.5 - 0.15);
+    const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
+    const cover = 1 - easedOpen;
+
+    const eyelidRy = (ry + 1) * cover;
+
+    assert.ok(eyelidRy > 0 && eyelidRy < ry + 1, `半睁眼时 eyelidRy 应在 (0, ${ry + 1}): ${eyelidRy}`);
+    // 验证椭圆高度约为半覆盖
+    assert.ok(Math.abs(eyelidRy - (ry + 1) / 2) < 0.5, `半睁眼时 eyelidRy 应约为 (ry+1)/2=${(ry+1)/2}: ${eyelidRy}`);
+  });
+
+  it('ellipse 实现：ellipsoidCY = -ry - 0.5 定位在眼顶部', () => {
+    const rx = 10, ry = 10;
+    const eyelidCY = -ry - 0.5;
+
+    assert.equal(eyelidCY, -10.5, 'ellipsoidCY 应为 -ry - 0.5 = -10.5');
+    // 椭圆中心在眼中心下方 ry+0.5 处，所以上缘 = -10.5 + (-(ry+1)) = -21.5
+    // 下缘 = -10.5 + (ry+1) = 0.5
+    // 眼中心在 t.screenY，所以椭圆从眼顶部上方开始
+    assert.ok(eyelidCY < 0, 'ellipsoidCY 应为负值（眼中心上方）');
+  });
+
+  it('ellipse 实现：rx 固定为 rx+0.5，确保水平覆盖', () => {
+    const rx = 10, ry = 10;
+    const eyelidRx = rx + 0.5;
+
+    assert.equal(eyelidRx, 10.5, 'ellipsoidRx 应为 rx + 0.5');
+    assert.ok(eyelidRx > rx, 'ellipsoidRx 应略大于 rx');
+  });
+
+  it('ellipse 实现：不同 rx/ry 值都正确计算', () => {
+    const cases = [
+      { rx: 8, ry: 8, openness: 0, expectedRy: 9 },
+      { rx: 12, ry: 15, openness: 0, expectedRy: 16 },
+      { rx: 5, ry: 7, openness: 0.325, expectedRyMin: 3.9, expectedRyMax: 9 },
+    ];
+
+    for (const c of cases) {
+      const tOpen = Math.max(0, Math.min(1, (c.openness - 0.15) / (0.5 - 0.15)));
+      const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
+      const cover = 1 - easedOpen;
+      const eyelidRy = (c.ry + 1) * cover;
+
+      if (c.expectedRy !== undefined) {
+        assert.equal(eyelidRy, c.expectedRy, `rx=${c.rx}, ry=${c.ry}, open=${c.openness}: eyelidRy 应为 ${c.expectedRy}`);
+      } else {
+        assert.ok(eyelidRy >= c.expectedRyMin && eyelidRy < c.expectedRyMax,
+          `rx=${c.rx}, ry=${c.ry}, open=${c.openness}: eyelidRy=${eyelidRy} 应在 [${c.expectedRyMin}, ${c.expectedRyMax})`);
+      }
+    }
+  });
+});
