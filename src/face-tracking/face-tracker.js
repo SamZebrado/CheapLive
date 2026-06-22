@@ -625,7 +625,12 @@ class FaceTracker {
             const { VoiceChanger } = await import('./voice-changer.js');
             this.voiceChanger = new VoiceChanger();
           }
-          // 关键修复：真正调用 start() 来请求麦克风并启动音频处理
+          if (!this.voiceChanger.isSupported()) {
+            this.status.textContent = '变声不可用: 当前环境缺少 Web Audio API 或音频输入支持';
+            vcToggle.checked = false;
+            this.voiceChangerEnabled = false;
+            return;
+          }
           try {
             await this.voiceChanger.start();
             this.status.textContent = '变声已开启';
@@ -638,7 +643,6 @@ class FaceTracker {
             }
             return;
           }
-          // 显示变声控制面板
           const panel = document.getElementById('voiceChangerPanel');
           if (panel) panel.classList.remove('hidden');
         } else {
@@ -726,19 +730,17 @@ class FaceTracker {
       subToggle.addEventListener('change', async (e) => {
         this.subtitleEnabled = e.target.checked;
         if (this.subtitleEnabled) {
-          const supported =
-            'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
-          if (!supported) {
+          if (!this.liveSubtitle) {
+            const { LiveSubtitle } = await import('./live-subtitle.js');
+            this.liveSubtitle = new LiveSubtitle();
+            this.liveSubtitle.onResult = (text) => this.updateSubtitle(text);
+          }
+          if (!this.liveSubtitle.isSupported()) {
             this.status.textContent =
               '字幕不可用: 当前浏览器不支持 Web Speech API（仅 Chrome/Edge/QQ浏览器 部分支持）';
             subToggle.checked = false;
             this.subtitleEnabled = false;
             return;
-          }
-          if (!this.liveSubtitle) {
-            const { LiveSubtitle } = await import('./live-subtitle.js');
-            this.liveSubtitle = new LiveSubtitle();
-            this.liveSubtitle.onResult = (text) => this.updateSubtitle(text);
           }
           try {
             this.liveSubtitle.start();

@@ -105,7 +105,8 @@ class LiveSubtitle {
   init() {
     if (this.recognition) return;
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition =
+      this._window?.SpeechRecognition || this._window?.webkitSpeechRecognition;
     this.recognition = new SpeechRecognition();
     this.recognition.continuous = true;
     this.recognition.interimResults = true;

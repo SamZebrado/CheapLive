@@ -11,7 +11,11 @@
  */
 
 class VoiceChanger {
-  constructor() {
+  constructor(options = {}) {
+    this._window = options.window || (typeof globalThis !== 'undefined' ? globalThis.window : (typeof window !== 'undefined' ? window : undefined));
+    this._document = options.document || (typeof globalThis !== 'undefined' ? globalThis.document : (typeof document !== 'undefined' ? document : undefined));
+    this._navigator = options.navigator || (typeof globalThis !== 'undefined' ? globalThis.navigator : (typeof navigator !== 'undefined' ? navigator : undefined));
+
     this.audioContext = null;
     this.source = null;
     this.processor = null;
@@ -51,7 +55,11 @@ class VoiceChanger {
   async init() {
     if (this.initialized) return;
 
-    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const AudioContextCtor = this._window?.AudioContext || this._window?.webkitAudioContext;
+    if (!AudioContextCtor) {
+      throw new Error('当前环境不支持 Web Audio API');
+    }
+    this.audioContext = new AudioContextCtor();
 
     // 加载 SoundTouchJS
     await this.loadSoundTouch();
@@ -91,14 +99,23 @@ class VoiceChanger {
     this.initialized = true;
   }
 
+  isSupported() {
+    const hasAudio = !!(this._window?.AudioContext || this._window?.webkitAudioContext);
+    const hasMedia = !!(this._navigator?.mediaDevices?.getUserMedia);
+    return hasAudio && hasMedia;
+  }
+
   async loadSoundTouch() {
-    if (window.soundtouch) return;
+    if (this._window?.soundtouch) return;
+    if (!this._document) {
+      throw new Error('当前环境不支持动态加载脚本');
+    }
     return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
+      const script = this._document.createElement('script');
       script.src = 'https://cdn.jsdelivr.net/npm/soundtouchjs@0.1.29/dist/soundtouch.min.js';
       script.onload = () => resolve();
-      script.onerror = () => reject(new Error('SoundTouchJS 加载失败'));
-      document.head.appendChild(script);
+      script.onerror = () => reject(new Error('SoundTouchJS 加载失败：请检查网络连接'));
+      this._document.head.appendChild(script);
     });
   }
 
@@ -109,7 +126,10 @@ class VoiceChanger {
     // 如果传入了已有流则复用，否则主动请求麦克风
     let stream = existingStream;
     if (!stream) {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!this._navigator?.mediaDevices?.getUserMedia) {
+        throw new Error('当前环境不支持音频输入');
+      }
+      stream = await this._navigator.mediaDevices.getUserMedia({ audio: true });
     }
     this.stream = stream;
 
@@ -124,7 +144,10 @@ class VoiceChanger {
     this.source.connect(this.inputGain);
 
     // 初始化 SoundTouch
-    this.soundTouch = new window.soundtouch.SoundTouch(
+    if (!this._window?.soundtouch) {
+      throw new Error('SoundTouchJS 未正确加载');
+    }
+    this.soundTouch = new this._window.soundtouch.SoundTouch(
       this.audioContext.sampleRate,
       1 // 单声道
     );
@@ -154,9 +177,11 @@ class VoiceChanger {
 
     const inputData = e.inputBuffer.getChannelData(0);
     const outputData = e.outputBuffer.getChannelData(0);
+    const st = this._window?.soundtouch;
+    if (!st) return;
 
     // 将输入数据放入 SoundTouch
-    const inputBuffer = new window.soundtouch.Float32AudioBuffer(inputData.length);
+    const inputBuffer = new st.Float32AudioBuffer(inputData.length);
     for (let i = 0; i < inputData.length; i++) {
       inputBuffer.vector[i] = inputData[i];
     }
@@ -164,7 +189,7 @@ class VoiceChanger {
     this.soundTouch.putSamples(inputBuffer);
 
     // 从 SoundTouch 取出处理后的数据
-    const outputBuffer = new window.soundtouch.Float32AudioBuffer(outputData.length);
+    const outputBuffer = new st.Float32AudioBuffer(outputData.length);
     const received = this.soundTouch.receiveSamples(outputBuffer);
 
     // 复制到输出
@@ -307,7 +332,10 @@ class VoiceChanger {
     }
     
     if (!this.soundTouch) {
-      this.soundTouch = new window.soundtouch.SoundTouch(
+      if (!this._window?.soundtouch) {
+        throw new Error('SoundTouchJS 未正确加载');
+      }
+      this.soundTouch = new this._window.soundtouch.SoundTouch(
         this.audioContext.sampleRate,
         1
       );
@@ -333,11 +361,14 @@ class VoiceChanger {
   async startParagraphRecording() {
     if (this.mode !== 'paragraph') return;
     if (this.isRecording) return;
-    
+
     await this.init();
-    
+
     if (!this.stream) {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!this._navigator?.mediaDevices?.getUserMedia) {
+        throw new Error('当前环境不支持音频输入');
+      }
+      this.stream = await this._navigator.mediaDevices.getUserMedia({ audio: true });
     }
     
     this.isRecording = true;
@@ -405,26 +436,30 @@ class VoiceChanger {
   }
 
   async applySoundTouchToBuffer(audioBuffer) {
-    if (!window.soundtouch) {
+    if (!this._window?.soundtouch) {
       await this.loadSoundTouch();
     }
-    
+    if (!this._window?.soundtouch) {
+      throw new Error('SoundTouchJS 未正确加载');
+    }
+    const stNs = this._window.soundtouch;
+
     const sampleRate = audioBuffer.sampleRate;
     const channelData = audioBuffer.getChannelData(0);
-    
-    const st = new window.soundtouch.SoundTouch(sampleRate, 1);
+
+    const st = new stNs.SoundTouch(sampleRate, 1);
     st.pitch = this.pitch;
     st.tempo = this.tempo;
     st.rate = this.rate;
-    
-    const inputBuffer = new window.soundtouch.Float32AudioBuffer(channelData.length);
+
+    const inputBuffer = new stNs.Float32AudioBuffer(channelData.length);
     for (let i = 0; i < channelData.length; i++) {
       inputBuffer.vector[i] = channelData[i];
     }
     st.putSamples(inputBuffer);
-    
+
     const outputLength = Math.ceil(channelData.length / this.tempo);
-    const outputBuffer = new window.soundtouch.Float32AudioBuffer(outputLength);
+    const outputBuffer = new stNs.Float32AudioBuffer(outputLength);
     const received = st.receiveSamples(outputBuffer);
     
     const processedAudioBuffer = this.audioContext.createBuffer(
