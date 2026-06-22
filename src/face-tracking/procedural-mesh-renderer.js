@@ -320,6 +320,12 @@ class ProceduralMeshRenderer {
       // 应用模式下用浅色背景，保证面部灰度对比明显
       ctx.fillStyle = '#F7F5EE';
       ctx.fillRect(0, 0, w, h);
+      // 显示背景色16进制编号，方便抠图
+      ctx.fillStyle = '#888888';
+      ctx.font = '14px monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('#F7F5EE', 10, 10);
     }
 
     this._render(ctx, w, h);
