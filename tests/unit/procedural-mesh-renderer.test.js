@@ -566,7 +566,7 @@ describe('Avatar 构造顺序', () => {
     const sm = createSpindleMesh({ headR: 75, bodyLength: 150 });
     // 找到尾鳍顶点（col > columns）
     const flukeVerts = sm.vertices.filter(v => v.col > 34);
-    assert.ok(flukeVerts.length === 6, `尾鳍应有 6 个顶点，实际 ${flukeVerts.length}`);
+    assert.ok(flukeVerts.length === 8, `尾鳍应有 8 个顶点（竖向尾鳍：base, top, bottom, tip + 厚度偏移点），实际 ${flukeVerts.length}`);
     // 验证尾鳍面是三角形且非退化
     const flukeFaces = sm.faces.filter(f => f.column > 34);
     assert.ok(flukeFaces.length === 4, `尾鳍应有 4 个三角形面，实际 ${flukeFaces.length}`);

@@ -700,55 +700,32 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      // 嘴巴尺寸参数：直接用 scale，不预乘 rl/dl
-      // mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
-      const smileWiden = 1 + smile * 0.4;
 
-      // mouthPress: 抿嘴效果，降低 open
-      const effectiveOpen = Math.max(0, open - (mouthPress || 0) * 0.3);
+      // 萨卡班甲鱼：黑色倒三角形嘴，上边与灰白分界线重合
+      const halfW = (anchor.mouthWidth || this.mesh.radius * 0.20) * scale;
+      const mouthH = halfW * 0.8;  // 倒三角形高度
 
-      // mouthFunnel: 嘟嘴效果，使嘴巴变圆（宽度减少，高度增加）
-      const funnelNarrow = 1 - (mouthFunnel || 0) * 0.5;
-      const funnelTall = 1 + (mouthFunnel || 0) * 0.8;
-
-      const halfW = 22 * scale * smileWiden * funnelNarrow;
-      const openH = (3 * scale + 14 * scale * effectiveOpen) * funnelTall;
-      const cornerUp = -smile * 8 * scale;
-      const centerUp = -smile * 3 * scale;
       ctx.save();
       ctx.globalAlpha = facing;
-      ctx.strokeStyle = '#2b2b2b';
-      ctx.lineWidth = Math.max(1, 2.2 * scale);
+      ctx.fillStyle = '#1a1a1a';
 
-      if (effectiveOpen < 0.05 && smile < 0.1) {
-        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
-        const right = mapFaceLocalPoint(t, halfW, cornerUp);
-        ctx.beginPath();
-        ctx.moveTo(left.x, left.y);
-        ctx.lineTo(right.x, right.y);
-        ctx.stroke();
-      } else if (effectiveOpen < 0.05) {
-        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
-        const mid = mapFaceLocalPoint(t, 0, centerUp + 2 * scale);
-        const right = mapFaceLocalPoint(t, halfW, cornerUp);
-        ctx.beginPath();
-        ctx.moveTo(left.x, left.y);
-        ctx.quadraticCurveTo(mid.x, mid.y, right.x, right.y);
-        ctx.stroke();
-      } else {
-        ctx.fillStyle = '#4a2020';
-        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
-        const topMid = mapFaceLocalPoint(t, 0, centerUp - openH * 0.35);
-        const right = mapFaceLocalPoint(t, halfW, cornerUp);
-        const botMid = mapFaceLocalPoint(t, 0, centerUp + openH * 0.55);
-        ctx.beginPath();
-        ctx.moveTo(left.x, left.y);
-        ctx.quadraticCurveTo(topMid.x, topMid.y, right.x, right.y);
-        ctx.quadraticCurveTo(botMid.x, botMid.y, left.x, left.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      }
+      // 倒三角形：上边水平，尖角向下
+      const left = mapFaceLocalPoint(t, -halfW, 0);
+      const right = mapFaceLocalPoint(t, halfW, 0);
+      const tip = mapFaceLocalPoint(t, 0, mouthH);
+
+      ctx.beginPath();
+      ctx.moveTo(left.x, left.y);
+      ctx.lineTo(right.x, right.y);
+      ctx.lineTo(tip.x, tip.y);
+      ctx.closePath();
+      ctx.fill();
+
+      // 黑色描边
+      ctx.strokeStyle = '#1a1a1a';
+      ctx.lineWidth = Math.max(1, 1.5 * scale);
+      ctx.stroke();
+
       ctx.restore();
     };
 
@@ -781,10 +758,10 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         headX: 70,
         headY: 58,
         headZ: 54,
-        bodyLength: 102,
+        bodyLength: 145,
         bodyEndX: 9,
         bodyEndY: 5,
-        columns: 30,
+        columns: 38,
         rows: 35,
         topColor: '#c3b681',
         bottomColor: '#eee1bc',
@@ -812,13 +789,13 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const hx = mesh.headX;   // 左右半径
     const hy = mesh.headY;   // 上下半径
 
-    // 卡通版：大圆眼、适中眼距、眼睛在脸部上部
-    const eyeSpacing = hx * 0.31;    // 眼左右位置（放宽眼距，避免两眼挤在一起）
-    const eyeHeight = -hy * 0.15;   // 眼上下位置（脸的上半部分）
-    const mouthHeight = hy * 0.30;  // 嘴在眼下稍远的位置（GPT 建议：避免张嘴时上缘碰到眼睛）
-    const mouthHalfWidth = hx * 0.22; // 嘴的半宽，约占头部宽度 44%
-    const browOffset = -hy * 0.48;  // 眉在眼上方（相对中心）
-    const browSpacing = hx * 0.31;  // 眉水平间距与眼一致
+    // 萨卡班甲鱼：面部特征上移，集中在灰色上半区和灰白分界线附近
+    const eyeSpacing = hx * 0.30;    // 眼左右位置
+    const eyeHeight = -hy * 0.28;   // 眼上下位置：灰色上半区，更靠上
+    const mouthHeight = hy * 0.02;  // 嘴的上边与灰白分界线重合（接近 y=0）
+    const mouthHalfWidth = hx * 0.20; // 嘴的半宽
+    const browOffset = -hy * 0.42;  // 眉在眼上方
+    const browSpacing = hx * 0.30;  // 眉水平间距与眼一致
 
     return {
       leftEye:  { bodyT: 0, horizOffset: -eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0.5 },

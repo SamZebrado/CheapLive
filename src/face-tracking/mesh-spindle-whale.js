@@ -14,7 +14,7 @@
  *   2. 每个顶点的法线用参数化曲面 (θ, s) 的切向量叉乘计算：
  *        T_θ = ∂p/∂θ = (-R_x(s)·sinθ,  R_y(s)·cosθ,  0)
  *        T_s = ∂p/∂s ≈ (R_x'(s)·cosθ, R_y'(s)·sinθ, z'(s) + yBend'(s))  【数值差分】
- *        n = T_θ × T_s （归一化）
+ *        n = T_s × T_θ （归一化）
  *      这样旋转后背面剔除与真实光照都正确，不会出现"明明可见却被隐藏"
  *      的问题。
  */
@@ -154,8 +154,8 @@ function getFaceWeight(s, angle) {
  *   T_θ = (-rx·sinθ,  ry·cosθ,  0)
  *   T_s = (rx'·cosθ, yBend' + ry'·sinθ, z')
  *
- * 注意：为了让法线朝向"外侧"（远离主轴），叉乘顺序是 T_θ × T_s，
- * 然后检查 z 分量符号是否正确（朝前的半球 nz > 0）。
+ * 注意：为了让法线朝向"外侧"（远离主轴），叉乘顺序是 T_s × T_θ，
+ * 并检查 z 分量符号是否正确（朝前的半球 nz > 0）。
  */
 export function createSpindleMesh(options = {}) {
   const {
@@ -304,17 +304,17 @@ export function createSpindleMesh(options = {}) {
     }
   }
 
-  // --- 尾鳍（Tail）：3D 扇尾，从主体平滑延伸 ---
-  //     设计：
-  //       - 尾鳍从主体最后一圈平滑过渡
-  //       - 尾鳍沿 -Z 方向延伸，形成扇尾形状
-  //       - 尾尖略上翘，形成鱼雷形尾部
+  // --- 尾鳍（Tail）：竖向三角形，主平面在 Y-Z 平面 ---
+  //     萨卡班甲鱼特征：
+  //       - 尾鳍竖起来，像两片竖向的纸贴在身体延长线上
+  //       - 主平面是 Y-Z 平面（上下展开），不是 X-Z 平面（左右展开）
+  //       - 从正后方看是一个竖线，居中位置稍微厚一点
   //       - 所有面都是三角形，避免退化问题
   if (flukeEnabled) {
     const flukeStartIdx = vertices.length;
-    const flukeHalfWidth = headX * 0.18 * flukeSize;
-    const flukeHalfHeight = headY * 0.22 * flukeSize;
-    const tailExtensionZ = 35;
+    const flukeHalfHeight = headY * 0.35 * flukeSize;  // 竖向高度
+    const flukeThickness = headX * 0.08 * flukeSize;   // 厚度（X方向）
+    const tailExtensionZ = 40;
     const flukeTipBackZ = -bodyLength - headZ * 0.2 - tailExtensionZ;
 
     const lastRingStart = 1 + (columns - 1) * (rows + 1);
@@ -328,149 +328,124 @@ export function createSpindleMesh(options = {}) {
     bodyEndCenterY /= rows;
     bodyEndCenterZ /= rows;
 
-    const flukeBaseZ = bodyEndCenterZ - 5;
+    const flukeBaseZ = bodyEndCenterZ - 3;
 
-    const eps = 1.0;
-
-    const vR = {
-      x: bodyEndCenterX + eps, y: bodyEndCenterY + eps * 0.5, z: flukeBaseZ,
-      nx: 0, ny: 0, nz: -1, t: 1.03, angle: 0, col: columns + 1, row: 0,
+    // 尾鳍根节点（身体末端中心，稍微厚一点）
+    const vBase = {
+      x: bodyEndCenterX, y: bodyEndCenterY, z: flukeBaseZ,
+      nx: 0, ny: 0, nz: -1, t: 1.02, angle: 0, col: columns + 1, row: 0,
       isTop: false, isBottom: false, faceWeight: 0, isHead: false,
     };
 
-    const vA = {
-      x: bodyEndCenterX + eps * 0.8, y: bodyEndCenterY - flukeHalfHeight + eps, z: flukeBaseZ - 12,
-      nx: 0, ny: -1, nz: 0, t: 1.04, angle: -Math.PI / 2, col: columns + 1, row: 0,
+    // 上尾鳍顶点（-Y 方向）
+    const vTop = {
+      x: bodyEndCenterX, y: bodyEndCenterY - flukeHalfHeight, z: flukeBaseZ - 15,
+      nx: 0, ny: -1, nz: 0, t: 1.05, angle: -Math.PI / 2, col: columns + 1, row: 0,
       isTop: true, isBottom: false, faceWeight: 0, isHead: false,
     };
 
-    const vC = {
-      x: bodyEndCenterX + eps * 0.8, y: bodyEndCenterY + flukeHalfHeight + eps, z: flukeBaseZ - 12,
-      nx: 0, ny: 1, nz: 0, t: 1.04, angle: Math.PI / 2, col: columns + 1, row: 0,
+    // 下尾鳍顶点（+Y 方向）
+    const vBottom = {
+      x: bodyEndCenterX, y: bodyEndCenterY + flukeHalfHeight, z: flukeBaseZ - 15,
+      nx: 0, ny: 1, nz: 0, t: 1.05, angle: Math.PI / 2, col: columns + 1, row: 0,
       isTop: false, isBottom: true, faceWeight: 0, isHead: false,
     };
 
-    const vBL = {
-      x: bodyEndCenterX - flukeHalfWidth + eps, y: bodyEndCenterY + eps * 0.5, z: flukeBaseZ - 6,
-      nx: -1, ny: 0, nz: 0, t: 1.03, angle: Math.PI, col: columns + 1, row: 0,
-      isTop: false, isBottom: false, faceWeight: 0, isHead: false,
-    };
-
-    const vBR = {
-      x: bodyEndCenterX + flukeHalfWidth + eps, y: bodyEndCenterY + eps * 0.5, z: flukeBaseZ - 6,
-      nx: 1, ny: 0, nz: 0, t: 1.03, angle: 0, col: columns + 1, row: 0,
-      isTop: false, isBottom: false, faceWeight: 0, isHead: false,
-    };
-
-    const vT = {
-      x: bodyEndCenterX + eps * 2, y: bodyEndCenterY - headY * 0.05 + eps, z: flukeTipBackZ,
+    // 尾尖（向后延伸，稍微向上翘）
+    const vTip = {
+      x: bodyEndCenterX, y: bodyEndCenterY - headY * 0.05, z: flukeTipBackZ,
       nx: 0, ny: 0, nz: -1, t: 1.1, angle: 0, col: columns + 2, row: 0,
       isTop: true, isBottom: false, faceWeight: 0, isHead: false,
     };
 
-    vertices.push(vR, vA, vC, vBL, vBR, vT);
-    const iR = flukeStartIdx + 0;
-    const iA = flukeStartIdx + 1;
-    const iC = flukeStartIdx + 2;
-    const iBL = flukeStartIdx + 3;
-    const iBR = flukeStartIdx + 4;
-    const iT = flukeStartIdx + 5;
+    // 厚度偏移点（用于创建有厚度的尾鳍）
+    const vBaseThick = {
+      x: bodyEndCenterX + flukeThickness, y: bodyEndCenterY, z: flukeBaseZ,
+      nx: 1, ny: 0, nz: 0, t: 1.02, angle: 0, col: columns + 1, row: 0,
+      isTop: false, isBottom: false, faceWeight: 0, isHead: false,
+    };
 
+    const vTopThick = {
+      x: bodyEndCenterX + flukeThickness * 0.5, y: bodyEndCenterY - flukeHalfHeight, z: flukeBaseZ - 15,
+      nx: 1, ny: 0, nz: 0, t: 1.05, angle: 0, col: columns + 1, row: 0,
+      isTop: true, isBottom: false, faceWeight: 0, isHead: false,
+    };
+
+    const vBottomThick = {
+      x: bodyEndCenterX + flukeThickness * 0.5, y: bodyEndCenterY + flukeHalfHeight, z: flukeBaseZ - 15,
+      nx: 1, ny: 0, nz: 0, t: 1.05, angle: 0, col: columns + 1, row: 0,
+      isTop: false, isBottom: true, faceWeight: 0, isHead: false,
+    };
+
+    const vTipThick = {
+      x: bodyEndCenterX + flukeThickness * 0.3, y: bodyEndCenterY - headY * 0.05, z: flukeTipBackZ,
+      nx: 1, ny: 0, nz: 0, t: 1.1, angle: 0, col: columns + 2, row: 0,
+      isTop: true, isBottom: false, faceWeight: 0, isHead: false,
+    };
+
+    vertices.push(vBase, vTop, vBottom, vTip, vBaseThick, vTopThick, vBottomThick, vTipThick);
+    const iBase = flukeStartIdx + 0;
+    const iTop = flukeStartIdx + 1;
+    const iBottom = flukeStartIdx + 2;
+    const iTip = flukeStartIdx + 3;
+    const iBaseT = flukeStartIdx + 4;
+    const iTopT = flukeStartIdx + 5;
+    const iBottomT = flukeStartIdx + 6;
+    const iTipT = flukeStartIdx + 7;
+
+    // 上尾鳍面（主平面 Y-Z）
     faces.push({
-      indices: [iR, iA, iT],
-      vertices: [vR, vA, vT],
+      indices: [iBase, iTop, iTip],
+      vertices: [vBase, vTop, vTip],
+      isTop: true, isBottom: false,
+      column: columns + 1, row: 0,
+      doubleSided: true,
+    });
+    faces.push({
+      indices: [iBaseT, iTipT, iTopT],
+      vertices: [vBaseThick, vTipThick, vTopThick],
       isTop: true, isBottom: false,
       column: columns + 1, row: 0,
       doubleSided: true,
     });
 
+    // 下尾鳍面（主平面 Y-Z）
     faces.push({
-      indices: [iR, iT, iC],
-      vertices: [vR, vT, vC],
+      indices: [iBase, iTip, iBottom],
+      vertices: [vBase, vTip, vBottom],
+      isTop: false, isBottom: true,
+      column: columns + 1, row: 0,
+      doubleSided: true,
+    });
+    faces.push({
+      indices: [iBaseT, iBottomT, iTipT],
+      vertices: [vBaseThick, vBottomThick, vTipThick],
       isTop: false, isBottom: true,
       column: columns + 1, row: 0,
       doubleSided: true,
     });
 
-    faces.push({
-      indices: [iR, iBL, iT],
-      vertices: [vR, vBL, vT],
-      isTop: false, isBottom: false,
-      column: columns + 1, row: 0,
-      doubleSided: true,
-    });
-
-    faces.push({
-      indices: [iR, iT, iBR],
-      vertices: [vR, vT, vBR],
-      isTop: false, isBottom: false,
-      column: columns + 1, row: 0,
-      doubleSided: true,
-    });
-
-    let topIdx = lastRingStart, bottomIdx = lastRingStart, leftIdx = lastRingStart, rightIdx = lastRingStart;
-    let topDiff = Infinity, bottomDiff = Infinity, leftDiff = Infinity, rightDiff = Infinity;
+    // 连接主体到尾鳍根
+    let topIdx = lastRingStart, bottomIdx = lastRingStart;
+    let topDiff = Infinity, bottomDiff = Infinity;
     for (let row = 0; row < rows; row++) {
       const v = vertices[lastRingStart + row];
       const d1 = Math.abs(v.angle - (-Math.PI / 2));
       const d2 = Math.abs(v.angle - Math.PI / 2);
-      const d3 = Math.abs(Math.abs(v.angle) - Math.PI);
-      const d4 = Math.abs(v.angle - 0);
       if (d1 < topDiff) { topDiff = d1; topIdx = lastRingStart + row; }
       if (d2 < bottomDiff) { bottomDiff = d2; bottomIdx = lastRingStart + row; }
-      if (d3 < leftDiff) { leftDiff = d3; leftIdx = lastRingStart + row; }
-      if (d4 < rightDiff) { rightDiff = d4; rightIdx = lastRingStart + row; }
     }
 
     faces.push({
-      indices: [topIdx, rightIdx, iBR],
-      vertices: [vertices[topIdx], vertices[rightIdx], vBR],
+      indices: [topIdx, iBase, iTop],
+      vertices: [vertices[topIdx], vBase, vTop],
       isTop: true, isBottom: false,
       column: columns, row: 0,
     });
     faces.push({
-      indices: [topIdx, iBR, iR],
-      vertices: [vertices[topIdx], vBR, vR],
-      isTop: true, isBottom: false,
-      column: columns, row: 0,
-    });
-
-    faces.push({
-      indices: [rightIdx, bottomIdx, iC],
-      vertices: [vertices[rightIdx], vertices[bottomIdx], vC],
+      indices: [bottomIdx, iBottom, iBase],
+      vertices: [vertices[bottomIdx], vBottom, vBase],
       isTop: false, isBottom: true,
-      column: columns, row: 0,
-    });
-    faces.push({
-      indices: [rightIdx, iC, iR],
-      vertices: [vertices[rightIdx], vC, vR],
-      isTop: false, isBottom: true,
-      column: columns, row: 0,
-    });
-
-    faces.push({
-      indices: [bottomIdx, leftIdx, iBL],
-      vertices: [vertices[bottomIdx], vertices[leftIdx], vBL],
-      isTop: false, isBottom: true,
-      column: columns, row: 0,
-    });
-    faces.push({
-      indices: [bottomIdx, iBL, iR],
-      vertices: [vertices[bottomIdx], vBL, vR],
-      isTop: false, isBottom: true,
-      column: columns, row: 0,
-    });
-
-    faces.push({
-      indices: [leftIdx, topIdx, iA],
-      vertices: [vertices[leftIdx], vertices[topIdx], vA],
-      isTop: true, isBottom: false,
-      column: columns, row: 0,
-    });
-    faces.push({
-      indices: [leftIdx, iA, iR],
-      vertices: [vertices[leftIdx], vA, vR],
-      isTop: true, isBottom: false,
       column: columns, row: 0,
     });
   } else {
@@ -709,12 +684,25 @@ export function createWhaleTailMesh(options = {}) {
 
 // -------------------- 变形与旋转 --------------------
 
-const BEND_COEF_YAW = 0.70;
-const BEND_COEF_PITCH = 0.50;
+const BEND_COEF_YAW = 0.85;
+const BEND_COEF_PITCH = 0.75;
 
 function bendProfile(s) {
   const t = Math.max(0, Math.min(1, s));
-  return t * t * (3 - 2 * t);
+  // 萨卡班甲鱼：头部带动、身体滞后，形成柔软弯曲
+  // 头部 (t=0) 旋转最大，身体 (t=0.3~0.7) 滞后，尾部 (t=1) 几乎不旋转
+  if (t < 0.15) {
+    // 头部区域：快速过渡到头部旋转
+    const headT = t / 0.15;
+    return 1 - headT * headT * (3 - 2 * headT);
+  } else if (t < 0.6) {
+    // 身体区域：缓慢滞后
+    const bodyT = (t - 0.15) / 0.45;
+    return bodyT * bodyT * (3 - 2 * bodyT);
+  } else {
+    // 尾部区域：几乎不旋转
+    return 1;
+  }
 }
 
 function bendProfileDeriv(s) {
@@ -726,12 +714,13 @@ function bendProfileDeriv(s) {
 
 function applySoftRotation(x, y, z, nx, ny, nz, s, params) {
   const { angleY = 0, angleX = 0, angleZ = 0 } = params;
-  
+
   const bend = bendProfile(s);
-  
+
+  // 头部带动、身体滞后：头部旋转最大，身体逐渐滞后
   const effectiveYaw = angleY * (1 - BEND_COEF_YAW * bend);
   const effectivePitch = angleX * (1 - BEND_COEF_PITCH * bend);
-  const effectiveRoll = angleZ * (1 - 0.35 * bend);
+  const effectiveRoll = angleZ * (1 - 0.6 * bend);
 
   const radY = effectiveYaw * Math.PI / 180;
   const radX = effectivePitch * Math.PI / 180;
