@@ -684,25 +684,32 @@ export function createWhaleTailMesh(options = {}) {
 
 // -------------------- 变形与旋转 --------------------
 
-const BEND_COEF_YAW = 0.85;
-const BEND_COEF_PITCH = 0.75;
+const BEND_COEF_YAW = 0.80;
+const BEND_COEF_PITCH = 0.60;
 
+/**
+ * 弯曲系数曲线：沿身体主轴 s∈[0,1] 的连续单调曲线。
+ * 脸部刚性跟随 → 头后部轻微滞后 → 身体逐渐过渡 → 尾部最大滞后。
+ * 保证连续、单调不下降，避免折痕。
+ */
 function bendProfile(s) {
   const t = Math.max(0, Math.min(1, s));
-  // 萨卡班甲鱼：头部带动、身体滞后，形成柔软弯曲
-  // 头部 (t=0) 旋转最大，身体 (t=0.3~0.7) 滞后，尾部 (t=1) 几乎不旋转
-  if (t < 0.15) {
-    // 头部区域：快速过渡到头部旋转
-    const headT = t / 0.15;
-    return 1 - headT * headT * (3 - 2 * headT);
-  } else if (t < 0.6) {
-    // 身体区域：缓慢滞后
-    const bodyT = (t - 0.15) / 0.45;
-    return bodyT * bodyT * (3 - 2 * bodyT);
-  } else {
-    // 尾部区域：几乎不旋转
-    return 1;
+  const faceEnd = 0.08;   // 脸部刚性跟随区域
+  const headEnd = 0.28;   // 头部后段过渡结束
+  const tailStart = 0.80;  // 尾部开始进入最大滞后
+
+  if (t <= faceEnd) return 0;
+  if (t <= headEnd) {
+    // 头部后段：smoothstep 从 0 到 0.30
+    const u = (t - faceEnd) / (headEnd - faceEnd);
+    return 0.30 * u * u * (3 - 2 * u);
   }
+  if (t <= tailStart) {
+    // 身体主体：smoothstep 从 0.30 到 1.0
+    const u = (t - headEnd) / (tailStart - headEnd);
+    return 0.30 + 0.70 * u * u * (3 - 2 * u);
+  }
+  return 1;
 }
 
 function bendProfileDeriv(s) {
@@ -763,6 +770,25 @@ export function deformSpindle(mesh, params = {}) {
     const newIsBottom = r.y >= 0;
     return { ...v, tx: r.x, ty: r.y, tz: r.z, nx: r.nx, ny: r.ny, nz: r.nz, isTop: newIsTop, isBottom: newIsBottom };
   });
+
+  // 鼻端平滑：将 apex 顶点向第一环中心轻微混合，
+  // 防止抬头时鼻端三角面被拉成尖刺
+  const rows = mesh.rows;
+  const ringStart = 1; // col=1 顶点起始索引
+  let ringCenterX = 0, ringCenterY = 0, ringCenterZ = 0;
+  for (let row = 0; row <= rows; row++) {
+    ringCenterX += transformed[ringStart + row].tx;
+    ringCenterY += transformed[ringStart + row].ty;
+    ringCenterZ += transformed[ringStart + row].tz;
+  }
+  ringCenterX /= (rows + 1);
+  ringCenterY /= (rows + 1);
+  ringCenterZ /= (rows + 1);
+  const BLEND = 0.15;
+  transformed[0].tx = transformed[0].tx * (1 - BLEND) + ringCenterX * BLEND;
+  transformed[0].ty = transformed[0].ty * (1 - BLEND) + ringCenterY * BLEND;
+  transformed[0].tz = transformed[0].tz * (1 - BLEND) + ringCenterZ * BLEND;
+
   const transformedFaces = mesh.faces.map((f) => ({
     ...f,
     vertices: f.indices.map((idx) => transformed[idx]),

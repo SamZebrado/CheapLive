@@ -36,6 +36,10 @@
       font-size: 14px;
     }
     button:hover { background: #5e75e6; }
+    .slider-group { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+    .slider-group label { font-size: 13px; color: #ccc; }
+    .slider-group input[type=range] { width: 200px; }
+    .slider-group span { font-size: 13px; color: #aaa; min-width: 30px; }
     .status { font-size: 13px; color: #aaa; margin-top: 10px; }
   </style>
 </head>
@@ -50,6 +54,11 @@
     <button onclick="testMouth()">测试张嘴</button>
     <button onclick="testYaw()">测试转头</button>
     <button onclick="resetAvatar()">重置</button>
+  </div>
+  <div class="slider-group">
+    <label>身体长度:</label>
+    <input type="range" id="bodyLengthSlider" min="80" max="350" value="210" step="10">
+    <span id="bodyLengthVal">210</span>
   </div>
   <div class="status" id="status">加载中...</div>
 
@@ -111,6 +120,15 @@
         headX: 0.5, headY: 0.5
       });
     };
+
+    // 身体长度滑块
+    const slider = document.getElementById('bodyLengthSlider');
+    const valSpan = document.getElementById('bodyLengthVal');
+    slider.addEventListener('input', () => {
+      const val = parseInt(slider.value);
+      valSpan.textContent = val;
+      avatar.setBodyLength(val);
+    });
   </script>
 </body>
 </html>

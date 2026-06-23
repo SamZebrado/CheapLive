@@ -227,8 +227,14 @@ function normalizeParams(p) {
   return {
     eyeLeft: clamp(p.eyeLeft ?? 1, 0, 1),
     eyeRight: clamp(p.eyeRight ?? 1, 0, 1),
+    eyeWideLeft: clamp(p.eyeWideLeft ?? 0, 0, 1),
+    eyeWideRight: clamp(p.eyeWideRight ?? 0, 0, 1),
+    eyeSquintLeft: clamp(p.eyeSquintLeft ?? 0, 0, 1),
+    eyeSquintRight: clamp(p.eyeSquintRight ?? 0, 0, 1),
     mouthOpen: clamp(p.mouthOpen ?? 0, 0, 1),
     mouthSmile: clamp(p.mouthSmile ?? 0, 0, 1),
+    mouthFunnel: clamp(p.mouthFunnel ?? 0, 0, 1),
+    mouthPress: clamp(p.mouthPress ?? 0, 0, 1),
     browLeft: clamp(p.browLeft ?? 0, 0, 1),
     browRight: clamp(p.browRight ?? 0, 0, 1),
     headYaw: (clamp(p.headYaw ?? 0.5, 0, 1) - 0.5) * 120,
@@ -646,7 +652,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
         ctx.beginPath();
         ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, ang, 0, Math.PI * 2);
         ctx.fillStyle = '#1f1f1f';
-        ctx.globalAlpha = facing * easedOpen;
+        ctx.globalAlpha = Math.max(0.4, facing) * easedOpen;
         ctx.fill();
         ctx.globalAlpha = facing;
       }
@@ -764,10 +770,10 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         headX: 70,
         headY: 58,
         headZ: 54,
-        bodyLength: 145,
+        bodyLength: 210,
         bodyEndX: 9,
         bodyEndY: 5,
-        columns: 38,
+        columns: 42,
         rows: 35,
         topColor: '#c3b681',
         bottomColor: '#eee1bc',
@@ -781,6 +787,25 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     // 光照参数（可选）
     this.lightDir = options.lightDir ?? { ...SPINDLE_DEFAULT_LIGHT_DIR };
     this.ambient = options.ambient ?? SPINDLE_DEFAULT_AMBIENT;
+    this.draw();
+  }
+
+  /** 动态调整身体长度并重建 mesh */
+  setBodyLength(length) {
+    this.spindleMesh = createSpindleMesh({
+      headX: 70,
+      headY: 58,
+      headZ: 54,
+      bodyLength: Math.max(80, Math.min(350, length)),
+      bodyEndX: 9,
+      bodyEndY: 5,
+      columns: 42,
+      rows: 35,
+      topColor: '#c3b681',
+      bottomColor: '#eee1bc',
+      faceTopColor: '#d1c394',
+      faceBottomColor: '#f4e8c8',
+    });
     this.draw();
   }
 
@@ -798,7 +823,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     // 萨卡班甲鱼：面部特征上移，集中在灰色上半区和灰白分界线附近
     const eyeSpacing = hx * 0.30;    // 眼左右位置
     const eyeHeight = -hy * 0.28;   // 眼上下位置：灰色上半区，更靠上
-    const mouthHeight = hy * 0.02;  // 嘴的上边与灰白分界线重合（接近 y=0）
+    const mouthHeight = hy * 0.06;  // 嘴的上边在灰白分界线下方，减少小胡子感
     const mouthHalfWidth = hx * 0.20; // 嘴的半宽
     const browOffset = -hy * 0.42;  // 眉在眼上方
     const browSpacing = hx * 0.30;  // 眉水平间距与眼一致
@@ -871,15 +896,15 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       let ry = Math.max(0.1, proj.radiusY);
 
       // eyeWide: 眼睛变大（惊讶表情），0=正常，1=最大
-      // 效果增加：rx/ry 都增加，让变化更明显
-      const wideScale = 1 + (eyeWide || 0) * 0.55;
+      // 适度放大，避免正面状态下过度挤占面部
+      const wideScale = 1 + (eyeWide || 0) * 0.47;
       rx *= wideScale;
       ry *= wideScale;
 
       // eyeSquint: 眯眼，0=正常，1=最窄
-      // 效果增加：ry 减少使眼睛变窄，但 rx 略增
-      const squintScaleY = 1 - (eyeSquint || 0) * 0.65;
-      const squintScaleX = 1 + (eyeSquint || 0) * 0.2;
+      // 像"压扁的大圆眼"而非"斜长橄榄眼"：减少水平拉伸和垂直压缩
+      const squintScaleY = 1 - (eyeSquint || 0) * 0.55;
+      const squintScaleX = 1 + (eyeSquint || 0) * 0.08;
       rx *= squintScaleX;
       ry *= squintScaleY;
       const ang = proj.angle;
@@ -907,7 +932,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.beginPath();
         ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, ang, 0, Math.PI * 2);
         ctx.fillStyle = '#1f1f1f';
-        ctx.globalAlpha = facing * easedOpen;
+        ctx.globalAlpha = Math.max(0.4, facing) * easedOpen;
         ctx.fill();
         ctx.globalAlpha = facing;
       }
