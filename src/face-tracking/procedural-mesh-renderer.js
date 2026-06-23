@@ -630,18 +630,16 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.save();
       ctx.globalAlpha = facing;
 
-      // Bug 2 修复：眼白保持完整大小，不缩小
+      // 眼白椭圆：保持完整大小
       ctx.beginPath();
       ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
       ctx.lineWidth = Math.max(1, 1.8 * scale);
       ctx.strokeStyle = '#222';
-      ctx.globalAlpha = facing * (0.3 + 0.7 * easedOpen);
       ctx.stroke();
-      ctx.globalAlpha = facing;
 
-      // 瞳孔：随 easedOpen 缩小（闭眼时瞳孔确实应该变小）
+      // 瞳孔：随 easedOpen 缩小
       if (easedOpen > 0.1) {
         const pupilRx = rx * 0.55 * easedOpen;
         const pupilRy = ry * 0.55 * easedOpen;
@@ -653,19 +651,27 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
         ctx.globalAlpha = facing;
       }
 
-      // Bug 2 修复：上眼睑遮罩从眼睛顶部向下覆盖
-      // 使用水平椭圆（不受 ang 影响），避免 45° 斜线
-      // 遮罩高度限制为 ry * 1.5，避免盖住眉毛
+      // 直线眼皮：clip 到眼睛椭圆内，用矩形从顶部向下覆盖
+      // 直线下边缘 = 可爱眨眼效果，不超出眼睛范围
       if (easedClosed > 0.01) {
         ctx.save();
         ctx.beginPath();
-        // 上眼睑椭圆：中心在眼睛顶部下方，从顶部向下覆盖
-        const eyelidRx = rx + 1;  // 略大于眼睛宽度
-        const eyelidRy = Math.min(ry * 1.5, ry * easedClosed * 2);  // 随闭眼程度增加，但不超过 ry * 1.5
-        const eyelidCY = t.screenY - ry + eyelidRy * 0.5;  // 椭圆中心在眼睛顶部下方
-        ctx.ellipse(t.screenX, eyelidCY, eyelidRx, eyelidRy, 0, 0, Math.PI * 2);  // ang = 0，水平椭圆
+        ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+        ctx.clip();
+        // 眼皮从眼睛顶部向下覆盖，直线下边缘
+        const eyelidY = t.screenY - ry + ry * 2 * easedClosed;
         ctx.fillStyle = this.mesh.faceTopColor || '#d9d2be';
-        ctx.fill();
+        ctx.fillRect(
+          t.screenX - rx - 2, t.screenY - ry - 2,
+          rx * 2 + 4, eyelidY - t.screenY + ry + 2
+        );
+        // 画一条细细的眼皮线（更可爱）
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = Math.max(0.8, 1.2 * scale);
+        ctx.beginPath();
+        ctx.moveTo(t.screenX - rx, eyelidY);
+        ctx.lineTo(t.screenX + rx, eyelidY);
+        ctx.stroke();
         ctx.restore();
       }
       ctx.restore();
@@ -865,15 +871,15 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       let ry = Math.max(0.1, proj.radiusY);
 
       // eyeWide: 眼睛变大（惊讶表情），0=正常，1=最大
-      // 效果：rx/ry 都增加，但瞳孔大小不变
-      const wideScale = 1 + (eyeWide || 0) * 0.3;
+      // 效果增加：rx/ry 都增加，让变化更明显
+      const wideScale = 1 + (eyeWide || 0) * 0.55;
       rx *= wideScale;
       ry *= wideScale;
 
       // eyeSquint: 眯眼，0=正常，1=最窄
-      // 效果：ry 减少使眼睛变窄，但 rx 略增
-      const squintScaleY = 1 - (eyeSquint || 0) * 0.5;
-      const squintScaleX = 1 + (eyeSquint || 0) * 0.15;
+      // 效果增加：ry 减少使眼睛变窄，但 rx 略增
+      const squintScaleY = 1 - (eyeSquint || 0) * 0.65;
+      const squintScaleX = 1 + (eyeSquint || 0) * 0.2;
       rx *= squintScaleX;
       ry *= squintScaleY;
       const ang = proj.angle;
@@ -885,18 +891,16 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.save();
       ctx.globalAlpha = facing;
 
-      // Bug 2 修复：眼白保持完整大小，不缩小
+      // 眼白椭圆：保持完整大小
       ctx.beginPath();
       ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
       ctx.lineWidth = Math.max(1, 2.0 * scale);
       ctx.strokeStyle = '#222';
-      ctx.globalAlpha = facing * (0.3 + 0.7 * easedOpen);
       ctx.stroke();
-      ctx.globalAlpha = facing;
 
-      // 瞳孔：随 easedOpen 缩小（闭眼时瞳孔确实应该变小）
+      // 瞳孔：随 easedOpen 缩小
       if (easedOpen > 0.1) {
         const pupilRx = rx * 0.55 * easedOpen;
         const pupilRy = ry * 0.55 * easedOpen;
@@ -908,19 +912,27 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.globalAlpha = facing;
       }
 
-      // Bug 2 修复：上眼睑遮罩从眼睛顶部向下覆盖
-      // 使用水平椭圆（不受 ang 影响），避免 45° 斜线
-      // 遮罩高度限制为 ry * 1.5，避免盖住眉毛
+      // 直线眼皮：clip 到眼睛椭圆内，用矩形从顶部向下覆盖
+      // 直线下边缘 = 可爱眨眼效果，不超出眼睛范围
       if (easedClosed > 0.01) {
         ctx.save();
         ctx.beginPath();
-        // 上眼睑椭圆：中心在眼睛顶部下方，从顶部向下覆盖
-        const eyelidRx = rx + 1;  // 略大于眼睛宽度
-        const eyelidRy = Math.min(ry * 1.5, ry * easedClosed * 2);  // 随闭眼程度增加，但不超过 ry * 1.5
-        const eyelidCY = t.screenY - ry + eyelidRy * 0.5;  // 椭圆中心在眼睛顶部下方
-        ctx.ellipse(t.screenX, eyelidCY, eyelidRx, eyelidRy, 0, 0, Math.PI * 2);  // ang = 0，水平椭圆
+        ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+        ctx.clip();
+        // 眼皮从眼睛顶部向下覆盖，直线下边缘
+        const eyelidY = t.screenY - ry + ry * 2 * easedClosed;
         ctx.fillStyle = mesh.faceTopColor || '#bdb8aa';
-        ctx.fill();
+        ctx.fillRect(
+          t.screenX - rx - 2, t.screenY - ry - 2,
+          rx * 2 + 4, eyelidY - t.screenY + ry + 2
+        );
+        // 画一条细细的眼皮线（更可爱）
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = Math.max(0.8, 1.2 * scale);
+        ctx.beginPath();
+        ctx.moveTo(t.screenX - rx, eyelidY);
+        ctx.lineTo(t.screenX + rx, eyelidY);
+        ctx.stroke();
         ctx.restore();
       }
       ctx.restore();

@@ -757,7 +757,11 @@ export function deformSpindle(mesh, params = {}) {
   const transformed = mesh.vertices.map((v) => {
     const s = v.t !== undefined ? v.t : 0;
     const r = applySoftRotation(v.x, v.y, v.z, v.nx, v.ny, v.nz, s, params);
-    return { ...v, tx: r.x, ty: r.y, tz: r.z, nx: r.nx, ny: r.ny, nz: r.nz };
+    // 旋转后更新 isTop：让灰白分界线跟随头部旋转
+    // 萨卡班甲鱼：灰白分界线是水平线，旋转后应基于新的 y 坐标判断
+    const newIsTop = r.y < 0;
+    const newIsBottom = r.y >= 0;
+    return { ...v, tx: r.x, ty: r.y, tz: r.z, nx: r.nx, ny: r.ny, nz: r.nz, isTop: newIsTop, isBottom: newIsBottom };
   });
   const transformedFaces = mesh.faces.map((f) => ({
     ...f,
