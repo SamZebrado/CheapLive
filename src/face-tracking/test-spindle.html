@@ -59,6 +59,7 @@
     let avatar;
     try {
       avatar = new ProceduralSpindleWhaleAvatar('avatar_canvas');
+      window.avatar = avatar;  // 暴露到 window 供 Playwright 测试使用
       document.getElementById('status').textContent = '已加载 - 身体主轴沿 Z 轴（屏幕深度）';
     } catch (e) {
       document.getElementById('status').textContent = '错误: ' + e.message;

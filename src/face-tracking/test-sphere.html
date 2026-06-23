@@ -59,6 +59,7 @@
     let avatar;
     try {
       avatar = new ProceduralSphereAvatar('avatar_canvas');
+      window.avatar = avatar;  // 暴露到 window 供 Playwright 测试使用
       document.getElementById('status').textContent = '已加载 - 程序化球体头像';
     } catch (e) {
       document.getElementById('status').textContent = '错误: ' + e.message;

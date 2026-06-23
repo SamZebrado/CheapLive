@@ -621,22 +621,30 @@ class FaceTracker {
       vcToggle.addEventListener('change', async (e) => {
         this.voiceChangerEnabled = e.target.checked;
         if (this.voiceChangerEnabled) {
+          // Bug 3 修复：增加 loading 状态提示
+          this.status.textContent = '正在加载变声模型（测试中）...';
+          vcToggle.disabled = true;  // 禁用开关防止重复点击
+
           if (!this.voiceChanger) {
             const { VoiceChanger } = await import('./voice-changer.js');
             this.voiceChanger = new VoiceChanger();
           }
           if (!this.voiceChanger.isSupported()) {
-            this.status.textContent = '变声不可用: 当前环境缺少 Web Audio API 或音频输入支持';
+            this.status.textContent = '变声不可用: 当前环境缺少 Web Audio API 或音频输入支持（功能仍在测试中）';
             vcToggle.checked = false;
+            vcToggle.disabled = false;
             this.voiceChangerEnabled = false;
             return;
           }
           try {
             await this.voiceChanger.start();
-            this.status.textContent = '变声已开启';
+            this.status.textContent = '变声已开启（测试中）';
+            vcToggle.disabled = false;
           } catch (err) {
-            this.status.textContent = '变声启动失败: ' + err.message;
+            // Bug 3 修复：明确错误提示，不静默失败
+            this.status.textContent = '变声模型加载失败: ' + err.message + '（功能仍在测试中，已回退到原声）';
             vcToggle.checked = false;
+            vcToggle.disabled = false;
             this.voiceChangerEnabled = false;
             if (this.voiceChanger) {
               this.voiceChanger.stop();
@@ -752,6 +760,8 @@ class FaceTracker {
           }
         } else {
           if (this.liveSubtitle) this.liveSubtitle.stop();
+          // 关闭字幕时清空主页面所有字幕层（Bug 1 修复）
+          this.updateSubtitle('');
           this.status.textContent = '字幕已关闭';
         }
       });
@@ -897,6 +907,17 @@ class FaceTracker {
       });
 
       this.webcam.srcObject = stream;
+
+      // Bug 修复：等待视频数据加载后再 play，避免 "play() interrupted by new load request"
+      if (this.webcam.readyState < 2) {
+        await new Promise((resolve, reject) => {
+          this.webcam.onloadeddata = () => resolve();
+          this.webcam.onerror = () => reject(new Error('视频加载失败'));
+          // 设置超时防止无限等待
+          setTimeout(() => reject(new Error('视频加载超时')), 5000);
+        });
+      }
+
       await this.webcam.play();
 
       // 设置 canvas 尺寸
