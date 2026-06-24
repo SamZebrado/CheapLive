@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      CheapLive Capture 主题。
+      使用 AppCompat 深色主题，与 public demo (dual-device-demo.html) 的深色风格对齐：
+        - 背景 #0a0e1a
+        - 卡片 #1a2236
+        - 高亮 #4fc3f7
+      HomeActivity / MainActivity 均继承 AppCompatActivity，必须使用 AppCompat 主题，
+      否则会抛 IllegalStateException: You need to use a Theme.AppCompat theme。
+    -->
+    <style name="Theme.CheapLiveCapture" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/cheaplive_bg</item>
+        <item name="android:colorBackground">@color/cheaplive_bg</item>
+        <item name="android:textColorPrimary">@color/cheaplive_text_primary</item>
+        <item name="android:textColorSecondary">@color/cheaplive_text_secondary</item>
+        <item name="colorAccent">@color/cheaplive_accent</item>
+    </style>
+</resources>

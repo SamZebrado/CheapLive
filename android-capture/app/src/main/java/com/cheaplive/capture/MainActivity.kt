@@ -7,8 +7,12 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
+import android.text.TextUtils
+import android.view.Gravity
+import android.view.View
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -16,7 +20,10 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -24,9 +31,21 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
-import com.google.zxing.common.BitMatrix
 import com.google.zxing.qrcode.QRCodeWriter
 
+/**
+ * 参赛版主控制页 — 向 public demo 视觉和功能结构对齐。
+ *
+ * 产品化布局：
+ * 1. 顶部产品区：CheapLive 标题 + 参赛 badge + 服务器状态
+ * 2. Avatar 模块：6 种 avatar 选择 + 表情/动作控制
+ * 3. 普通变声模块：开关 + 5 种 preset + 权限状态
+ * 4. AI 变声模块：Experimental / Real App Only
+ * 5. App-Web 控制模块：Local Server + Web 控制面板入口
+ * 6. 状态面板：全字段实时显示
+ *
+ * 视觉风格：深色背景、卡片、圆角、状态 badge、高亮色 — 与 demo 一致。
+ */
 class MainActivity : AppCompatActivity() {
 
     private var webView: WebView? = null
@@ -38,135 +57,85 @@ class MainActivity : AppCompatActivity() {
     private var isServerRunning: Boolean = false
     private var appState: AppState? = null
 
-    private lateinit var tvStatus: TextView
-    private lateinit var tvInfo: TextView
+    // === Design Tokens (对齐 demo) ===
+    private val cBg = Color.parseColor("#0a0e1a")
+    private val cBgCard = Color.parseColor("#1a2236")
+    private val cBgCardHover = Color.parseColor("#1f2a42")
+    private val cBgSecondary = Color.parseColor("#111827")
+    private val cBorder = Color.parseColor("#2a3654")
+    private val cBorderSoft = Color.parseColor("#1f2a42")
+    private val cText = Color.parseColor("#e8edf5")
+    private val cTextSec = Color.parseColor("#8896b3")
+    private val cTextMuted = Color.parseColor("#5a6a85")
+    private val cAccent = Color.parseColor("#4fc3f7")
+    private val cAccent2 = Color.parseColor("#69db7c")
+    private val cWarning = Color.parseColor("#ffd43b")
+    private val cDanger = Color.parseColor("#ff6b6b")
+    private val cPurple = Color.parseColor("#b197fc")
+    private val cPink = Color.parseColor("#ff8cc8")
+    private val radiusCard = 28f
+    private val radiusSm = 20f
+    private val radiusXs = 12f
+
+    // === UI refs ===
+    private lateinit var tvServerStatus: TextView
+    private lateinit var tvServerBadge: TextView
+    private lateinit var tvSessionInfo: TextView
     private lateinit var btnStart: Button
     private lateinit var btnStop: Button
-    private lateinit var tvStatePanel: TextView
     private lateinit var btnOpenControl: Button
     private lateinit var btnOpenDemo: Button
+    private lateinit var tvStatePanel: TextView
+    private lateinit var tvAvatarCurrent: TextView
+    private lateinit var tvExprCurrent: TextView
+    private lateinit var tvActionCurrent: TextView
+    private lateinit var tvVoiceStatus: TextView
+    private lateinit var tvAiVoiceStatus: TextView
+    private lateinit var avatarButtons: MutableList<Button>
+    private lateinit var exprButtons: MutableList<Button>
+    private lateinit var actionButtons: MutableList<Button>
+    private lateinit var presetButtons: MutableList<Button>
+
+    // === Data ===
+    private val avatars = listOf("sacabambaspis" to "🐟 萨卡班甲鱼", "cat" to "🐱 猫", "dog" to "🐶 狗", "rabbit" to "🐰 兔子", "fox" to "🦊 狐狸", "bear" to "🐻 小熊")
+    private val expressions = listOf("blink" to "😉 眨眼", "mouth" to "😮 张嘴", "smile" to "😊 微笑", "wide" to "😲 惊讶")
+    private val actions = listOf("nod" to "🙆 点头", "look" to "👀 左右看", "tail" to "🐾 摇尾巴", "bounce" to "⬆️ 弹跳")
+    private val presets = listOf("original" to "原声", "cute" to "可爱", "robot" to "机器人", "deep" to "低沉", "radio" to "电台")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val container = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-        }
-        tvStatus = TextView(this).apply { text = "尚未开始" }
-        tvInfo = TextView(this).apply { text = "点击开始多端会话"; setPadding(16, 8, 16, 8); textSize = 14f }
-        btnStart = Button(this).apply { text = "开始多端会话" }
-        btnStop = Button(this).apply { text = "停止会话" }
-        val lp = android.widget.LinearLayout.LayoutParams(
-            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-        )
-        container.addView(tvStatus, lp)
-        container.addView(tvInfo, lp)
-        container.addView(btnStart, lp)
-        container.addView(btnStop, lp)
 
-        // === 参赛控制面板入口 ===
-        val sectionControl = TextView(this).apply {
-            text = "参赛 Web 控制"
-            textSize = 14f
-            setPadding(16, 16, 16, 4)
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(cBg)
+            isFillViewport = true
         }
-        container.addView(sectionControl, lp)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, 48)
+        }
+        scroll.addView(root, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
 
-        btnOpenControl = Button(this).apply { text = "打开 Web 控制面板" }
-        btnOpenControl.setOnClickListener {
-            val s = session ?: return@setOnClickListener
-            val url = "http://${s.privateIp}:${s.port}/control/"
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
-            try {
-                startActivity(intent)
-            } catch (_: Throwable) {
-                Toast.makeText(this@MainActivity, "没有浏览器可用", Toast.LENGTH_SHORT).show()
-            }
-        }
-        container.addView(btnOpenControl, lp)
-
-        btnOpenDemo = Button(this).apply { text = "打开 Receiver 演示页" }
-        btnOpenDemo.setOnClickListener {
-            val s = session ?: return@setOnClickListener
-            val url = "http://${s.privateIp}:${s.port}/receiver/?token=${s.token}"
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
-            try {
-                startActivity(intent)
-            } catch (_: Throwable) {
-                Toast.makeText(this@MainActivity, "没有浏览器可用", Toast.LENGTH_SHORT).show()
-            }
-        }
-        container.addView(btnOpenDemo, lp)
-
-        // === 状态面板 ===
-        val sectionState = TextView(this).apply {
-            text = "App 状态面板"
-            textSize = 14f
-            setPadding(16, 16, 16, 4)
-        }
-        container.addView(sectionState, lp)
-
-        tvStatePanel = TextView(this).apply {
-            text = "服务器未启动"
-            textSize = 11f
-            setPadding(16, 8, 16, 8)
-            setBackgroundColor(0x1A2A3654.toInt())
-        }
-        container.addView(tvStatePanel, lp)
-
-        qrImageView = ImageView(this).apply {
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                600
-            ).apply { topMargin = 16; bottomMargin = 16 }
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            setBackgroundColor(Color.WHITE)
-            visibility = android.view.View.GONE
-        }
-        container.addView(qrImageView)
-
-        val btnCopy = Button(this).apply {
-            text = "复制链接"
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 8 }
-        }
-        btnCopy.setOnClickListener {
-            if (currentSessionUrl.isNotEmpty()) {
-                @Suppress("DEPRECATION")
-                val clip = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                clip?.setPrimaryClip(ClipData.newPlainText("CheapLive Session URL", currentSessionUrl))
-                Toast.makeText(this@MainActivity, "链接已复制到剪贴板", Toast.LENGTH_SHORT).show()
-            }
-        }
-        container.addView(btnCopy)
-
-        val btnResetQr = Button(this).apply {
-            text = "刷新二维码/链接"
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 8 }
-        }
-        btnResetQr.setOnClickListener { resetSession() }
-        container.addView(btnResetQr)
+        buildTopBar(root)
+        buildServerCard(root)
+        buildAvatarCard(root)
+        buildVoiceCard(root)
+        buildAiVoiceCard(root)
+        buildControlCard(root)
+        buildStateCard(root)
+        buildQrSection(root)
 
         webView = WebView(this).apply {
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                0
-            ).apply { weight = 1f }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0).apply { weight = 0f; height = 1 }
+            visibility = View.GONE
         }
-        container.addView(webView)
-        setContentView(container)
+        root.addView(webView)
 
+        setContentView(scroll)
         setupWebView()
         btnStart.setOnClickListener { startSession() }
         btnStop.setOnClickListener { stopSession() }
 
-        // 进入页面时提前生成 session/token/二维码，便于用户"还没开始就扫码"。
-        // 注意：此时服务器尚未启动，仅 URL 已固定；点击"开始"后才启动服务器，并复用此 session。
+        // 进入页面时提前生成 session/token/二维码
         val initialIp = PrivateIpPicker.pick()
         if (initialIp != null && session == null) {
             val s = SessionManager.createSession(initialIp, PORT)
@@ -174,22 +143,621 @@ class MainActivity : AppCompatActivity() {
             val previewLink = "http://${s.privateIp}:${s.port}/receiver/?token=${s.token}"
             currentSessionUrl = previewLink
             qrImageView?.apply {
-                visibility = android.view.View.VISIBLE
+                visibility = View.VISIBLE
                 setImageBitmap(generateQRCode(previewLink, 600))
             }
-            tvStatus.text = "会话已就绪（服务器未启动）"
-            tvInfo.text = "链接与二维码已固定；点击「开始多端会话」启动服务器"
+            tvServerStatus.text = "会话已就绪（服务器未启动）"
+            tvSessionInfo.text = "链接与二维码已固定；点击「开始多端会话」启动服务器"
         }
 
-        val needsCamera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED
-        val needsAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
-        if (needsCamera || needsAudio) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO), REQ_PERMISSIONS)
-        } else {
-            showCapturePage()
+        // 仅检查权限状态并反映到 UI，不自动请求麦克风/摄像头权限。
+        // 权限请求由用户主动触发（如点击变声开关时）。
+        val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val hasCamera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        appState?.setField("voicePermission", if (hasAudio) "granted" else "not_requested")
+        updateVoiceStatus()
+        showCapturePage()
+    }
+
+    // ============================================================
+    // 顶部产品区
+    // ============================================================
+    private fun buildTopBar(root: LinearLayout) {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#111827"))
+            setPadding(48, 56, 48, 40)
+        }
+        // gradient overlay effect via padding
+        val titleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        // logo block
+        val logo = TextView(this).apply {
+            text = "C"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cBg)
+            gravity = Gravity.CENTER
+            setBackgroundColor(cAccent)
+            val lp = LinearLayout.LayoutParams(76, 76)
+            lp.marginEnd = 24
+            layoutParams = lp
+        }
+        titleRow.addView(logo)
+
+        val titleCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val title = TextView(this).apply {
+            text = "CheapLive Capture"
+            textSize = 22f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cText)
+        }
+        titleCol.addView(title)
+        val badge = TextView(this).apply {
+            text = "参赛演示版 · CONTEST"
+            textSize = 10f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cAccent)
+            setBackgroundColor(Color.argb(30, 79, 195, 247))
+            setPadding(16, 6, 16, 6)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = 6
+            layoutParams = lp
+        }
+        titleCol.addView(badge)
+        titleRow.addView(titleCol)
+        bar.addView(titleRow)
+
+        val statusRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = 28
+            layoutParams = lp
+        }
+        tvServerStatus = TextView(this).apply {
+            text = "尚未开始"
+            textSize = 14f
+            setTextColor(cTextSec)
+        }
+        statusRow.addView(tvServerStatus)
+        tvServerBadge = TextView(this).apply {
+            text = "OFFLINE"
+            textSize = 9f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cDanger)
+            setBackgroundColor(Color.argb(30, 255, 107, 107))
+            setPadding(12, 4, 12, 4)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.marginStart = 16
+            layoutParams = lp
+        }
+        statusRow.addView(tvServerBadge)
+        bar.addView(statusRow)
+
+        tvSessionInfo = TextView(this).apply {
+            text = "点击开始多端会话"
+            textSize = 12f
+            setTextColor(cTextMuted)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = 8
+            layoutParams = lp
+        }
+        bar.addView(tvSessionInfo)
+
+        root.addView(bar)
+    }
+
+    // ============================================================
+    // 服务器卡片
+    // ============================================================
+    private fun buildServerCard(root: LinearLayout) {
+        val card = makeCard()
+        addCardTitle(card, "📡 Local Server", "服务器")
+        btnStart = makeButton("开始多端会话", cAccent, cBg)
+        btnStop = makeButton("停止会话", cBgSecondary, cText)
+        card.addView(btnStart)
+        card.addView(btnStop)
+        root.addView(card)
+    }
+
+    // ============================================================
+    // Avatar 模块
+    // ============================================================
+    private fun buildAvatarCard(root: LinearLayout) {
+        val card = makeCard()
+        addCardTitle(card, "🎭 Avatar 模块", "形象选择")
+
+        // current avatar display
+        tvAvatarCurrent = TextView(this).apply {
+            text = "当前: 萨卡班甲鱼"
+            textSize = 13f
+            setTextColor(cAccent)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 12
+            layoutParams = lp
+        }
+        card.addView(tvAvatarCurrent)
+
+        addSectionLabel(card, "选择 Avatar")
+        avatarButtons = mutableListOf()
+        val avatarGrid = makeGrid(3)
+        for ((av, label) in avatars) {
+            val btn = makeChipButton(label)
+            btn.setOnClickListener {
+                appState?.applyCommand("setAvatar", mapOf("avatar" to av))
+                refreshAvatarButtons()
+                updateAvatarDisplay()
+            }
+            avatarButtons.add(btn)
+            avatarGrid.addView(btn)
+        }
+        card.addView(avatarGrid)
+
+        addSectionLabel(card, "表情")
+        tvExprCurrent = TextView(this).apply {
+            text = "当前表情: —"
+            textSize = 11f
+            setTextColor(cTextMuted)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 8
+            layoutParams = lp
+        }
+        card.addView(tvExprCurrent)
+        exprButtons = mutableListOf()
+        val exprGrid = makeGrid(4)
+        for ((ex, label) in expressions) {
+            val btn = makeChipButton(label)
+            btn.setOnClickListener {
+                appState?.applyCommand("setAvatarExpression", mapOf("expression" to ex))
+                // auto-clear after 1.2s
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    if (appState?.avatarExpression == ex) {
+                        appState?.applyCommand("setAvatarExpression", mapOf("expression" to ""))
+                        refreshExprButtons()
+                        updateAvatarDisplay()
+                    }
+                }, 1200)
+                refreshExprButtons()
+                updateAvatarDisplay()
+            }
+            exprButtons.add(btn)
+            exprGrid.addView(btn)
+        }
+        card.addView(exprGrid)
+
+        addSectionLabel(card, "动作")
+        tvActionCurrent = TextView(this).apply {
+            text = "当前动作: —"
+            textSize = 11f
+            setTextColor(cTextMuted)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 8
+            layoutParams = lp
+        }
+        card.addView(tvActionCurrent)
+        actionButtons = mutableListOf()
+        val actionGrid = makeGrid(4)
+        for ((ac, label) in actions) {
+            val btn = makeChipButton(label)
+            btn.setOnClickListener {
+                appState?.applyCommand("setAvatarAction", mapOf("action" to ac))
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    if (appState?.avatarAction == ac) {
+                        appState?.applyCommand("setAvatarAction", mapOf("action" to ""))
+                        refreshActionButtons()
+                        updateAvatarDisplay()
+                    }
+                }, 1500)
+                refreshActionButtons()
+                updateAvatarDisplay()
+            }
+            actionButtons.add(btn)
+            actionGrid.addView(btn)
+        }
+        card.addView(actionGrid)
+
+        root.addView(card)
+    }
+
+    // ============================================================
+    // 普通变声模块
+    // ============================================================
+    private fun buildVoiceCard(root: LinearLayout) {
+        val card = makeCard()
+        addCardTitle(card, "🎙 普通变声", "Web Demo 可用")
+
+        val desc = TextView(this).apply {
+            text = "App 侧基础变声。需要麦克风权限。preset: 原声/可爱/机器人/低沉/电台。"
+            textSize = 11f
+            setTextColor(cTextSec)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 12
+            layoutParams = lp
+        }
+        card.addView(desc)
+
+        // preset chips
+        presetButtons = mutableListOf()
+        val presetScroll = HorizontalScrollView(this)
+        val presetRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 12
+            layoutParams = lp
+        }
+        for ((p, label) in presets) {
+            val btn = makeChipButton(label)
+            btn.setOnClickListener {
+                appState?.applyCommand("setVoicePreset", mapOf("preset" to p))
+                refreshPresetButtons()
+                updateStatePanel(appState?.snapshot()!!)
+            }
+            presetButtons.add(btn)
+            presetRow.addView(btn)
+        }
+        presetScroll.addView(presetRow)
+        card.addView(presetScroll)
+
+        // toggle button
+        val toggleBtn = makeButton("启用变声", cAccent, cBg)
+        toggleBtn.setOnClickListener {
+            val newState = !(appState?.voiceChangerEnabled ?: false)
+            appState?.applyCommand("setVoiceChanger", mapOf("enabled" to newState))
+            toggleBtn.text = if (newState) "停止变声" else "启用变声"
+            updateVoiceStatus()
+        }
+        card.addView(toggleBtn)
+
+        // status
+        tvVoiceStatus = TextView(this).apply {
+            text = "状态: 就绪"
+            textSize = 11f
+            setTextColor(cTextMuted)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = 8
+            layoutParams = lp
+        }
+        card.addView(tvVoiceStatus)
+
+        root.addView(card)
+    }
+
+    // ============================================================
+    // AI 变声模块
+    // ============================================================
+    private fun buildAiVoiceCard(root: LinearLayout) {
+        val card = makeCard()
+        addCardTitle(card, "🤖 AI 变声", "Real App Only")
+
+        val desc = TextView(this).apply {
+            text = "AI 变声仅在真实 Android App 中可用。当前为 Experimental，模型未捆绑。"
+            textSize = 11f
+            setTextColor(cTextSec)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 12
+            layoutParams = lp
+        }
+        card.addView(desc)
+
+        tvAiVoiceStatus = TextView(this).apply {
+            text = "状态: real_app_only / model not bundled / experimental"
+            textSize = 11f
+            setTextColor(cPurple)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = 8
+            layoutParams = lp
+        }
+        card.addView(tvAiVoiceStatus)
+
+        val infoBtn = makeButton("查看说明", cBgSecondary, cPurple)
+        infoBtn.setOnClickListener {
+            Toast.makeText(this, "AI 变声仅在真实 Android App 中可用。当前为 Experimental，模型未捆绑，coming later。", Toast.LENGTH_LONG).show()
+        }
+        card.addView(infoBtn)
+
+        root.addView(card)
+    }
+
+    // ============================================================
+    // App-Web 控制模块
+    // ============================================================
+    private fun buildControlCard(root: LinearLayout) {
+        val card = makeCard()
+        addCardTitle(card, "🌐 App-Web 控制", "远程控制")
+
+        btnOpenControl = makeButton("打开 Web 控制面板", cAccent, cBg)
+        btnOpenControl.setOnClickListener {
+            val s = session ?: return@setOnClickListener
+            val url = "http://${s.privateIp}:${s.port}/control/"
+            try {
+                startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+            } catch (_: Throwable) {
+                Toast.makeText(this, "没有浏览器可用", Toast.LENGTH_SHORT).show()
+            }
+        }
+        card.addView(btnOpenControl)
+
+        btnOpenDemo = makeButton("打开 Receiver 演示页", cBgSecondary, cText)
+        btnOpenDemo.setOnClickListener {
+            val s = session ?: return@setOnClickListener
+            val url = "http://${s.privateIp}:${s.port}/receiver/?token=${s.token}"
+            try {
+                startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+            } catch (_: Throwable) {
+                Toast.makeText(this, "没有浏览器可用", Toast.LENGTH_SHORT).show()
+            }
+        }
+        card.addView(btnOpenDemo)
+
+        root.addView(card)
+    }
+
+    // ============================================================
+    // 状态面板
+    // ============================================================
+    private fun buildStateCard(root: LinearLayout) {
+        val card = makeCard()
+        addCardTitle(card, "📊 App 状态面板", "实时")
+
+        tvStatePanel = TextView(this).apply {
+            text = "服务器未启动"
+            textSize = 11f
+            setTextColor(cTextSec)
+            setPadding(16, 16, 16, 16)
+            setBackgroundColor(cBgSecondary)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = 8
+            layoutParams = lp
+        }
+        card.addView(tvStatePanel)
+        root.addView(card)
+    }
+
+    // ============================================================
+    // 二维码区
+    // ============================================================
+    private fun buildQrSection(root: LinearLayout) {
+        val card = makeCard()
+        addCardTitle(card, "📱 会话链接", "扫码连接")
+
+        qrImageView = ImageView(this).apply {
+            setBackgroundColor(Color.WHITE)
+            visibility = View.GONE
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 600)
+            lp.topMargin = 12
+            lp.bottomMargin = 12
+            layoutParams = lp
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        card.addView(qrImageView)
+
+        val btnCopy = makeButton("复制链接", cBgSecondary, cText)
+        btnCopy.setOnClickListener {
+            if (currentSessionUrl.isNotEmpty()) {
+                @Suppress("DEPRECATION")
+                val clip = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                clip?.setPrimaryClip(ClipData.newPlainText("CheapLive Session URL", currentSessionUrl))
+                Toast.makeText(this, "链接已复制到剪贴板", Toast.LENGTH_SHORT).show()
+            }
+        }
+        card.addView(btnCopy)
+
+        val btnResetQr = makeButton("刷新二维码/链接", cBgSecondary, cText)
+        btnResetQr.setOnClickListener { resetSession() }
+        card.addView(btnResetQr)
+
+        root.addView(card)
+    }
+
+    // ============================================================
+    // UI helpers
+    // ============================================================
+    private fun makeCard(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(cBgCard)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.setMargins(32, 12, 32, 12)
+            layoutParams = lp
+            setPadding(36, 32, 36, 32)
+            // rounded background
+            background = createRoundedDrawable(cBgCard, radiusCard)
         }
     }
 
+    private fun addCardTitle(card: LinearLayout, title: String, badge: String) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        val dot = View(this).apply {
+            setBackgroundColor(cAccent2)
+            val lp = LinearLayout.LayoutParams(16, 16)
+            lp.marginEnd = 12
+            layoutParams = lp
+        }
+        row.addView(dot)
+        val tv = TextView(this).apply {
+            text = title
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cText)
+        }
+        row.addView(tv)
+        val badgeView = TextView(this).apply {
+            text = badge
+            textSize = 9f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cAccent2)
+            setBackgroundColor(Color.argb(30, 105, 219, 124))
+            setPadding(12, 4, 12, 4)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.marginStart = 16
+            layoutParams = lp
+        }
+        row.addView(badgeView)
+        card.addView(row)
+    }
+
+    private fun addSectionLabel(card: LinearLayout, text: String) {
+        val tv = TextView(this).apply {
+            this.text = text
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cTextMuted)
+            setPadding(0, 16, 0, 8)
+        }
+        card.addView(tv)
+    }
+
+    private fun makeButton(text: String, bgColor: Int, textColor: Int): Button {
+        return Button(this).apply {
+            this.text = text
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            setBackgroundColor(bgColor)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = 8
+            layoutParams = lp
+            setPadding(0, 24, 0, 24)
+            background = createRoundedDrawable(bgColor, radiusXs)
+        }
+    }
+
+    private fun makeChipButton(text: String): Button {
+        return Button(this).apply {
+            this.text = text
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cTextSec)
+            setBackgroundColor(cBgSecondary)
+            setPadding(8, 16, 8, 16)
+            background = createRoundedDrawable(cBgSecondary, radiusXs)
+            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            lp.setMargins(4, 4, 4, 4)
+            layoutParams = lp
+        }
+    }
+
+    private fun makeGrid(columns: Int): LinearLayout {
+        // simple grid: horizontal row that wraps — for simplicity use vertical rows of `columns`
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            layoutParams = lp
+        }
+    }
+
+    private fun createRoundedDrawable(color: Int, radius: Float): android.graphics.drawable.Drawable {
+        val shape = android.graphics.drawable.GradientDrawable()
+        shape.setColor(color)
+        shape.cornerRadius = radius
+        return shape
+    }
+
+    // ============================================================
+    // State refresh
+    // ============================================================
+    private fun refreshAvatarButtons() {
+        val current = appState?.avatar ?: "sacabambaspis"
+        for (i in avatars.indices) {
+            val (av, _) = avatars[i]
+            val active = av == current
+            avatarButtons[i].setTextColor(if (active) cAccent else cTextSec)
+            avatarButtons[i].background = createRoundedDrawable(
+                if (active) Color.argb(30, 79, 195, 247) else cBgSecondary, radiusXs
+            )
+        }
+    }
+
+    private fun refreshExprButtons() {
+        val current = appState?.avatarExpression ?: ""
+        for (i in expressions.indices) {
+            val (ex, _) = expressions[i]
+            val active = ex == current
+            exprButtons[i].setTextColor(if (active) cAccent2 else cTextSec)
+            exprButtons[i].background = createRoundedDrawable(
+                if (active) Color.argb(30, 105, 219, 124) else cBgSecondary, radiusXs
+            )
+        }
+    }
+
+    private fun refreshActionButtons() {
+        val current = appState?.avatarAction ?: ""
+        for (i in actions.indices) {
+            val (ac, _) = actions[i]
+            val active = ac == current
+            actionButtons[i].setTextColor(if (active) cAccent2 else cTextSec)
+            actionButtons[i].background = createRoundedDrawable(
+                if (active) Color.argb(30, 105, 219, 124) else cBgSecondary, radiusXs
+            )
+        }
+    }
+
+    private fun refreshPresetButtons() {
+        val current = appState?.voicePreset ?: "original"
+        for (i in presets.indices) {
+            val (p, _) = presets[i]
+            val active = p == current
+            presetButtons[i].setTextColor(if (active) cAccent else cTextSec)
+            presetButtons[i].background = createRoundedDrawable(
+                if (active) Color.argb(30, 79, 195, 247) else cBgSecondary, radiusXs
+            )
+        }
+    }
+
+    private fun updateAvatarDisplay() {
+        val snap = appState?.snapshot() ?: return
+        val avLabel = avatars.find { it.first == snap.avatar }?.second ?: snap.avatar
+        tvAvatarCurrent.text = "当前: $avLabel"
+        tvExprCurrent.text = "当前表情: ${if (snap.avatarExpression.isEmpty()) "—" else expressions.find { it.first == snap.avatarExpression }?.second ?: snap.avatarExpression}"
+        tvActionCurrent.text = "当前动作: ${if (snap.avatarAction.isEmpty()) "—" else actions.find { it.first == snap.avatarAction }?.second ?: snap.avatarAction}"
+    }
+
+    private fun updateVoiceStatus() {
+        val snap = appState?.snapshot() ?: return
+        val permText = when (snap.voicePermission) {
+            "granted" -> "权限已授予"
+            "denied" -> "权限被拒绝"
+            else -> "权限未请求"
+        }
+        val stateText = if (snap.voiceChangerEnabled) "已启用" else "未启用"
+        tvVoiceStatus.text = "状态: $stateText | $permText | preset=${snap.voicePreset}"
+    }
+
+    private fun updateStatePanel(snap: AppStateSnapshot) {
+        val sb = StringBuilder()
+        sb.append("Server: ").append(if (snap.serverRunning) "Running" else "Stopped").append('\n')
+        sb.append("URL: ").append(currentSessionUrl).append('\n')
+        sb.append("Avatar: ").append(snap.avatar).append('\n')
+        sb.append("Expression: ").append(snap.avatarExpression.ifEmpty { "—" }).append('\n')
+        sb.append("Action: ").append(snap.avatarAction.ifEmpty { "—" }).append('\n')
+        sb.append("Voice: ").append(if (snap.voiceChangerEnabled) "ON" else "OFF")
+            .append(" [").append(snap.voicePreset).append("]\n")
+        sb.append("Voice Perm: ").append(snap.voicePermission).append('\n')
+        sb.append("AI Voice: ").append(snap.aiVoiceStatus).append('\n')
+        sb.append("Web Voice: ").append(snap.webVoiceStatus).append('\n')
+        sb.append("Capture Mode: ").append(snap.captureMode).append('\n')
+        sb.append("Face Capture: ").append(if (snap.faceCaptureEnabled) "ON" else "OFF").append('\n')
+        sb.append("Subtitle: ").append(if (snap.subtitleEnabled) "ON" else "OFF").append('\n')
+        sb.append("Viewer: ").append(if (snap.viewerConnected) "Connected" else "Disconnected").append('\n')
+        sb.append("Frames: ").append(snap.frameCount).append("  Latency: ").append(snap.latencyMs).append("ms\n")
+        sb.append("Last Cmd: ").append(snap.lastCommand.ifEmpty { "--" }).append('\n')
+        if (snap.lastError.isNotEmpty()) sb.append("Error: ").append(snap.lastError).append('\n')
+        sb.append("Updated: ").append(java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(snap.updatedAt)))
+        tvStatePanel.text = sb.toString()
+    }
+
+    // ============================================================
+    // Session management
+    // ============================================================
     private fun setupWebView() {
         val wv = webView ?: return
         val settings: WebSettings = wv.settings
@@ -217,11 +785,7 @@ class MainActivity : AppCompatActivity() {
                         it == PermissionRequest.RESOURCE_VIDEO_CAPTURE ||
                         it == PermissionRequest.RESOURCE_AUDIO_CAPTURE
                     }.toTypedArray()
-                    if (allowed.isNotEmpty()) {
-                        r.grant(allowed)
-                    } else {
-                        r.deny()
-                    }
+                    if (allowed.isNotEmpty()) r.grant(allowed) else r.deny()
                 }
             }
         }
@@ -232,92 +796,83 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startSession() {
-        // 关键语义：token 和二维码一旦生成就永不改变，除非用户显式点击"刷新二维码"。
-        // 仅服务器进程可能因"停止"或错误而重启；重启时复用原有 token/sessionId/URL。
         if (isServerRunning) {
-            tvStatus.text = "服务器已在运行中（链接与二维码不变）"
+            tvServerStatus.text = "服务器已在运行中（链接与二维码不变）"
             return
         }
         val ip = PrivateIpPicker.pick()
         if (ip == null) {
-            tvStatus.text = "无法获取局域网 IP，请检查 Wi-Fi"
+            tvServerStatus.text = "无法获取局域网 IP，请检查 Wi-Fi"
             return
         }
         val existingSession = session
         val baseSession = existingSession ?: SessionManager.createSession(ip, PORT)
         val srv = LocalServer(this, baseSession)
         val actualPort = try { srv.start() } catch (t: Throwable) {
-            tvStatus.text = "服务器启动失败：${t.message}"
+            tvServerStatus.text = "服务器启动失败：${t.message}"
             return
         }
-        // 如果是新 session，复制为携带实际 port 的版本；如果复用，保持原 token/sessionId 不变，只更新 port/ip
         val finalSession = baseSession.copy(port = actualPort, privateIp = ip)
         session = finalSession
         server = srv
         appState = srv.getAppState()
         appState?.setField("serverRunning", true)
         appState?.setField("viewerConnected", true)
+        // set voice permission based on current state
+        val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        appState?.setField("voicePermission", if (hasAudio) "granted" else "denied")
         isServerRunning = true
 
         // 监听状态变更，更新 UI 面板
         appState?.addListener { snap ->
-            runOnUiThread { updateStatePanel(snap) }
+            runOnUiThread {
+                updateStatePanel(snap)
+                updateAvatarDisplay()
+                updateVoiceStatus()
+                refreshAvatarButtons()
+                refreshExprButtons()
+                refreshActionButtons()
+                refreshPresetButtons()
+                // update server badge
+                tvServerBadge.text = if (snap.serverRunning) "ONLINE" else "OFFLINE"
+                tvServerBadge.setTextColor(if (snap.serverRunning) cAccent2 else cDanger)
+                tvServerBadge.setBackgroundColor(if (snap.serverRunning) Color.argb(30, 105, 219, 124) else Color.argb(30, 255, 107, 107))
+            }
         }
 
         val b = bridge ?: CaptureBridge(finalSession, srv, { _, _ -> }).also { bridge = it }
         webView?.addJavascriptInterface(b, "CheapLiveBridge")
         val link = "http://${finalSession.privateIp}:$actualPort/receiver/?token=${finalSession.token}"
         currentSessionUrl = link
-        tvStatus.text = if (existingSession == null) "会话已启动" else "会话已重启（链接与二维码不变）"
-        tvInfo.text = "扫描二维码或点击「复制链接」"
+        tvServerStatus.text = if (existingSession == null) "会话已启动" else "会话已重启（链接与二维码不变）"
+        tvSessionInfo.text = "扫描二维码或点击「复制链接」"
         qrImageView?.apply {
-            visibility = android.view.View.VISIBLE
+            visibility = View.VISIBLE
             setImageBitmap(generateQRCode(link, 600))
         }
     }
 
     private fun resetSession() {
-        // 用户明确请求新二维码：先停止，再清除一切 session/token/URL 状态。
-        // 下次点击"开始多端会话"时会生成全新的 token 和二维码。
         try { server?.stop() } catch (_: Throwable) {}
         server = null
         isServerRunning = false
         session = null
         bridge = null
         currentSessionUrl = ""
-        qrImageView?.visibility = android.view.View.GONE
-        tvStatus.text = "已重置会话"
-        tvInfo.text = "点击「开始多端会话」使用新链接"
+        qrImageView?.visibility = View.GONE
+        tvServerStatus.text = "已重置会话"
+        tvSessionInfo.text = "点击「开始多端会话」使用新链接"
     }
 
     private fun stopSession() {
-        // 仅停止服务器；保留 session/token/二维码，下一次 startSession 会复用。
         try { server?.stop() } catch (_: Throwable) {}
         appState?.setField("serverRunning", false)
         appState?.setField("viewerConnected", false)
         server = null
         isServerRunning = false
-        tvStatus.text = "已停止服务器（链接与二维码保留）"
-        tvInfo.text = "点击开始再次启动（复用同一链接）"
+        tvServerStatus.text = "已停止服务器（链接与二维码保留）"
+        tvSessionInfo.text = "点击开始再次启动（复用同一链接）"
         tvStatePanel.text = "服务器已停止"
-    }
-
-    /** 更新状态面板 UI */
-    private fun updateStatePanel(snap: AppStateSnapshot) {
-        val sb = StringBuilder()
-        sb.append("Server: ").append(if (snap.serverRunning) "Running" else "Stopped").append('\n')
-        sb.append("URL: ").append(currentSessionUrl).append('\n')
-        sb.append("Face Capture: ").append(if (snap.faceCaptureEnabled) "ON" else "OFF").append('\n')
-        sb.append("Voice Changer: ").append(if (snap.voiceChangerEnabled) "ON" else "OFF")
-            .append(" [").append(snap.voicePreset).append("]\n")
-        sb.append("Capture Mode: ").append(snap.captureMode).append('\n')
-        sb.append("Subtitle: ").append(if (snap.subtitleEnabled) "ON" else "OFF").append('\n')
-        sb.append("Viewer: ").append(if (snap.viewerConnected) "Connected" else "Disconnected").append('\n')
-        sb.append("Frames: ").append(snap.frameCount).append("  Latency: ").append(snap.latencyMs).append("ms\n")
-        sb.append("Last Cmd: ").append(snap.lastCommand.ifEmpty { "--" }).append('\n')
-        if (snap.lastError.isNotEmpty()) sb.append("Error: ").append(snap.lastError).append('\n')
-        sb.append("Updated: ").append(java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(snap.updatedAt)))
-        tvStatePanel.text = sb.toString()
     }
 
     private fun generateQRCode(text: String, size: Int): Bitmap? {
@@ -327,50 +882,19 @@ class MainActivity : AppCompatActivity() {
                 EncodeHintType.CHARACTER_SET to "UTF-8"
             )
             val writer = QRCodeWriter()
-            val bitMatrix: BitMatrix = writer.encode(text, BarcodeFormat.QR_CODE, size, size, hints)
-            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val bitMatrix: com.google.zxing.common.BitMatrix = writer.encode(text, BarcodeFormat.QR_CODE, size, size, hints)
+            val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
             for (x in 0 until size) {
                 for (y in 0 until size) {
-                    bitmap.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.WHITE)
+                    bmp.setPixel(x, y, if (bitMatrix.get(x, y)) Color.BLACK else Color.WHITE)
                 }
             }
-            bitmap
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_PERMISSIONS) {
-            val cameraGranted = grantResults.getOrNull(0) == PackageManager.PERMISSION_GRANTED
-            val audioGranted = grantResults.getOrNull(1) == PackageManager.PERMISSION_GRANTED
-            if (cameraGranted) {
-                showCapturePage()
-                val audioStatus = if (audioGranted) "（麦克风已授权）" else "（麦克风未授权，变声功能受限）"
-                tvStatus.text = "权限已获取$audioStatus"
-            } else {
-                tvStatus.text = "需要摄像头权限"
-            }
-        }
-    }
-
-    override fun onStop() {
-        super.onStop()
-        stopSession()
-    }
-
-    override fun onDestroy() {
-        stopSession()
-        try { webView?.destroy() } catch (_: Throwable) {}
-        webView = null
-        super.onDestroy()
+            bmp
+        } catch (_: Throwable) { null }
     }
 
     companion object {
+        private const val PORT = 8765
         private const val REQ_PERMISSIONS = 1001
-        private const val PORT = 8766
     }
 }

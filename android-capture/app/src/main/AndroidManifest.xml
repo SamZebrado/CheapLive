@@ -9,10 +9,14 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
+    <!-- 普通变声（P1）：声明麦克风权限，运行时由用户主动触发请求，不自动请求 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
     <application
         android:allowBackup="false"
         android:label="CheapLive Capture"
-        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        android:theme="@style/Theme.CheapLiveCapture">
 
         <activity
             android:name=".HomeActivity"
