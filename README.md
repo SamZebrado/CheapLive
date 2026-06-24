@@ -21,7 +21,7 @@
 | Live2D Cubism | 规划中 | Demo 阶段冻结，当前不能实际渲染 Live2D 模型 |
 | 透明悬浮浏览器 | 规划中 | 当前尚未实现 |
 
-**可体验入口**：[单机面捕 Demo](src/face-tracking/index.html) | [多端互动版本demo（开发中）](src/contest-demo/dual-device-demo.html)
+**可体验入口**：[单机面捕 Demo](src/face-tracking/index.html) | [🏆 CheapLive 参赛 Demo / 多端互动演示](src/contest-demo/dual-device-demo.html)
 
 ---
 
