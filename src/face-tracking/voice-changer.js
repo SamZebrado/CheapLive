@@ -13,15 +13,20 @@
 
 // ---- 状态机 ----
 const VC_STATES = [
-  'idle',                 // 未启动
-  'checking-support',     // 正在检查浏览器支持
-  'loading-engine',       // 正在加载 SoundTouch
-  'requesting-mic',       // 正在请求麦克风权限
-  'initializing-audio',   // 正在初始化音频图
-  'enabled',              // 变声已启用
-  'disabled',             // 用户手动关闭
-  'error',                // 遇到错误
-  'unsupported',          // 浏览器不支持
+  'idle',
+  'checking-support',
+  'loading-engine',
+  'creating-audio-context',
+  'resuming-audio-context',
+  'requesting-mic',
+  'mic-stream-created',
+  'creating-source-node',
+  'creating-processor',
+  'connecting-graph',
+  'enabled',
+  'disabled',
+  'error',
+  'unsupported',
 ];
 
 class VoiceChanger {
@@ -51,14 +56,16 @@ class VoiceChanger {
     // ---- 状态机 ----
     this._state = 'idle';
     this._lastError = null;
-    this._engineSource = null; // 'cdn' | 'local' | null
+    this._failStage = null;
+    this._lastFailureDiagnostics = null;
+    this._engineSource = null;
 
     this.presets = {
-      normal:  { pitch: 1.0, tempo: 1.0,  name: '原声' },
-      cute:    { pitch: 1.5, tempo: 1.05, name: '可爱' },
-      robot:   { pitch: 1.0, tempo: 1.0,  name: '机器人' },
-      deep:    { pitch: 0.7, tempo: 0.95, name: '低沉' },
-      radio:   { pitch: 0.9, tempo: 1.0,  name: '收音机' },
+      normal: { pitch: 1.0, tempo: 1.0,  name: '原声' },
+      cute:   { pitch: 1.5, tempo: 1.05, name: '可爱' },
+      robot:  { pitch: 1.0, tempo: 1.0,  name: '机器人' },
+      deep:   { pitch: 0.7, tempo: 0.95, name: '低沉' },
+      radio:  { pitch: 0.9, tempo: 1.0,  name: '收音机' },
     };
 
     // 段落模式状态
@@ -75,15 +82,55 @@ class VoiceChanger {
   get state() { return this._state; }
   get lastError() { return this._lastError; }
   get engineSource() { return this._engineSource; }
+  get failStage() { return this._failStage; }
 
   _setState(state, error = null) {
     if (!VC_STATES.includes(state)) return;
     this._state = state;
-    this._lastError = error || null;
+    if (error) {
+      this._lastError = error;
+      this._failStage = state;
+      this._lastFailureDiagnostics = this._snapshotDiagnostics(error);
+    }
+  }
+
+  _changeStage(stage) {
+    if (VC_STATES.includes(stage)) {
+      this._state = stage;
+    }
+  }
+
+  _snapshotDiagnostics(error) {
+    return {
+      state: this._state,
+      failStage: this._state,
+      errorName: error?.name || 'Error',
+      errorMessage: error?.message || '未知错误',
+      audioContext: {
+        state: this.audioContext ? this.audioContext.state : 'none',
+        sampleRate: this.audioContext ? this.audioContext.sampleRate : null,
+      },
+      mic: {
+        hasStream: !!this.stream,
+        tracksActive: this.stream ? this.stream.getAudioTracks().every(t => t.readyState === 'live') : false,
+        trackCount: this.stream ? this.stream.getAudioTracks().length : 0,
+      },
+      graph: {
+        connected: this.isActive && !!this.source && !!this.processor,
+        hasSource: !!this.source,
+        hasProcessor: !!this.processor,
+        hasInputGain: !!this.inputGain,
+        hasOutputGain: !!this.outputGain,
+      },
+      engine: {
+        source: this._engineSource || 'not-loaded',
+        loaded: !!(this._window?.soundtouch),
+      },
+      support: this.isSupported(),
+    };
   }
 
   // ---- 诊断性支持检查 ----
-  // 返回 { supported: boolean, reasons: string[], details: {...} }
   isSupported() {
     const details = {
       webAudio: false,
@@ -120,6 +167,7 @@ class VoiceChanger {
     const sup = this.isSupported();
     return {
       state: this._state,
+      failStage: this._failStage,
       support: sup,
       engine: {
         source: this._engineSource || 'not-loaded',
@@ -132,9 +180,14 @@ class VoiceChanger {
       mic: {
         hasStream: !!this.stream,
         tracksActive: this.stream ? this.stream.getAudioTracks().every(t => t.readyState === 'live') : false,
+        trackCount: this.stream ? this.stream.getAudioTracks().length : 0,
       },
       graph: {
         connected: this.isActive && !!this.source && !!this.processor,
+        hasSource: !!this.source,
+        hasProcessor: !!this.processor,
+        hasInputGain: !!this.inputGain,
+        hasOutputGain: !!this.outputGain,
       },
       current: {
         preset: this._getCurrentPresetKey(),
@@ -143,7 +196,11 @@ class VoiceChanger {
         rate: this.rate,
         monitorMode: this.monitorMode,
       },
-      lastError: this._lastError ? this._lastError.message : null,
+      lastError: this._lastError ? {
+        name: this._lastError.name || 'Error',
+        message: this._lastError.message,
+      } : null,
+      lastFailure: this._lastFailureDiagnostics,
     };
   }
 
@@ -157,8 +214,11 @@ class VoiceChanger {
   // ---- 初始化 ----
   async init() {
     if (this.initialized) return;
-    this._setState('loading-engine');
 
+    this._changeStage('loading-engine');
+    await this.loadSoundTouch();
+
+    this._changeStage('creating-audio-context');
     const AudioContextCtor = this._window?.AudioContext || this._window?.webkitAudioContext;
     if (!AudioContextCtor) {
       this._setState('unsupported', new Error('浏览器不支持 Web Audio API'));
@@ -166,32 +226,23 @@ class VoiceChanger {
     }
     this.audioContext = new AudioContextCtor();
 
-    // 加载 SoundTouchJS
-    await this.loadSoundTouch();
-
-    // 创建输入/输出增益节点
     this.inputGain = this.audioContext.createGain();
     this.outputGain = this.audioContext.createGain();
     this.outputGain.gain.value = 0.8;
 
-    // 原始音频旁路节点
     this.bypassGain = this.audioContext.createGain();
     this.bypassGain.gain.value = 0;
 
-    // 创建 ScriptProcessor 用于实时处理
     this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
     this.processor.onaudioprocess = (e) => this.processAudio(e);
 
-    // 连接变声链路：input -> inputGain -> processor -> outputGain -> destination
     this.inputGain.connect(this.processor);
     this.processor.connect(this.outputGain);
     this.outputGain.connect(this.audioContext.destination);
 
-    // 连接旁路链路（原声监听）：input -> bypassGain -> destination
     this.inputGain.connect(this.bypassGain);
     this.bypassGain.connect(this.audioContext.destination);
 
-    // 根据监听模式设置增益
     this.applyMonitorMode();
 
     this.initialized = true;
@@ -208,7 +259,6 @@ class VoiceChanger {
       throw new Error('当前环境不支持动态加载脚本');
     }
 
-    // 尝试 CDN 加载，失败则回退到本地文件
     const urls = [
       { src: 'https://cdn.jsdelivr.net/npm/soundtouchjs@0.1.29/dist/soundtouch.min.js', label: 'cdn' },
       { src: './lib/soundtouch.min.js', label: 'local' },
@@ -225,9 +275,7 @@ class VoiceChanger {
         });
         this._engineSource = label;
         return;
-      } catch (e) {
-        // 继续尝试下一个 URL
-      }
+      } catch (e) {}
     }
     this._setState('error', new Error('SoundTouch 处理库加载失败'));
     throw new Error('SoundTouch 处理库加载失败');
@@ -236,31 +284,33 @@ class VoiceChanger {
   // ---- 启动变声 ----
   async start(existingStream) {
     if (this.started) return;
-    this._setState('checking-support');
 
+    // 阶段 1: 检查浏览器支持
+    this._changeStage('checking-support');
     const sup = this.isSupported();
     if (!sup.supported) {
       this._setState('unsupported', new Error(sup.reasons.join('; ')));
       throw new Error(sup.reasons.join('; '));
     }
 
+    // 阶段 2: 加载引擎 + 创建 AudioContext
     await this.init();
 
-    // AudioContext resume（必须在用户手势链路中）
-    this._setState('initializing-audio');
+    // 阶段 3: 恢复 AudioContext
+    this._changeStage('resuming-audio-context');
     if (this.audioContext && this.audioContext.state === 'suspended') {
       try {
         await this.audioContext.resume();
       } catch (e) {
-        this._setState('error', new Error(`AudioContext 恢复失败: ${e.message}`));
-        throw new Error(`AudioContext 恢复失败: ${e.message}`);
+        this._setState('error', e);
+        throw new Error('AudioContext 恢复失败: ' + e.message);
       }
     }
 
-    // 请求麦克风权限
+    // 阶段 4: 请求麦克风权限
     let stream = existingStream;
     if (!stream) {
-      this._setState('requesting-mic');
+      this._changeStage('requesting-mic');
       if (!this._navigator?.mediaDevices?.getUserMedia) {
         this._setState('unsupported', new Error('浏览器不支持麦克风输入'));
         throw new Error('浏览器不支持麦克风输入');
@@ -272,31 +322,44 @@ class VoiceChanger {
         throw this._classifyGetUserMediaError(err);
       }
     }
+    this._changeStage('mic-stream-created');
     this.stream = stream;
 
-    // 断开旧的 source
+    // 阶段 5: 创建音频源节点
+    this._changeStage('creating-source-node');
     if (this.source) {
-      this.source.disconnect();
+      try { this.source.disconnect(); } catch (e) {}
       this.source = null;
     }
+    try {
+      this.source = this.audioContext.createMediaStreamSource(stream);
+      this.source.connect(this.inputGain);
+    } catch (e) {
+      this._setState('error', e);
+      throw new Error('音频源节点创建失败: ' + e.message);
+    }
 
-    // 从 MediaStream 创建音频源
-    this.source = this.audioContext.createMediaStreamSource(stream);
-    this.source.connect(this.inputGain);
-
-    // 初始化 SoundTouch
+    // 阶段 6: 创建 SoundTouch processor
+    this._changeStage('creating-processor');
     if (!this._window?.soundtouch) {
       this._setState('error', new Error('SoundTouch 处理库未正确加载'));
       throw new Error('SoundTouch 处理库未正确加载');
     }
-    this.soundTouch = new this._window.soundtouch.SoundTouch(
-      this.audioContext.sampleRate,
-      1
-    );
+    try {
+      this.soundTouch = new this._window.soundtouch.SoundTouch(
+        this.audioContext.sampleRate,
+        1
+      );
+    } catch (e) {
+      this._setState('error', e);
+      throw new Error('SoundTouch processor 创建失败: ' + e.message);
+    }
     this.soundTouch.pitch = this.pitch;
     this.soundTouch.tempo = this.tempo;
     this.soundTouch.rate = this.rate;
 
+    // 阶段 7: 验证音频图连接
+    this._changeStage('connecting-graph');
     this.isActive = true;
     this.started = true;
     this._setState('enabled');
@@ -317,7 +380,7 @@ class VoiceChanger {
       case 'OverconstrainedError':
         return new Error('麦克风不满足音频约束条件');
       default:
-        return new Error(`麦克风访问失败 (${name}): ${err.message}`);
+        return new Error('麦克风访问失败 (' + name + '): ' + err.message);
     }
   }
 
@@ -414,7 +477,6 @@ class VoiceChanger {
     }
   }
 
-  // ---- 获取处理后的音频流 ----
   getProcessedStream() {
     if (!this.audioContext || !this.processor) return null;
     if (!this._processedDest) {
@@ -427,7 +489,6 @@ class VoiceChanger {
   // ---- 销毁 ----
   destroy() {
     this.stop();
-
     if (this.source) {
       try { this.source.disconnect(); } catch (e) {}
       this.source = null;
@@ -453,12 +514,10 @@ class VoiceChanger {
       try { this._processedDest.disconnect(); } catch (e) {}
       this._processedDest = null;
     }
-
     if (this.audioContext) {
       this.audioContext.close();
       this.audioContext = null;
     }
-
     this.initialized = false;
     this.started = false;
     this.soundTouch = null;
@@ -469,13 +528,10 @@ class VoiceChanger {
   setMode(mode) {
     if (mode !== 'realtime' && mode !== 'paragraph') return;
     if (this.mode === mode) return;
-
     if (this.mode === 'paragraph' && this.isRecording) {
       this.stopParagraphRecording();
     }
-
     this.mode = mode;
-
     if (this.mode === 'realtime' && this.started && !this.isActive) {
       this.startRealtime();
     }
@@ -484,29 +540,24 @@ class VoiceChanger {
   async startRealtime() {
     if (this.started && this.isActive) return;
     if (!this.initialized) await this.init();
-
     if (this.audioContext && this.audioContext.state === 'suspended') {
       await this.audioContext.resume();
     }
-
     if (!this.source && this.stream) {
       this.source = this.audioContext.createMediaStreamSource(this.stream);
       this.source.connect(this.inputGain);
     }
-
     if (!this.soundTouch) {
       if (!this._window?.soundtouch) {
         throw new Error('SoundTouch 处理库未正确加载');
       }
       this.soundTouch = new this._window.soundtouch.SoundTouch(
-        this.audioContext.sampleRate,
-        1
+        this.audioContext.sampleRate, 1
       );
       this.soundTouch.pitch = this.pitch;
       this.soundTouch.tempo = this.tempo;
       this.soundTouch.rate = this.rate;
     }
-
     this.isActive = true;
   }
 
@@ -521,78 +572,57 @@ class VoiceChanger {
     }
   }
 
-  // ---- 段落模式 ----
   async startParagraphRecording() {
     if (this.mode !== 'paragraph') return;
     if (this.isRecording) return;
-
     await this.init();
-
     if (!this.stream) {
       if (!this._navigator?.mediaDevices?.getUserMedia) {
         throw new Error('当前环境不支持音频输入');
       }
       this.stream = await this._navigator.mediaDevices.getUserMedia({ audio: true });
     }
-
     this.isRecording = true;
     this.paragraphBuffer = [];
     this.paragraphDestination = this.audioContext.createMediaStreamDestination();
     this.paragraphRecorder = new MediaRecorder(this.paragraphDestination.stream);
-
     this.paragraphRecorder.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) {
         this.paragraphBuffer.push(e.data);
       }
     };
-
     const source = this.audioContext.createMediaStreamSource(this.stream);
     source.connect(this.paragraphDestination);
-
     this.paragraphRecorder.start(100);
   }
 
   async stopParagraphRecording() {
     if (!this.isRecording || !this.paragraphRecorder) return;
-
     return new Promise((resolve) => {
       this.paragraphRecorder.onstop = async () => {
         this.isRecording = false;
-
-        if (this.paragraphBuffer.length === 0) {
-          resolve();
-          return;
-        }
-
+        if (this.paragraphBuffer.length === 0) { resolve(); return; }
         const blob = new Blob(this.paragraphBuffer, { type: 'audio/webm' });
         await this.processAndPlayParagraph(blob);
         resolve();
       };
-
       this.paragraphRecorder.stop();
     });
   }
 
   async processAndPlayParagraph(blob) {
     if (!this.audioContext) return;
-
     try {
       const arrayBuffer = await blob.arrayBuffer();
       const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
-
       const processedBuffer = await this.applySoundTouchToBuffer(audioBuffer);
-
       const source = this.audioContext.createBufferSource();
       source.buffer = processedBuffer;
       source.connect(this.outputGain);
-
       source.onended = () => {
         source.disconnect();
-        if (this.onParagraphComplete) {
-          this.onParagraphComplete();
-        }
+        if (this.onParagraphComplete) this.onParagraphComplete();
       };
-
       source.start(0);
     } catch (err) {
       console.error('段落模式处理失败:', err);
@@ -607,35 +637,25 @@ class VoiceChanger {
       throw new Error('SoundTouch 处理库未正确加载');
     }
     const stNs = this._window.soundtouch;
-
     const sampleRate = audioBuffer.sampleRate;
     const channelData = audioBuffer.getChannelData(0);
-
     const st = new stNs.SoundTouch(sampleRate, 1);
     st.pitch = this.pitch;
     st.tempo = this.tempo;
     st.rate = this.rate;
-
     const inputBuffer = new stNs.Float32AudioBuffer(channelData.length);
     for (let i = 0; i < channelData.length; i++) {
       inputBuffer.vector[i] = channelData[i];
     }
     st.putSamples(inputBuffer);
-
     const outputLength = Math.ceil(channelData.length / this.tempo);
     const outputBuffer = new stNs.Float32AudioBuffer(outputLength);
     const received = st.receiveSamples(outputBuffer);
-
-    const processedAudioBuffer = this.audioContext.createBuffer(
-      1,
-      received,
-      sampleRate
-    );
+    const processedAudioBuffer = this.audioContext.createBuffer(1, received, sampleRate);
     const outputChannel = processedAudioBuffer.getChannelData(0);
     for (let i = 0; i < received; i++) {
       outputChannel[i] = outputBuffer.vector[i];
     }
-
     return processedAudioBuffer;
   }
 }

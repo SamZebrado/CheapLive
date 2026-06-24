@@ -110,6 +110,7 @@ class FaceTracker {
 
     // 按需加载的模块（懒加载）
     this.voiceChanger = null;
+    this._lastVcFailure = null;
     this.liveSubtitle = null;
     this.voiceChangerEnabled = false;
     this.subtitleEnabled = false;
@@ -650,7 +651,13 @@ class FaceTracker {
             if (panel) panel.classList.remove('hidden');
             this.updateDebugPanel();
           } catch (err) {
-            // 错误已在 VoiceChanger 内部按类型分类，直接显示
+            // 保存失败诊断快照（在 stop() 清除状态之前）
+            this._lastVcFailure = {
+              failStage: this.voiceChanger?.failStage || 'unknown',
+              errorName: err.name || 'Error',
+              errorMessage: err.message,
+              diagnostics: this.voiceChanger?.getDiagnostics(),
+            };
             this.status.textContent = '变声启动失败: ' + err.message;
             vcToggle.checked = false;
             vcToggle.disabled = false;
@@ -658,6 +665,9 @@ class FaceTracker {
             if (this.voiceChanger) {
               this.voiceChanger.stop();
             }
+            // 不要关闭面板，让用户看到错误详情
+            const panel = document.getElementById('voiceChangerPanel');
+            if (panel) panel.classList.remove('hidden');
             this.updateDebugPanel();
             return;
           }
