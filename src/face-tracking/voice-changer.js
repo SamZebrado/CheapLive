@@ -1,14 +1,11 @@
 /**
  * CheapLive Voice Changer - 纯本地实时变声
  *
- * 技术方案：Web Audio API + SoundTouchJS (CDN + 本地回退)
- * 纯本地处理，音频数据不上传服务器
+ * 双引擎架构：
+ * - Native Web Audio effects = 默认可用路径（滤波器、增益、调制）
+ * - SoundTouchJS pitch shifting = 可选增强路径（CDN + 本地回退）
  *
- * 功能：
- * - 音调调整（Pitch Shift）：男声↔女声
- * - 速度调整（Tempo）：快放/慢放
- * - 预设模式：原声、可爱、机器人、低沉、收音机
- * - 监听模式：变声后监听 / 原声监听 / 静音
+ * SoundTouch 不可用时自动 fallback 到 native，不阻塞普通变声启动。
  */
 
 // ---- 状态机 ----
@@ -53,6 +50,12 @@ class VoiceChanger {
     this.monitorMode = 'changed';
     this.bypassGain = null;
 
+    // ---- 双引擎 ----
+    this.engineMode = 'native';       // 'native' | 'soundtouch' | 'fallback'
+    this._soundTouchUsable = false;
+    this._soundTouchApiDetail = null; // detectSoundTouchApi() 结果
+    this._currentPreset = 'normal';
+
     // ---- 状态机 ----
     this._state = 'idle';
     this._lastError = null;
@@ -61,12 +64,15 @@ class VoiceChanger {
     this._engineSource = null;
 
     this.presets = {
-      normal: { pitch: 1.0, tempo: 1.0,  name: '原声' },
-      cute:   { pitch: 1.5, tempo: 1.05, name: '可爱' },
-      robot:  { pitch: 1.0, tempo: 1.0,  name: '机器人' },
-      deep:   { pitch: 0.7, tempo: 0.95, name: '低沉' },
-      radio:  { pitch: 0.9, tempo: 1.0,  name: '收音机' },
+      normal: { pitch: 1.0, tempo: 1.0,  name: '原声',          native: 'normal' },
+      cute:   { pitch: 1.5, tempo: 1.05, name: '基础可爱声效',    native: 'cute' },
+      robot:  { pitch: 1.0, tempo: 1.0,  name: '基础机器人声效',  native: 'robot' },
+      deep:   { pitch: 0.7, tempo: 0.95, name: '基础低沉声效',    native: 'deep' },
+      radio:  { pitch: 0.9, tempo: 1.0,  name: '基础收音机声效',  native: 'radio' },
     };
+
+    // Native Web Audio 效果节点
+    this._nativeEffects = {};
 
     // 段落模式状态
     this.mode = 'realtime';
@@ -125,6 +131,8 @@ class VoiceChanger {
       engine: {
         source: this._engineSource || 'not-loaded',
         loaded: !!(this._window?.soundtouch),
+        mode: this.engineMode,
+        soundTouchUsable: this._soundTouchUsable,
       },
       support: this.isSupported(),
     };
@@ -138,28 +146,14 @@ class VoiceChanger {
       secureContext: !!(this._window?.isSecureContext),
     };
     const reasons = [];
-
     const hasAudioCtx = !!(this._window?.AudioContext || this._window?.webkitAudioContext);
     details.webAudio = hasAudioCtx;
-    if (!hasAudioCtx) {
-      reasons.push('浏览器不支持 Web Audio API');
-    }
-
+    if (!hasAudioCtx) reasons.push('浏览器不支持 Web Audio API');
     const hasGetUserMedia = !!(this._navigator?.mediaDevices?.getUserMedia);
     details.getUserMedia = hasGetUserMedia;
-    if (!hasGetUserMedia) {
-      reasons.push('浏览器不支持麦克风输入 (getUserMedia)');
-    }
-
-    if (!details.secureContext) {
-      reasons.push('当前页面不是安全上下文，麦克风可能不可用');
-    }
-
-    return {
-      supported: reasons.length === 0,
-      reasons,
-      details,
-    };
+    if (!hasGetUserMedia) reasons.push('浏览器不支持麦克风输入 (getUserMedia)');
+    if (!details.secureContext) reasons.push('当前页面不是安全上下文，麦克风可能不可用');
+    return { supported: reasons.length === 0, reasons, details };
   }
 
   // ---- 获取完整诊断信息 ----
@@ -172,6 +166,11 @@ class VoiceChanger {
       engine: {
         source: this._engineSource || 'not-loaded',
         loaded: !!(this._window?.soundtouch),
+        mode: this.engineMode,
+        soundTouchUsable: this._soundTouchUsable,
+        soundTouchScript: this._engineSource || 'not-loaded',
+        soundTouchKeys: this._soundTouchApiDetail?.keys || [],
+        soundTouchDetail: this._soundTouchApiDetail?.reason || '',
       },
       audioContext: {
         state: this.audioContext ? this.audioContext.state : 'none',
@@ -188,13 +187,15 @@ class VoiceChanger {
         hasProcessor: !!this.processor,
         hasInputGain: !!this.inputGain,
         hasOutputGain: !!this.outputGain,
+        nativeGraph: this._isNativeGraphConnected(),
       },
       current: {
-        preset: this._getCurrentPresetKey(),
+        preset: this._currentPreset,
         pitch: this.pitch,
         tempo: this.tempo,
         rate: this.rate,
         monitorMode: this.monitorMode,
+        pitchShift: this.engineMode === 'soundtouch' ? 'available' : 'unavailable (native fallback)',
       },
       lastError: this._lastError ? {
         name: this._lastError.name || 'Error',
@@ -204,19 +205,83 @@ class VoiceChanger {
     };
   }
 
-  _getCurrentPresetKey() {
-    for (const [key, p] of Object.entries(this.presets)) {
-      if (p.pitch === this.pitch && p.tempo === this.tempo) return key;
+  _isNativeGraphConnected() {
+    if (this.engineMode !== 'native') return false;
+    return !!this._nativeEffects.filterNode;
+  }
+
+  // ---- SoundTouch API 检测 ----
+  /**
+   * 检测 window.soundtouch 的实际 API shape。
+   * 返回 { usable: boolean, keys: string[], reason: string }
+   */
+  detectSoundTouchApi() {
+    if (this._soundTouchApiDetail) return this._soundTouchApiDetail;
+    const w = this._window;
+    const result = { usable: false, keys: [], reason: '' };
+
+    // 检查全局 soundtouch 命名空间
+    const st = w?.soundtouch;
+    const stKeys = st ? Object.keys(st).filter(k => typeof st[k] === 'function') : [];
+
+    if (!st) {
+      result.reason = 'window.soundtouch 不存在';
+      result.keys = [];
+    } else if (!st.SoundTouch) {
+      result.reason = 'window.soundtouch 存在但缺少 SoundTouch 构造函数';
+      result.keys = stKeys;
+    } else if (!st.Float32AudioBuffer) {
+      result.reason = 'window.soundtouch.SoundTouch 存在但缺少 Float32AudioBuffer';
+      result.keys = stKeys;
+    } else {
+      // 尝试验证 API shape
+      try {
+        const testST = new st.SoundTouch(44100, 1);
+        if (typeof testST.putSamples !== 'function' || typeof testST.receiveSamples !== 'function') {
+          result.reason = 'SoundTouch 实例缺少 putSamples/receiveSamples 方法';
+          result.keys = stKeys;
+        } else {
+          const testBuf = new st.Float32AudioBuffer(128);
+          if (!testBuf.vector) {
+            result.reason = 'Float32AudioBuffer 缺少 vector 属性';
+            result.keys = stKeys;
+          } else {
+            result.usable = true;
+            result.keys = stKeys;
+          }
+        }
+      } catch (e) {
+        result.reason = 'SoundTouch API 验证失败: ' + (e.message || '');
+        result.keys = stKeys;
+      }
     }
-    return 'custom';
+
+    if (!result.usable && !result.reason) {
+      result.reason = 'SoundTouch API 不可用';
+    }
+
+    this._soundTouchApiDetail = result;
+    this._soundTouchUsable = result.usable;
+    return result;
   }
 
   // ---- 初始化 ----
   async init() {
     if (this.initialized) return;
 
+    // 加载 SoundTouch（不阻塞，失败仅标记）
     this._changeStage('loading-engine');
-    await this.loadSoundTouch();
+    await this._loadSoundTouchOptional();
+
+    // 检测 SoundTouch API
+    this.detectSoundTouchApi();
+
+    // 决定引擎模式
+    if (this._soundTouchUsable) {
+      this.engineMode = 'soundtouch';
+    } else {
+      this.engineMode = 'native';
+    }
 
     this._changeStage('creating-audio-context');
     const AudioContextCtor = this._window?.AudioContext || this._window?.webkitAudioContext;
@@ -233,9 +298,11 @@ class VoiceChanger {
     this.bypassGain = this.audioContext.createGain();
     this.bypassGain.gain.value = 0;
 
+    // 创建 ScriptProcessor（双引擎共用）
     this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
     this.processor.onaudioprocess = (e) => this.processAudio(e);
 
+    // 连接基础链路
     this.inputGain.connect(this.processor);
     this.processor.connect(this.outputGain);
     this.outputGain.connect(this.audioContext.destination);
@@ -244,20 +311,16 @@ class VoiceChanger {
     this.bypassGain.connect(this.audioContext.destination);
 
     this.applyMonitorMode();
-
     this.initialized = true;
   }
 
-  // ---- SoundTouch 加载（CDN → 本地回退）----
-  async loadSoundTouch() {
+  // ---- SoundTouch 加载（可选，不抛 fatal）----
+  async _loadSoundTouchOptional() {
     if (this._window?.soundtouch) {
       this._engineSource = 'preloaded';
       return;
     }
-    if (!this._document) {
-      this._setState('error', new Error('当前环境不支持动态加载脚本'));
-      throw new Error('当前环境不支持动态加载脚本');
-    }
+    if (!this._document) return;
 
     const urls = [
       { src: 'https://cdn.jsdelivr.net/npm/soundtouchjs@0.1.29/dist/soundtouch.min.js', label: 'cdn' },
@@ -277,15 +340,13 @@ class VoiceChanger {
         return;
       } catch (e) {}
     }
-    this._setState('error', new Error('SoundTouch 处理库加载失败'));
-    throw new Error('SoundTouch 处理库加载失败');
+    this._engineSource = 'failed';
   }
 
   // ---- 启动变声 ----
   async start(existingStream) {
     if (this.started) return;
 
-    // 阶段 1: 检查浏览器支持
     this._changeStage('checking-support');
     const sup = this.isSupported();
     if (!sup.supported) {
@@ -293,10 +354,9 @@ class VoiceChanger {
       throw new Error(sup.reasons.join('; '));
     }
 
-    // 阶段 2: 加载引擎 + 创建 AudioContext
     await this.init();
 
-    // 阶段 3: 恢复 AudioContext
+    // AudioContext resume
     this._changeStage('resuming-audio-context');
     if (this.audioContext && this.audioContext.state === 'suspended') {
       try {
@@ -307,7 +367,7 @@ class VoiceChanger {
       }
     }
 
-    // 阶段 4: 请求麦克风权限
+    // 麦克风
     let stream = existingStream;
     if (!stream) {
       this._changeStage('requesting-mic');
@@ -325,7 +385,7 @@ class VoiceChanger {
     this._changeStage('mic-stream-created');
     this.stream = stream;
 
-    // 阶段 5: 创建音频源节点
+    // 创建音频源
     this._changeStage('creating-source-node');
     if (this.source) {
       try { this.source.disconnect(); } catch (e) {}
@@ -339,30 +399,165 @@ class VoiceChanger {
       throw new Error('音频源节点创建失败: ' + e.message);
     }
 
-    // 阶段 6: 创建 SoundTouch processor
+    // 根据引擎模式初始化
     this._changeStage('creating-processor');
-    if (!this._window?.soundtouch) {
-      this._setState('error', new Error('SoundTouch 处理库未正确加载'));
-      throw new Error('SoundTouch 处理库未正确加载');
+    if (this.engineMode === 'soundtouch') {
+      try {
+        this._initSoundTouch();
+      } catch (e) {
+        // SoundTouch 初始化失败，fallback 到 native
+        this.engineMode = 'fallback';
+        this._initNativeEffects();
+      }
+    } else {
+      this._initNativeEffects();
     }
-    try {
-      this.soundTouch = new this._window.soundtouch.SoundTouch(
-        this.audioContext.sampleRate,
-        1
-      );
-    } catch (e) {
-      this._setState('error', e);
-      throw new Error('SoundTouch processor 创建失败: ' + e.message);
-    }
-    this.soundTouch.pitch = this.pitch;
-    this.soundTouch.tempo = this.tempo;
-    this.soundTouch.rate = this.rate;
 
-    // 阶段 7: 验证音频图连接
+    // 应用当前预设
+    this._applyNativePreset(this._currentPreset);
+
     this._changeStage('connecting-graph');
     this.isActive = true;
     this.started = true;
     this._setState('enabled');
+  }
+
+  // ---- SoundTouch 初始化 ----
+  _initSoundTouch() {
+    const st = this._window?.soundtouch;
+    if (!st?.SoundTouch) throw new Error('SoundTouch 不可用');
+    this.soundTouch = new st.SoundTouch(this.audioContext.sampleRate, 1);
+    this.soundTouch.pitch = this.pitch;
+    this.soundTouch.tempo = this.tempo;
+    this.soundTouch.rate = this.rate;
+  }
+
+  // ---- Native Web Audio 效果初始化 ----
+  _initNativeEffects() {
+    const ctx = this.audioContext;
+    if (!ctx) return;
+
+    // 清理旧节点
+    this._destroyNativeEffects();
+
+    // 创建效果节点
+    // inputGain → filterNode → waveshaper → compressor → outputGain
+    this._nativeEffects.filterNode = ctx.createBiquadFilter();
+    this._nativeEffects.filterNode.type = 'lowshelf';
+    this._nativeEffects.filterNode.frequency.value = 1000;
+
+    this._nativeEffects.waveshaper = ctx.createWaveShaper();
+    this._nativeEffects.waveshaper.oversample = 'none';
+
+    this._nativeEffects.compressor = ctx.createDynamicsCompressor();
+    this._nativeEffects.compressor.threshold.value = -24;
+    this._nativeEffects.compressor.ratio.value = 12;
+    this._nativeEffects.compressor.attack.value = 0.003;
+    this._nativeEffects.compressor.release.value = 0.25;
+
+    // 连接效果链：inputGain → filter → waveshaper → compressor → processor
+    this.inputGain.disconnect();
+    this.inputGain.connect(this._nativeEffects.filterNode);
+    this._nativeEffects.filterNode.connect(this._nativeEffects.waveshaper);
+    this._nativeEffects.waveshaper.connect(this._nativeEffects.compressor);
+    this._nativeEffects.compressor.connect(this.processor);
+  }
+
+  _destroyNativeEffects() {
+    const ef = this._nativeEffects;
+    if (ef.filterNode) { try { ef.filterNode.disconnect(); } catch (e) {} ef.filterNode = null; }
+    if (ef.waveshaper) { try { ef.waveshaper.disconnect(); } catch (e) {} ef.waveshaper = null; }
+    if (ef.compressor) { try { ef.compressor.disconnect(); } catch (e) {} ef.compressor = null; }
+  }
+
+  // ---- Native preset 效果 ----
+  _applyNativePreset(presetKey) {
+    const ef = this._nativeEffects;
+    if (!ef.filterNode || !ef.waveshaper || !ef.compressor) return;
+
+    switch (presetKey) {
+      case 'normal':
+        // 原声：旁路效果链
+        ef.filterNode.type = 'allpass';
+        ef.filterNode.frequency.value = 1000;
+        ef.waveshaper.curve = null;
+        ef.compressor.threshold.value = -50;
+        ef.compressor.ratio.value = 1;
+        break;
+
+      case 'cute':
+        // 基础可爱声效：highpass + 轻微失真
+        ef.filterNode.type = 'highpass';
+        ef.filterNode.frequency.value = 600;
+        ef.waveshaper.curve = this._makeCurve(30);
+        ef.compressor.threshold.value = -30;
+        ef.compressor.ratio.value = 4;
+        break;
+
+      case 'robot':
+        // 基础机器人声效：ring modulation via waveshaper
+        ef.filterNode.type = 'bandpass';
+        ef.filterNode.frequency.value = 1500;
+        ef.filterNode.Q.value = 2;
+        ef.waveshaper.curve = this._makeRobotCurve();
+        ef.compressor.threshold.value = -20;
+        ef.compressor.ratio.value = 8;
+        break;
+
+      case 'deep':
+        // 基础低沉声效：lowpass + bass boost + 压缩
+        ef.filterNode.type = 'lowshelf';
+        ef.filterNode.frequency.value = 300;
+        ef.filterNode.gain.value = 15;
+        ef.waveshaper.curve = this._makeSoftClipCurve();
+        ef.compressor.threshold.value = -20;
+        ef.compressor.ratio.value = 6;
+        break;
+
+      case 'radio':
+        // 基础收音机声效：bandpass + 失真 + 压缩
+        ef.filterNode.type = 'bandpass';
+        ef.filterNode.frequency.value = 2000;
+        ef.filterNode.Q.value = 0.5;
+        ef.waveshaper.curve = this._makeCurve(80);
+        ef.compressor.threshold.value = -24;
+        ef.compressor.ratio.value = 10;
+        break;
+    }
+  }
+
+  // ---- Waveshaper 曲线生成 ----
+  _makeCurve(amount) {
+    const samples = 44100;
+    const curve = new Float32Array(samples);
+    const deg = Math.PI / 180;
+    for (let i = 0; i < samples; i++) {
+      const x = i * 2 / samples - 1;
+      curve[i] = (3 + amount) * x * 20 * deg / (Math.PI + amount * Math.abs(x));
+    }
+    return curve;
+  }
+
+  _makeSoftClipCurve() {
+    const samples = 44100;
+    const curve = new Float32Array(samples);
+    for (let i = 0; i < samples; i++) {
+      const x = i * 2 / samples - 1;
+      // tanh 近似软削波
+      curve[i] = Math.tanh(x * 2);
+    }
+    return curve;
+  }
+
+  _makeRobotCurve() {
+    const samples = 44100;
+    const curve = new Float32Array(samples);
+    for (let i = 0; i < samples; i++) {
+      const x = i * 2 / samples - 1;
+      // 量化/阶梯效果模拟机器人声
+      curve[i] = Math.round(x * 4) / 4;
+    }
+    return curve;
   }
 
   // ---- getUserMedia 错误分类 ----
@@ -403,25 +598,47 @@ class VoiceChanger {
 
   // ---- 音频处理 ----
   processAudio(e) {
-    if (!this.isActive || !this.soundTouch) return;
+    if (!this.isActive) return;
 
+    if (this.soundTouch && (this.engineMode === 'soundtouch' || this.engineMode === 'fallback')) {
+      this._processSoundTouch(e);
+    } else {
+      this._processNative(e);
+    }
+  }
+
+  _processSoundTouch(e) {
+    const st = this._window?.soundtouch;
+    if (!st || !this.soundTouch) return;
     const inputData = e.inputBuffer.getChannelData(0);
     const outputData = e.outputBuffer.getChannelData(0);
-    const st = this._window?.soundtouch;
-    if (!st) return;
-
-    const inputBuffer = new st.Float32AudioBuffer(inputData.length);
-    for (let i = 0; i < inputData.length; i++) {
-      inputBuffer.vector[i] = inputData[i];
+    let inputBuffer, outputBuffer, received;
+    try {
+      inputBuffer = new st.Float32AudioBuffer(inputData.length);
+      for (let i = 0; i < inputData.length; i++) {
+        inputBuffer.vector[i] = inputData[i];
+      }
+      this.soundTouch.putSamples(inputBuffer);
+      outputBuffer = new st.Float32AudioBuffer(outputData.length);
+      received = this.soundTouch.receiveSamples(outputBuffer);
+    } catch (err) {
+      // SoundTouch 运行时异常，静默处理
+      for (let i = 0; i < outputData.length; i++) outputData[i] = 0;
+      return;
     }
-
-    this.soundTouch.putSamples(inputBuffer);
-
-    const outputBuffer = new st.Float32AudioBuffer(outputData.length);
-    const received = this.soundTouch.receiveSamples(outputBuffer);
-
     for (let i = 0; i < outputData.length; i++) {
       outputData[i] = i < received ? outputBuffer.vector[i] : 0;
+    }
+  }
+
+  _processNative(e) {
+    // Native 模式：效果链在 inputGain → filter → waveshaper → compressor → processor
+    // ScriptProcessor 的 onaudioprocess 已通过效果链接收数据
+    // 直接复制输入到输出（效果链已处理）
+    const inputData = e.inputBuffer.getChannelData(0);
+    const outputData = e.outputBuffer.getChannelData(0);
+    for (let i = 0; i < outputData.length; i++) {
+      outputData[i] = inputData[i];
     }
   }
 
@@ -444,8 +661,14 @@ class VoiceChanger {
   applyPreset(presetKey) {
     const preset = this.presets[presetKey];
     if (!preset) return;
+    this._currentPreset = presetKey;
     this.setPitch(preset.pitch);
     this.setTempo(preset.tempo);
+
+    // Native 引擎：应用实际效果
+    if (this.engineMode === 'native' || this.engineMode === 'fallback') {
+      this._applyNativePreset(presetKey);
+    }
   }
 
   setVolume(value) {
@@ -489,35 +712,14 @@ class VoiceChanger {
   // ---- 销毁 ----
   destroy() {
     this.stop();
-    if (this.source) {
-      try { this.source.disconnect(); } catch (e) {}
-      this.source = null;
-    }
-    if (this.inputGain) {
-      try { this.inputGain.disconnect(); } catch (e) {}
-      this.inputGain = null;
-    }
-    if (this.processor) {
-      try { this.processor.disconnect(); } catch (e) {}
-      this.processor.onaudioprocess = null;
-      this.processor = null;
-    }
-    if (this.outputGain) {
-      try { this.outputGain.disconnect(); } catch (e) {}
-      this.outputGain = null;
-    }
-    if (this.bypassGain) {
-      try { this.bypassGain.disconnect(); } catch (e) {}
-      this.bypassGain = null;
-    }
-    if (this._processedDest) {
-      try { this._processedDest.disconnect(); } catch (e) {}
-      this._processedDest = null;
-    }
-    if (this.audioContext) {
-      this.audioContext.close();
-      this.audioContext = null;
-    }
+    this._destroyNativeEffects();
+    if (this.source) { try { this.source.disconnect(); } catch (e) {} this.source = null; }
+    if (this.inputGain) { try { this.inputGain.disconnect(); } catch (e) {} this.inputGain = null; }
+    if (this.processor) { try { this.processor.disconnect(); } catch (e) {} this.processor.onaudioprocess = null; this.processor = null; }
+    if (this.outputGain) { try { this.outputGain.disconnect(); } catch (e) {} this.outputGain = null; }
+    if (this.bypassGain) { try { this.bypassGain.disconnect(); } catch (e) {} this.bypassGain = null; }
+    if (this._processedDest) { try { this._processedDest.disconnect(); } catch (e) {} this._processedDest = null; }
+    if (this.audioContext) { this.audioContext.close(); this.audioContext = null; }
     this.initialized = false;
     this.started = false;
     this.soundTouch = null;
@@ -547,29 +749,16 @@ class VoiceChanger {
       this.source = this.audioContext.createMediaStreamSource(this.stream);
       this.source.connect(this.inputGain);
     }
-    if (!this.soundTouch) {
-      if (!this._window?.soundtouch) {
-        throw new Error('SoundTouch 处理库未正确加载');
-      }
-      this.soundTouch = new this._window.soundtouch.SoundTouch(
-        this.audioContext.sampleRate, 1
-      );
-      this.soundTouch.pitch = this.pitch;
-      this.soundTouch.tempo = this.tempo;
-      this.soundTouch.rate = this.rate;
+    if (this.engineMode === 'soundtouch' && !this.soundTouch) {
+      this._initSoundTouch();
     }
     this.isActive = true;
   }
 
   stopRealtime() {
     this.isActive = false;
-    if (this.source) {
-      this.source.disconnect();
-      this.source = null;
-    }
-    if (this.soundTouch) {
-      this.soundTouch = null;
-    }
+    if (this.source) { this.source.disconnect(); this.source = null; }
+    if (this.soundTouch) { this.soundTouch = null; }
   }
 
   async startParagraphRecording() {
@@ -587,9 +776,7 @@ class VoiceChanger {
     this.paragraphDestination = this.audioContext.createMediaStreamDestination();
     this.paragraphRecorder = new MediaRecorder(this.paragraphDestination.stream);
     this.paragraphRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) {
-        this.paragraphBuffer.push(e.data);
-      }
+      if (e.data && e.data.size > 0) this.paragraphBuffer.push(e.data);
     };
     const source = this.audioContext.createMediaStreamSource(this.stream);
     source.connect(this.paragraphDestination);
@@ -615,9 +802,8 @@ class VoiceChanger {
     try {
       const arrayBuffer = await blob.arrayBuffer();
       const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
-      const processedBuffer = await this.applySoundTouchToBuffer(audioBuffer);
       const source = this.audioContext.createBufferSource();
-      source.buffer = processedBuffer;
+      source.buffer = audioBuffer;
       source.connect(this.outputGain);
       source.onended = () => {
         source.disconnect();
@@ -627,36 +813,6 @@ class VoiceChanger {
     } catch (err) {
       console.error('段落模式处理失败:', err);
     }
-  }
-
-  async applySoundTouchToBuffer(audioBuffer) {
-    if (!this._window?.soundtouch) {
-      await this.loadSoundTouch();
-    }
-    if (!this._window?.soundtouch) {
-      throw new Error('SoundTouch 处理库未正确加载');
-    }
-    const stNs = this._window.soundtouch;
-    const sampleRate = audioBuffer.sampleRate;
-    const channelData = audioBuffer.getChannelData(0);
-    const st = new stNs.SoundTouch(sampleRate, 1);
-    st.pitch = this.pitch;
-    st.tempo = this.tempo;
-    st.rate = this.rate;
-    const inputBuffer = new stNs.Float32AudioBuffer(channelData.length);
-    for (let i = 0; i < channelData.length; i++) {
-      inputBuffer.vector[i] = channelData[i];
-    }
-    st.putSamples(inputBuffer);
-    const outputLength = Math.ceil(channelData.length / this.tempo);
-    const outputBuffer = new stNs.Float32AudioBuffer(outputLength);
-    const received = st.receiveSamples(outputBuffer);
-    const processedAudioBuffer = this.audioContext.createBuffer(1, received, sampleRate);
-    const outputChannel = processedAudioBuffer.getChannelData(0);
-    for (let i = 0; i < received; i++) {
-      outputChannel[i] = outputBuffer.vector[i];
-    }
-    return processedAudioBuffer;
   }
 }
 
