@@ -127,6 +127,15 @@
     }
     .preset-btn .picon { font-size: 15px; display: block; margin-bottom: 2px; }
 
+    .avatar-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+      margin-bottom: 10px;
+    }
+    .expr-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+      margin-bottom: 10px;
+    }
+
     .mode-row { display: flex; gap: 8px; }
     .btn {
       font-size: 12px; font-weight: 500;
@@ -147,7 +156,7 @@
       padding: 8px 10px;
       font-family: 'SF Mono', monospace;
       font-size: 10px; color: var(--text-muted);
-      max-height: 150px; overflow-y: auto;
+      max-height: 200px; overflow-y: auto;
       line-height: 1.6;
     }
     .log-entry { padding: 1px 0; }
@@ -224,6 +233,32 @@
   </div>
 
   <div class="card">
+    <div class="card-title">Avatar</div>
+    <div class="avatar-grid" id="avatarGrid">
+      <div class="preset-btn active" data-avatar="sacabambaspis" onclick="setAvatar('sacabambaspis')"><span class="picon">🐟</span>萨卡班甲鱼</div>
+      <div class="preset-btn" data-avatar="cat" onclick="setAvatar('cat')"><span class="picon">🐱</span>猫</div>
+      <div class="preset-btn" data-avatar="dog" onclick="setAvatar('dog')"><span class="picon">🐶</span>狗</div>
+      <div class="preset-btn" data-avatar="rabbit" onclick="setAvatar('rabbit')"><span class="picon">🐰</span>兔子</div>
+      <div class="preset-btn" data-avatar="fox" onclick="setAvatar('fox')"><span class="picon">🦊</span>狐狸</div>
+      <div class="preset-btn" data-avatar="bear" onclick="setAvatar('bear')"><span class="picon">🐻</span>小熊</div>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Expression</div>
+    <div class="expr-grid" id="exprGrid">
+      <div class="preset-btn" data-expr="blink" onclick="setExpr('blink')"><span class="picon">😉</span>眨眼</div>
+      <div class="preset-btn" data-expr="mouth" onclick="setExpr('mouth')"><span class="picon">😮</span>张嘴</div>
+      <div class="preset-btn" data-expr="smile" onclick="setExpr('smile')"><span class="picon">😊</span>微笑</div>
+      <div class="preset-btn" data-expr="wide" onclick="setExpr('wide')"><span class="picon">😲</span>惊讶</div>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Action</div>
+    <div class="expr-grid" id="actionGrid">
+      <div class="preset-btn" data-action="nod" onclick="setAction('nod')"><span class="picon">🙇</span>点头</div>
+      <div class="preset-btn" data-action="look" onclick="setAction('look')"><span class="picon">👀</span>左右看</div>
+      <div class="preset-btn" data-action="tail" onclick="setAction('tail')"><span class="picon">🐾</span>摇尾巴</div>
+      <div class="preset-btn" data-action="bounce" onclick="setAction('bounce')"><span class="picon">⬆️</span>弹跳</div>
+    </div>
+  </div>
+
+  <div class="card">
     <div class="card-title">Capture Controls</div>
     <div class="toggle-row">
       <span class="toggle-label">Face Capture</span>
@@ -243,11 +278,10 @@
     <div class="card-title">Voice Preset</div>
     <div class="preset-grid" id="presetGrid">
       <div class="preset-btn active" data-preset="original" onclick="setPreset('original')"><span class="picon">🎤</span>Original</div>
-      <div class="preset-btn" data-preset="chipmunk" onclick="setPreset('chipmunk')"><span class="picon">🐿️</span>Chipmunk</div>
+      <div class="preset-btn" data-preset="cute" onclick="setPreset('cute')"><span class="picon">🎀</span>Cute</div>
       <div class="preset-btn" data-preset="robot" onclick="setPreset('robot')"><span class="picon">🤖</span>Robot</div>
       <div class="preset-btn" data-preset="deep" onclick="setPreset('deep')"><span class="picon">🎸</span>Deep</div>
-      <div class="preset-btn" data-preset="alien" onclick="setPreset('alien')"><span class="picon">👽</span>Alien</div>
-      <div class="preset-btn" data-preset="echo" onclick="setPreset('echo')"><span class="picon">📻</span>Echo</div>
+      <div class="preset-btn" data-preset="radio" onclick="setPreset('radio')"><span class="picon">📻</span>Radio</div>
     </div>
   </div>
 
@@ -292,7 +326,13 @@
     latencyMs: 0,
     lastCommand: '',
     lastError: '',
-    updatedAt: 0
+    updatedAt: 0,
+    avatar: 'sacabambaspis',
+    avatarExpression: '',
+    avatarAction: '',
+    aiVoiceStatus: 'real_app_only',
+    webVoiceStatus: 'available',
+    voicePermission: 'not_requested'
   };
 
   var eventSource = null;
@@ -311,8 +351,7 @@
     entry.textContent = '[' + ts + '] ' + msg;
     panel.appendChild(entry);
     panel.scrollTop = panel.scrollHeight;
-    // Keep last 50 entries
-    while (panel.children.length > 50) panel.removeChild(panel.firstChild);
+    while (panel.children.length > 80) panel.removeChild(panel.firstChild);
   }
 
   function showError(msg) {
@@ -359,6 +398,24 @@
       b.className = 'preset-btn' + (b.dataset.preset === state.voicePreset ? ' active' : '');
     });
 
+    // Avatar
+    var avBtns = document.querySelectorAll('#avatarGrid .preset-btn');
+    avBtns.forEach(function(b) {
+      b.className = 'preset-btn' + (b.dataset.avatar === state.avatar ? ' active' : '');
+    });
+
+    // Expression
+    var exBtns = document.querySelectorAll('#exprGrid .preset-btn');
+    exBtns.forEach(function(b) {
+      b.className = 'preset-btn' + (b.dataset.expr === state.avatarExpression ? ' active' : '');
+    });
+
+    // Action
+    var acBtns = document.querySelectorAll('#actionGrid .preset-btn');
+    acBtns.forEach(function(b) {
+      b.className = 'preset-btn' + (b.dataset.action === state.avatarAction ? ' active' : '');
+    });
+
     // Mode
     $('btnSim').className = 'btn' + (state.captureMode === 'simulated' ? ' active' : '');
     $('btnReal').className = 'btn' + (state.captureMode === 'real-camera' ? ' active' : '');
@@ -368,6 +425,7 @@
   }
 
   function applyState(data) {
+    if (!data) return;
     state.serverRunning = !!data.serverRunning;
     state.faceCaptureEnabled = !!data.faceCaptureEnabled;
     state.voiceChangerEnabled = !!data.voiceChangerEnabled;
@@ -380,12 +438,18 @@
     state.lastCommand = data.lastCommand || '';
     state.lastError = data.lastError || '';
     state.updatedAt = data.updatedAt || 0;
+    state.avatar = data.avatar || 'sacabambaspis';
+    state.avatarExpression = data.avatarExpression || '';
+    state.avatarAction = data.avatarAction || '';
+    state.aiVoiceStatus = data.aiVoiceStatus || 'real_app_only';
+    state.webVoiceStatus = data.webVoiceStatus || 'available';
+    state.voicePermission = data.voicePermission || 'not_requested';
     updateUI();
   }
 
   // ===== API calls =====
   function fetchStatus() {
-    fetch('/api/status')
+    return fetch('/api/status')
       .then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
@@ -393,10 +457,12 @@
       .then(function(data) {
         applyState(data);
         showError('');
+        return data;
       })
       .catch(function(e) {
         showError('Failed to fetch status: ' + e.message);
         log('fetchStatus error: ' + e.message, 'error');
+        throw e;
       });
   }
 
@@ -409,7 +475,16 @@
     if (type === 'setVoiceChanger') body.enabled = !state.voiceChangerEnabled;
     if (type === 'setSubtitle') body.enabled = !state.subtitleEnabled;
 
-    log('Sending control: ' + type + ' ' + JSON.stringify(body), 'remote');
+    // 记录点击前的状态
+    var beforeState = {
+      faceCaptureEnabled: state.faceCaptureEnabled,
+      voiceChangerEnabled: state.voiceChangerEnabled,
+      subtitleEnabled: state.subtitleEnabled,
+      voicePreset: state.voicePreset,
+      avatar: state.avatar
+    };
+
+    log('UI click: ' + type + ' ' + JSON.stringify(body), 'remote');
 
     fetch('/api/control', {
       method: 'POST',
@@ -422,17 +497,31 @@
       })
       .then(function(data) {
         if (data.ok) {
-          log('Control OK: ' + (data.message || ''), 'success');
-          if (data.state) applyState(data.state);
+          log('POST /api/control response: ok=true message=' + (data.message || ''), 'success');
+          if (data.state) {
+            applyState(data.state);
+            log('status refreshed from response: ' + type + ' applied', 'success');
+          } else {
+            // 如果响应没有带 state，主动刷新
+            return fetchStatus().then(function() {
+              log('status refreshed via /api/status', 'success');
+            });
+          }
           showError('');
         } else {
-          log('Control failed: ' + (data.message || ''), 'error');
+          log('POST failed: ok=false message=' + (data.message || ''), 'error');
+          log('status unchanged: ' + type + ' rejected by server', 'error');
           showError('Control failed: ' + (data.message || ''));
+          // 刷新状态确保 UI 一致
+          return fetchStatus();
         }
       })
       .catch(function(e) {
+        log('POST failed: ' + e.message, 'error');
+        log('status unchanged: network error', 'error');
         showError('Control request failed: ' + e.message);
-        log('Control error: ' + e.message, 'error');
+        // 刷新状态确保 UI 一致
+        return fetchStatus();
       });
   }
 
@@ -442,6 +531,18 @@
 
   function setMode(mode) {
     sendControl('setCaptureMode', { mode: mode });
+  }
+
+  function setAvatar(avatar) {
+    sendControl('setAvatar', { avatar: avatar });
+  }
+
+  function setExpr(expr) {
+    sendControl('setAvatarExpression', { expression: expr });
+  }
+
+  function setAction(action) {
+    sendControl('setAvatarAction', { action: action });
   }
 
   // ===== SSE / Polling =====
@@ -457,6 +558,7 @@
             log('SSE connected, switching from polling', 'success');
             if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
           }
+          log('SSE update received: ' + (data.lastCommand || 'no command'), 'info');
           showError('');
         } catch (err) {
           log('SSE parse error: ' + err.message, 'error');
@@ -486,9 +588,14 @@
   window.sendControl = sendControl;
   window.setPreset = setPreset;
   window.setMode = setMode;
+  window.setAvatar = setAvatar;
+  window.setExpr = setExpr;
+  window.setAction = setAction;
 
   log('Control page loaded', 'info');
-  fetchStatus();
+  fetchStatus().then(function() {
+    log('Initial status loaded: avatar=' + state.avatar + ' faceCapture=' + state.faceCaptureEnabled, 'info');
+  }).catch(function(){});
   // Try SSE after initial fetch; if it fails, polling will continue
   setTimeout(initSSE, 500);
 

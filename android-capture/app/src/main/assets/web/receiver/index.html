@@ -5,118 +5,339 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>CheapLive Receiver</title>
 <style>
-  html, body { margin: 0; padding: 0; background: #0d0d18; color: #e8e8f0; font-family: system-ui, sans-serif; }
-  #stage { display: block; margin: 0 auto; width: 100vw; height: 80vh; background: #11111f; }
-  #hud { padding: 8px 12px; font-size: 12px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-  .status { padding: 6px 10px; border-radius: 6px; font-size: 13px; background: #1c1c2e; }
-  button { padding: 6px 12px; border: none; background: #444a78; color: #fff; border-radius: 6px; cursor: pointer; }
-  button:disabled { opacity: 0.4; }
+  :root {
+    --bg-primary: #0a0e1a;
+    --bg-card: #1a2236;
+    --border-color: #2a3654;
+    --text-primary: #e8edf5;
+    --text-secondary: #8896b3;
+    --text-muted: #5a6a85;
+    --color-accent: #4fc3f7;
+    --color-accent2: #69db7c;
+    --color-warning: #ffd43b;
+    --color-danger: #ff6b6b;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+    min-height: 100vh;
+  }
+  .container { max-width: 800px; margin: 0 auto; padding: 16px; }
+
+  .hero {
+    background: linear-gradient(135deg, #0a0e1a 0%, #111827 100%);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+  .hero h1 { font-size: 18px; margin-bottom: 4px; }
+  .hero h1 span { color: var(--color-accent); }
+  .hero-sub { color: var(--text-secondary); font-size: 12px; }
+
+  .stage-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  #stage {
+    display: block;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 600px;
+    height: 320px;
+    background: #11111f;
+    border-radius: var(--radius-sm);
+  }
+  .stage-overlay {
+    text-align: center;
+    padding: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .stage-overlay.simulated { color: var(--color-warning); }
+  .stage-overlay.real { color: var(--color-accent2); }
+
+  .status-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .status-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+  .status-item .label {
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 2px;
+  }
+  .status-item .value {
+    color: var(--text-primary);
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+  }
+  .status-item .value.on { color: var(--color-accent2); }
+  .status-item .value.off { color: var(--text-muted); }
+  .status-item .value.warn { color: var(--color-warning); }
+
+  .badge {
+    display: inline-block;
+    font-size: 9px; font-weight: 600;
+    padding: 2px 6px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .badge.simulated { background: rgba(255,212,59,0.12); border: 1px solid rgba(255,212,59,0.3); color: var(--color-warning); }
+  .badge.real { background: rgba(105,219,124,0.12); border: 1px solid rgba(105,219,124,0.3); color: var(--color-accent2); }
+  .badge.connected { background: rgba(79,195,247,0.12); border: 1px solid rgba(79,195,247,0.3); color: var(--color-accent); }
+  .badge.disconnected { background: rgba(255,107,107,0.12); border: 1px solid rgba(255,107,107,0.3); color: var(--color-danger); }
+
+  .actions {
+    display: flex; gap: 8px; margin-bottom: 12px;
+  }
+  button {
+    padding: 8px 16px; border: 1px solid var(--border-color);
+    background: rgba(255,255,255,0.04); color: var(--text-secondary);
+    border-radius: var(--radius-sm); cursor: pointer; font-size: 12px;
+    flex: 1; transition: all 0.15s;
+  }
+  button:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+  button.primary { background: rgba(79,195,247,0.15); border-color: rgba(79,195,247,0.4); color: var(--color-accent); }
+
+  .log-panel {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    font-family: 'SF Mono', monospace;
+    font-size: 10px; color: var(--text-muted);
+    max-height: 120px; overflow-y: auto;
+    line-height: 1.6;
+  }
+  .log-entry { padding: 1px 0; }
+  .log-entry.info { color: var(--text-secondary); }
+  .log-entry.success { color: var(--color-accent2); }
+  .log-entry.warn { color: var(--color-warning); }
+  .log-entry.error { color: var(--color-danger); }
+  .log-entry.remote { color: var(--color-accent); }
 </style>
 </head>
 <body>
-<canvas id="stage"></canvas>
-<div id="hud">
-  <div class="status" id="status">等待连接</div>
-  <div class="status" id="latest">—</div>
-  <div class="status"><button id="reconnect">重连</button></div>
+<div class="container">
+  <div class="hero">
+    <h1>CheapLive <span>Receiver</span></h1>
+    <p class="hero-sub" id="hostInfo">—</p>
+  </div>
+
+  <div class="stage-card">
+    <canvas id="stage"></canvas>
+    <div class="stage-overlay" id="stageOverlay">初始化中...</div>
+  </div>
+
+  <div class="status-grid">
+    <div class="status-item">
+      <div class="label">Connection</div>
+      <div class="value" id="connStatus">—</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Avatar</div>
+      <div class="value" id="avatarStatus">—</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Expression / Action</div>
+      <div class="value" id="exprStatus">—</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Face Capture</div>
+      <div class="value off" id="faceCapStatus">OFF</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Voice Preset</div>
+      <div class="value" id="voicePresetStatus">original</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Subtitle</div>
+      <div class="value off" id="subtitleStatus">OFF</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Frame Count</div>
+      <div class="value" id="frameCountStatus">0</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Latency</div>
+      <div class="value" id="latencyStatus">— ms</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Last Command</div>
+      <div class="value" id="lastCmdStatus">—</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Capture Mode</div>
+      <div class="value" id="captureModeStatus">simulated</div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="primary" id="reconnect">重连 WebSocket</button>
+    <button id="refreshStatus">刷新状态</button>
+  </div>
+
+  <div class="log-panel" id="logPanel">
+    <div class="log-entry info">Receiver 初始化中...</div>
+  </div>
 </div>
 
-<script type="module">
-  import { createSphereMesh, deformSphere } from '/assets/web/receiver/sphere.js';
+<script>
+(function() {
+  'use strict';
 
-  const stage = document.getElementById('stage');
-  const ctx = stage.getContext('2d');
-  const statusEl = document.getElementById('status');
-  const latestEl = document.getElementById('latest');
+  // ===== DOM =====
+  var stage = document.getElementById('stage');
+  var ctx = stage.getContext('2d');
+  var stageOverlay = document.getElementById('stageOverlay');
+  var logPanel = document.getElementById('logPanel');
 
+  // ===== State =====
+  var appState = {
+    serverRunning: false,
+    faceCaptureEnabled: false,
+    voiceChangerEnabled: false,
+    voicePreset: 'original',
+    captureMode: 'simulated',
+    subtitleEnabled: false,
+    viewerConnected: false,
+    frameCount: 0,
+    latencyMs: 0,
+    lastCommand: '',
+    lastError: '',
+    avatar: 'sacabambaspis',
+    avatarExpression: '',
+    avatarAction: '',
+    aiVoiceStatus: 'real_app_only',
+    webVoiceStatus: 'available',
+    voicePermission: 'not_requested'
+  };
+
+  // WebSocket face frame data (from real capture)
+  var faceFrame = null;
+  var lastFrameSeq = -1;
+  var lastFrameTime = 0;
+  var hasRealFrame = false;
+
+  // WebSocket
+  var ws = null;
+  var wsRetryCount = 0;
+  var wsMaxRetries = 20;
+  var wsReconnectMs = 1000;
+
+  // SSE
+  var eventSource = null;
+  var useSSE = false;
+  var pollTimer = null;
+
+  // Animation
+  var animTime = 0;
+
+  // Token
+  var query = new URLSearchParams(location.search);
+  var token = query.get('token') || '';
+
+  // ===== Logging =====
+  function log(msg, level) {
+    level = level || 'info';
+    var entry = document.createElement('div');
+    entry.className = 'log-entry ' + level;
+    var now = new Date();
+    var ts = String(now.getHours()).padStart(2,'0') + ':' +
+             String(now.getMinutes()).padStart(2,'0') + ':' +
+             String(now.getSeconds()).padStart(2,'0');
+    entry.textContent = '[' + ts + '] ' + msg;
+    logPanel.appendChild(entry);
+    logPanel.scrollTop = logPanel.scrollHeight;
+    while (logPanel.children.length > 50) logPanel.removeChild(logPanel.firstChild);
+  }
+
+  // ===== Canvas resize =====
   function resize() {
-    stage.width = Math.min(800, window.innerWidth);
-    stage.height = Math.min(600, window.innerHeight * 0.8);
+    stage.width = Math.min(600, stage.clientWidth);
+    stage.height = 320;
   }
   window.addEventListener('resize', resize);
   resize();
 
-  // 解析 URL token
-  const query = new URLSearchParams(location.search);
-  const token = query.get('token') || '';
-
-  // 基础参数
-  let latest = {
-    eyeLeft: 1, eyeRight: 1, mouthOpen: 0, mouthSmile: 0,
-    browLeft: 0, browRight: 0, headYaw: 0, headPitch: 0, headRoll: 0,
-    positionX: 0, positionY: 0, scale: 1, tailPitch: 0, tailYaw: 0, tailWave: 0,
+  // ===== Avatar rendering =====
+  var AVATAR_COLORS = {
+    sacabambaspis: { body: '#e4e1d3', dark: '#8a8778', accent: '#c4c0b0' },
+    cat: { body: '#f0d090', dark: '#c0a060', accent: '#e0b070' },
+    dog: { body: '#c8a070', dark: '#9a7050', accent: '#b89060' },
+    rabbit: { body: '#f5f5f5', dark: '#c0c0c0', accent: '#e0e0e0' },
+    fox: { body: '#e88040', dark: '#b05020', accent: '#d07030' },
+    bear: { body: '#a07050', dark: '#704830', accent: '#906040' }
   };
-  let lastSeq = -1;
-  let ws = null;
-  let reconnectMs = 1000;
-  let retryCount = 0;
-  const MAX_RETRIES = 20;
 
-  function connect() {
-    const wsUrl = `ws://${location.host}/ws?token=${encodeURIComponent(token)}`;
-    statusEl.textContent = '连接中 ' + wsUrl;
-    try {
-      ws = new WebSocket(wsUrl);
-    } catch (e) {
-      statusEl.textContent = 'WebSocket 不支持：' + e.message;
-      return;
-    }
-    ws.onopen = () => {
-      statusEl.textContent = '已连接，等待面捕帧';
-      reconnectMs = 1000;
-      retryCount = 0;
-    };
-    ws.onmessage = (ev) => {
-      try {
-        const msg = typeof ev.data === 'string' ? JSON.parse(ev.data) : null;
-        if (!msg || msg.type !== 'face-frame' || !msg.params) return;
-        // 丢弃过期帧
-        if (msg.seq <= lastSeq) return;
-        lastSeq = msg.seq;
-        // 参数插值（简单版本：直接应用）
-        latest = msg.params;
-        latestEl.textContent = `seq=${msg.seq} yaw=${msg.params.headYaw.toFixed(1)} mouth=${msg.params.mouthOpen.toFixed(2)}`;
-        draw();
-      } catch (_) {}
-    };
-    ws.onclose = () => {
-      statusEl.textContent = '连接已断开';
-      if (retryCount < MAX_RETRIES) {
-        retryCount++;
-        reconnectMs = Math.min(reconnectMs * 1.5, 10000);
-        statusEl.textContent = `断线：${Math.round(reconnectMs)}ms 后第 ${retryCount} 次重连`;
-        setTimeout(connect, reconnectMs);
-      } else {
-        statusEl.textContent = '已达最大重连次数，请手动点击重连';
-      }
-    };
-    ws.onerror = () => { try { ws.close(); } catch (_) {} };
+  function getAvatarColors(name) {
+    return AVATAR_COLORS[name] || AVATAR_COLORS.sacabambaspis;
   }
 
-  document.getElementById('reconnect').addEventListener('click', () => {
-    retryCount = 0;
-    try { ws.close(); } catch (_) {}
-    connect();
-  });
-
-  // 简易程序化 Avatar：纺锤鲸鱼（简化版）
-  function draw() {
-    const w = stage.width, h = stage.height;
+  function drawSimulatedAvatar() {
+    var w = stage.width, h = stage.height;
     ctx.fillStyle = '#11111f';
     ctx.fillRect(0, 0, w, h);
-    const cx = w / 2 + latest.positionX * 120;
-    const cy = h / 2 + latest.positionY * 80;
+
+    var colors = getAvatarColors(appState.avatar);
+    var cx = w / 2;
+    var cy = h / 2;
+
+    // 呼吸/弹跳动画
+    var bounce = 0;
+    if (appState.avatarAction === 'bounce') {
+      bounce = Math.abs(Math.sin(animTime * 0.15)) * 15;
+    } else {
+      bounce = Math.sin(animTime * 0.05) * 3; // 默认轻微呼吸
+    }
+
+    // 点头动画
+    var nodAngle = 0;
+    if (appState.avatarAction === 'nod') {
+      nodAngle = Math.sin(animTime * 0.12) * 0.15;
+    }
+
+    // 左右看
+    var lookOffset = 0;
+    if (appState.avatarAction === 'look') {
+      lookOffset = Math.sin(animTime * 0.08) * 12;
+    }
+
+    // 摇尾巴
+    var tailWave = 0;
+    if (appState.avatarAction === 'tail') {
+      tailWave = Math.sin(animTime * 0.2) * 25;
+    } else {
+      tailWave = Math.sin(animTime * 0.06) * 8; // 默认轻微摆动
+    }
+
+    ctx.save();
+    ctx.translate(cx, cy - bounce);
+    ctx.rotate(nodAngle);
 
     // 身体（椭圆纺锤）
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate((latest.headRoll * Math.PI) / 180);
-
-    const bodyW = 180 * latest.scale;
-    const bodyH = 120 * latest.scale;
-    const grad = ctx.createRadialGradient(-30, -20, 10, 0, 0, bodyW / 2);
-    grad.addColorStop(0, '#e4e1d3');
-    grad.addColorStop(1, '#8a8778');
+    var bodyW = 180;
+    var bodyH = 120;
+    var grad = ctx.createRadialGradient(-30, -20, 10, 0, 0, bodyW / 2);
+    grad.addColorStop(0, colors.body);
+    grad.addColorStop(1, colors.dark);
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.ellipse(0, 0, bodyW / 2, bodyH / 2, 0, 0, Math.PI * 2);
@@ -125,8 +346,129 @@
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // 眼睛（左右跟随 headYaw 偏移）
-    const eyeOffset = latest.headYaw / 90 * 18;
+    // 耳朵（根据 avatar 类型）
+    if (appState.avatar === 'cat' || appState.avatar === 'fox' || appState.avatar === 'bear') {
+      ctx.fillStyle = colors.dark;
+      ctx.beginPath();
+      ctx.moveTo(-50, -45);
+      ctx.lineTo(-35, -75);
+      ctx.lineTo(-20, -45);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(20, -45);
+      ctx.lineTo(35, -75);
+      ctx.lineTo(50, -45);
+      ctx.fill();
+    } else if (appState.avatar === 'rabbit') {
+      ctx.fillStyle = colors.body;
+      ctx.beginPath();
+      ctx.ellipse(-25, -60, 8, 25, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(25, -60, 8, 25, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 眼睛
+    var eyeY = -15;
+    var eyeOffset = lookOffset;
+    var eyeSize = 12;
+    var pupilSize = 5;
+
+    // 眨眼
+    if (appState.avatarExpression === 'blink') {
+      eyeSize = 2;
+      pupilSize = 0;
+    }
+
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.ellipse(-30 + eyeOffset, eyeY, eyeSize, eyeSize * 0.7, 0, 0, Math.PI * 2);
+    ctx.ellipse(30 + eyeOffset, eyeY, eyeSize, eyeSize * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (pupilSize > 0) {
+      ctx.fillStyle = '#111';
+      ctx.beginPath();
+      ctx.arc(-30 + eyeOffset, eyeY, pupilSize, 0, Math.PI * 2);
+      ctx.arc(30 + eyeOffset, eyeY, pupilSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 嘴巴
+    ctx.fillStyle = '#2a1010';
+    ctx.strokeStyle = '#3a3020';
+    ctx.lineWidth = 2;
+    if (appState.avatarExpression === 'mouth') {
+      // 张嘴
+      ctx.beginPath();
+      ctx.ellipse(eyeOffset, 25, 14, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (appState.avatarExpression === 'smile') {
+      // 微笑
+      ctx.beginPath();
+      ctx.moveTo(-15 + eyeOffset, 22);
+      ctx.quadraticCurveTo(eyeOffset, 35, 15 + eyeOffset, 22);
+      ctx.stroke();
+    } else if (appState.avatarExpression === 'wide') {
+      // 惊讶（圆嘴）
+      ctx.beginPath();
+      ctx.arc(eyeOffset, 25, 8, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // 默认闭嘴
+      ctx.beginPath();
+      ctx.moveTo(-10 + eyeOffset, 25);
+      ctx.quadraticCurveTo(eyeOffset, 28, 10 + eyeOffset, 25);
+      ctx.stroke();
+    }
+
+    // 尾巴
+    ctx.beginPath();
+    ctx.moveTo(bodyW / 2, 0);
+    ctx.quadraticCurveTo(bodyW / 2 + 40, -20, bodyW / 2 + 80, tailWave);
+    ctx.quadraticCurveTo(bodyW / 2 + 40, 20, bodyW / 2, 10);
+    ctx.fillStyle = colors.dark;
+    ctx.fill();
+    ctx.strokeStyle = '#333';
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Avatar 名称标签
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'center';
+    var label = appState.avatar;
+    if (appState.avatarExpression) label += ' · ' + appState.avatarExpression;
+    if (appState.avatarAction) label += ' · ' + appState.avatarAction;
+    ctx.fillText(label, w / 2, h - 12);
+  }
+
+  function drawRealFrame() {
+    if (!faceFrame) { drawSimulatedAvatar(); return; }
+    var w = stage.width, h = stage.height;
+    ctx.fillStyle = '#11111f';
+    ctx.fillRect(0, 0, w, h);
+
+    var cx = w / 2 + (faceFrame.positionX || 0) * 120;
+    var cy = h / 2 + (faceFrame.positionY || 0) * 80;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(((faceFrame.headRoll || 0) * Math.PI) / 180);
+
+    var bodyW = 180 * (faceFrame.scale || 1);
+    var bodyH = 120 * (faceFrame.scale || 1);
+    var grad = ctx.createRadialGradient(-30, -20, 10, 0, 0, bodyW / 2);
+    grad.addColorStop(0, '#e4e1d3');
+    grad.addColorStop(1, '#8a8778');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, bodyW / 2, bodyH / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    var eyeOffset = (faceFrame.headYaw || 0) / 90 * 18;
     ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.ellipse(-30 + eyeOffset, -15, 12, 8, 0, 0, Math.PI * 2);
@@ -134,30 +476,29 @@
     ctx.fill();
     ctx.fillStyle = '#111';
     ctx.beginPath();
-    ctx.arc(-30 + eyeOffset, -15, Math.max(2, 5 * latest.eyeLeft), 0, Math.PI * 2);
-    ctx.arc(30 + eyeOffset, -15, Math.max(2, 5 * latest.eyeRight), 0, Math.PI * 2);
+    ctx.arc(-30 + eyeOffset, -15, Math.max(2, 5 * (faceFrame.eyeLeft || 1)), 0, Math.PI * 2);
+    ctx.arc(30 + eyeOffset, -15, Math.max(2, 5 * (faceFrame.eyeRight || 1)), 0, Math.PI * 2);
     ctx.fill();
 
-    // 嘴巴
     ctx.fillStyle = '#2a1010';
-    ctx.beginPath();
-    if (latest.mouthOpen > 0.1) {
-      ctx.ellipse(eyeOffset, 25, 14, 4 + latest.mouthOpen * 12, 0, 0, Math.PI * 2);
+    if ((faceFrame.mouthOpen || 0) > 0.1) {
+      ctx.beginPath();
+      ctx.ellipse(eyeOffset, 25, 14, 4 + (faceFrame.mouthOpen || 0) * 12, 0, 0, Math.PI * 2);
       ctx.fill();
     } else {
       ctx.strokeStyle = '#3a3020';
       ctx.lineWidth = 2;
+      ctx.beginPath();
       ctx.moveTo(-10 + eyeOffset, 25);
-      ctx.quadraticCurveTo(eyeOffset, 25 + latest.mouthSmile * 4, 10 + eyeOffset, 25);
+      ctx.quadraticCurveTo(eyeOffset, 25 + (faceFrame.mouthSmile || 0) * 4, 10 + eyeOffset, 25);
       ctx.stroke();
     }
 
-    // 尾巴（简单摆动）
-    const tailOffset = latest.tailWave * 30 + latest.tailYaw / 30 * 20;
+    var tailOffset = (faceFrame.tailWave || 0) * 30 + (faceFrame.tailYaw || 0) / 30 * 20;
     ctx.beginPath();
     ctx.moveTo(bodyW / 2, 0);
-    ctx.quadraticCurveTo(bodyW / 2 + 40, -20 - latest.tailPitch / 30 * 30, bodyW / 2 + 80, tailOffset - latest.tailPitch);
-    ctx.quadraticCurveTo(bodyW / 2 + 40, 20 + latest.tailPitch / 30 * 30, bodyW / 2, 10);
+    ctx.quadraticCurveTo(bodyW / 2 + 40, -20 - (faceFrame.tailPitch || 0) / 30 * 30, bodyW / 2 + 80, tailOffset - (faceFrame.tailPitch || 0));
+    ctx.quadraticCurveTo(bodyW / 2 + 40, 20 + (faceFrame.tailPitch || 0) / 30 * 30, bodyW / 2, 10);
     ctx.fillStyle = '#888';
     ctx.fill();
     ctx.strokeStyle = '#333';
@@ -165,13 +506,226 @@
 
     ctx.restore();
   }
-  draw();
 
-  if (!token) {
-    statusEl.textContent = '缺少 token，请扫描二维码或手动输入链接';
-  } else {
-    connect();
+  function render() {
+    if (hasRealFrame && Date.now() - lastFrameTime < 3000) {
+      drawRealFrame();
+      stageOverlay.textContent = '真实面捕帧 · seq=' + lastFrameSeq;
+      stageOverlay.className = 'stage-overlay real';
+    } else {
+      if (hasRealFrame && Date.now() - lastFrameTime >= 3000) {
+        hasRealFrame = false;
+        log('真实帧超时（>3s），切换到模拟预览', 'warn');
+      }
+      drawSimulatedAvatar();
+      if (appState.faceCaptureEnabled) {
+        stageOverlay.textContent = '模拟预览 · 等待真实采集';
+        stageOverlay.className = 'stage-overlay simulated';
+      } else {
+        stageOverlay.textContent = '模拟预览 · 模拟预览 · 等待真实采集';
+        stageOverlay.className = 'stage-overlay simulated';
+      }
+    }
+    animTime++;
   }
+
+  // ===== UI update =====
+  function updateUI() {
+    document.getElementById('hostInfo').textContent = location.host;
+
+    // Connection
+    var connEl = document.getElementById('connStatus');
+    if (appState.viewerConnected) {
+      connEl.innerHTML = '<span class="badge connected">Connected</span>';
+    } else {
+      connEl.innerHTML = '<span class="badge disconnected">Disconnected</span>';
+    }
+
+    // Avatar
+    document.getElementById('avatarStatus').textContent = appState.avatar || '—';
+
+    // Expression / Action
+    var exprText = '—';
+    if (appState.avatarExpression) exprText = appState.avatarExpression;
+    if (appState.avatarAction) exprText += (exprText === '—' ? '' : ' / ') + appState.avatarAction;
+    document.getElementById('exprStatus').textContent = exprText;
+
+    // Face capture
+    var fcEl = document.getElementById('faceCapStatus');
+    fcEl.textContent = appState.faceCaptureEnabled ? 'ON' : 'OFF';
+    fcEl.className = 'value ' + (appState.faceCaptureEnabled ? 'on' : 'off');
+
+    // Voice preset
+    document.getElementById('voicePresetStatus').textContent = appState.voicePreset || 'original';
+
+    // Subtitle
+    var subEl = document.getElementById('subtitleStatus');
+    subEl.textContent = appState.subtitleEnabled ? 'ON' : 'OFF';
+    subEl.className = 'value ' + (appState.subtitleEnabled ? 'on' : 'off');
+
+    // Frame count / latency
+    document.getElementById('frameCountStatus').textContent = appState.frameCount || 0;
+    document.getElementById('latencyStatus').textContent = (appState.latencyMs > 0 ? appState.latencyMs + ' ms' : '— ms');
+
+    // Last command
+    document.getElementById('lastCmdStatus').textContent = appState.lastCommand || '—';
+
+    // Capture mode
+    document.getElementById('captureModeStatus').textContent = appState.captureMode || 'simulated';
+  }
+
+  function applyState(data) {
+    if (!data) return;
+    appState.serverRunning = !!data.serverRunning;
+    appState.faceCaptureEnabled = !!data.faceCaptureEnabled;
+    appState.voiceChangerEnabled = !!data.voiceChangerEnabled;
+    appState.voicePreset = data.voicePreset || 'original';
+    appState.captureMode = data.captureMode || 'simulated';
+    appState.subtitleEnabled = !!data.subtitleEnabled;
+    appState.viewerConnected = !!data.viewerConnected;
+    appState.frameCount = data.frameCount || 0;
+    appState.latencyMs = data.latencyMs || 0;
+    appState.lastCommand = data.lastCommand || '';
+    appState.lastError = data.lastError || '';
+    appState.avatar = data.avatar || 'sacabambaspis';
+    appState.avatarExpression = data.avatarExpression || '';
+    appState.avatarAction = data.avatarAction || '';
+    appState.aiVoiceStatus = data.aiVoiceStatus || 'real_app_only';
+    appState.webVoiceStatus = data.webVoiceStatus || 'available';
+    appState.voicePermission = data.voicePermission || 'not_requested';
+    updateUI();
+  }
+
+  // ===== API: fetch status =====
+  function fetchStatus() {
+    fetch('/api/status')
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        applyState(data);
+        log('状态已刷新: avatar=' + data.avatar + ' faceCapture=' + data.faceCaptureEnabled, 'info');
+      })
+      .catch(function(e) {
+        log('fetchStatus 错误: ' + e.message, 'error');
+      });
+  }
+
+  // ===== SSE =====
+  function initSSE() {
+    try {
+      eventSource = new EventSource('/events');
+      eventSource.addEventListener('state', function(e) {
+        try {
+          var data = JSON.parse(e.data);
+          applyState(data);
+          if (!useSSE) {
+            useSSE = true;
+            log('SSE 已连接，停止轮询', 'success');
+            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+          }
+        } catch (err) {
+          log('SSE 解析错误: ' + err.message, 'error');
+        }
+      });
+      eventSource.onerror = function() {
+        log('SSE 错误，回退到轮询', 'warn');
+        if (eventSource) { try { eventSource.close(); } catch(_){} eventSource = null; }
+        useSSE = false;
+        startPolling();
+      };
+      log('SSE 连接中...', 'info');
+    } catch (e) {
+      log('SSE 不支持，使用轮询', 'warn');
+      startPolling();
+    }
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(fetchStatus, 2000);
+    fetchStatus();
+    log('轮询已启动（2s 间隔）', 'info');
+  }
+
+  // ===== WebSocket (for real face frames) =====
+  function connectWS() {
+    if (!token) {
+      log('缺少 token，跳过 WebSocket 连接（仅模拟预览）', 'warn');
+      return;
+    }
+    var wsUrl = 'ws://' + location.host + '/ws?token=' + encodeURIComponent(token);
+    log('WebSocket 连接: ' + wsUrl, 'info');
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch (e) {
+      log('WebSocket 不支持: ' + e.message, 'error');
+      return;
+    }
+    ws.onopen = function() {
+      log('WebSocket 已连接，等待面捕帧', 'success');
+      wsReconnectMs = 1000;
+      wsRetryCount = 0;
+    };
+    ws.onmessage = function(ev) {
+      try {
+        var msg = typeof ev.data === 'string' ? JSON.parse(ev.data) : null;
+        if (!msg || msg.type !== 'face-frame' || !msg.params) return;
+        if (msg.seq <= lastFrameSeq) return;
+        lastFrameSeq = msg.seq;
+        lastFrameTime = Date.now();
+        faceFrame = msg.params;
+        hasRealFrame = true;
+      } catch (_) {}
+    };
+    ws.onclose = function() {
+      log('WebSocket 断开', 'warn');
+      if (wsRetryCount < wsMaxRetries) {
+        wsRetryCount++;
+        wsReconnectMs = Math.min(wsReconnectMs * 1.5, 10000);
+        log(wsReconnectMs + 'ms 后第 ' + wsRetryCount + ' 次重连', 'info');
+        setTimeout(connectWS, wsReconnectMs);
+      } else {
+        log('已达最大重连次数，请手动重连', 'error');
+      }
+    };
+    ws.onerror = function() { try { ws.close(); } catch (_) {} };
+  }
+
+  // ===== Animation loop =====
+  function animLoop() {
+    render();
+    requestAnimationFrame(animLoop);
+  }
+
+  // ===== Event handlers =====
+  document.getElementById('reconnect').addEventListener('click', function() {
+    wsRetryCount = 0;
+    try { ws.close(); } catch (_) {}
+    connectWS();
+  });
+
+  document.getElementById('refreshStatus').addEventListener('click', function() {
+    fetchStatus();
+  });
+
+  // ===== Init =====
+  log('Receiver 页面加载', 'info');
+  log('Token: ' + (token ? '已提供' : '缺失'), 'info');
+
+  // 先获取一次状态
+  fetchStatus();
+
+  // 启动 SSE 订阅状态变化
+  setTimeout(initSSE, 300);
+
+  // 启动 WebSocket 获取真实帧（如果有）
+  setTimeout(connectWS, 500);
+
+  // 启动动画循环
+  animLoop();
+})();
 </script>
 </body>
 </html>
