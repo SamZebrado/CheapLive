@@ -957,13 +957,15 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.stroke();
       } else if (easedClosed > 0.05) {
         // 半闭眼：画杏仁形可见眼白 + 弧形上眼皮
+        // 只上眼皮下降，下眼皮保持不动（不往上抬）
         const visibleH = ry * (1 - easedClosed * 0.85);
         const topCurve = ry * easedClosed * 0.3;
 
         ctx.beginPath();
         ctx.moveTo(t.screenX - rx * 0.85, t.screenY);
         ctx.quadraticCurveTo(t.screenX, t.screenY - visibleH + topCurve, t.screenX + rx * 0.85, t.screenY);
-        ctx.quadraticCurveTo(t.screenX, t.screenY + visibleH * 0.4, t.screenX - rx * 0.85, t.screenY);
+        // 下边缘固定在眼睛底部，不随 blink 上移
+        ctx.quadraticCurveTo(t.screenX, t.screenY + ry * 0.4, t.screenX - rx * 0.85, t.screenY);
         ctx.closePath();
         ctx.fillStyle = '#ffffff';
         ctx.fill();

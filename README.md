@@ -17,11 +17,11 @@
 | 多设备信令服务器 | 扩展玩法/待开发 | 局域网内多设备协作，需手动搭建 Node.js 服务 |
 | 网页旧多端模式 | 实验性 | 当前部署和真实跨设备连接仍有限制 |
 | CheapLive Capture Android App | ⏸️ 暂停开发 | 功能已移交参赛项目独立开发，比赛结束后酌情恢复 |
-| 参赛演示 Demo | 公开演示 | 双端模拟多设备交互 Demo；Android APK/源码比赛期间不公开 |
+| 参赛演示 Demo | 公开演示 | [双端模拟多设备交互 Demo](src/contest-demo/dual-device-demo.html)；Android APK/源码比赛期间不公开 |
 | Live2D Cubism | 规划中 | Demo 阶段冻结，当前不能实际渲染 Live2D 模型 |
 | 透明悬浮浏览器 | 规划中 | 当前尚未实现 |
 
-**可体验入口**：[单机面捕 Demo](src/face-tracking/index.html)
+**可体验入口**：[单机面捕 Demo](src/face-tracking/index.html) | [多端互动版本demo（开发中）](src/contest-demo/dual-device-demo.html)
 
 ---
 
@@ -187,7 +187,110 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
+## 仓库
 
+| 平台 | 地址 |
+|------|------|
+| GitHub | [https://github.com/SamZebrado/CheapLive](https://github.com/SamZebrado/CheapLive) |
+| Gitee | [https://gitee.com/samzebrado/CheapLive](https://gitee.com/samzebrado/CheapLive) |
+
+---
+## 自定义形象开发指南
+
+CheapLive 支持用户自定义虚拟形象。你可以借助 AI（如 ChatGPT、Claude、DeepSeek 等）创建新形象，通过满足最小接口规范即可接入。
+
+### 最小接入接口
+
+自定义形象只需实现以下方法，然后在 `src/face-tracking/avatar-versions.js` 中注册即可：
+
+```javascript
+class MyCustomAvatar {
+  /**
+   * @param {string} canvasId - 画布元素的 ID
+   */
+  constructor(canvasId) {
+    this.canvas = document.getElementById(canvasId);
+    this.ctx = this.canvas.getContext('2d');
+    // 初始化你的形象
+  }
+
+  /**
+   * 接收面部追踪参数，驱动形象渲染
+   * @param {Object} p - 面捕参数
+   * @param {number} p.eyeLeft      - 左眼开合 [0, 1]，0=闭眼
+   * @param {number} p.eyeRight     - 右眼开合 [0, 1]
+   * @param {number} p.eyeWideLeft  - 左眼睁大 [0, 1]
+   * @param {number} p.eyeWideRight - 右眼睁大 [0, 1]
+   * @param {number} p.eyeSquintLeft  - 左眼眯眼 [0, 1]
+   * @param {number} p.eyeSquintRight - 右眼眯眼 [0, 1]
+   * @param {number} p.mouthOpen    - 嘴张开 [0, 1]
+   * @param {number} p.mouthSmile   - 微笑 [0, 1]
+   * @param {number} p.mouthFunnel  - 嘟嘴 [0, 1]
+   * @param {number} p.mouthPress   - 抿嘴 [0, 1]
+   * @param {number} p.browLeft     - 左眉抬起 [0, 1]
+   * @param {number} p.browRight    - 右眉抬起 [0, 1]
+   * @param {number} p.headYaw      - 头部偏航角（度）
+   * @param {number} p.headPitch    - 头部俯仰角（度）
+   * @param {number} p.headRoll     - 头部翻滚角（度）
+   * @param {number} p.headX        - 头部水平位置 [0, 1]
+   * @param {number} p.headY        - 头部垂直位置 [0, 1]
+   * @param {number} p.gazeLeftX    - 左眼视线水平 [-1, 1]
+   * @param {number} p.gazeLeftY    - 左眼视线垂直 [-1, 1]
+   * @param {number} p.gazeRightX   - 右眼视线水平 [-1, 1]
+   * @param {number} p.gazeRightY   - 右眼视线垂直 [-1, 1]
+   */
+  updateParams(p) {
+    // 驱动你的形象渲染
+  }
+
+  /** 处理画布尺寸变化 */
+  resize() {}
+
+  /**
+   * App 模式切换（可选）
+   * @param {boolean} mode - 是否进入 App 模式
+   */
+  setAppMode(mode) {}
+
+  /** 清理资源 */
+  destroy() {
+    // 清理定时器、事件监听等
+  }
+}
+```
+
+### 注册形象
+
+编辑 `src/face-tracking/avatar-versions.js`，在 `AVATAR_REGISTRY` 中添加你的形象：
+
+```javascript
+export const AVATAR_REGISTRY = {
+  // ... 已有形象 ...
+  'my-custom-avatar': () => {
+    return import('./my-custom-avatar.js').then((m) => new m.MyCustomAvatar('avatar_canvas'));
+  },
+};
+
+export const AVATAR_VERSIONS = [
+  // ... 已有形象 ...
+  { id: 'my-custom-avatar', name: '我的自定义形象', desc: '由 AI 辅助生成的自定义形象' },
+];
+```
+
+### 推荐开发流程
+
+1. **用 AI 生成形象代码**：将上述接口规范提供给 AI，描述你想要的形象外观和行为
+2. **本地测试**：使用 `python3 -m http.server 8080` 启动本地服务器，访问 `src/face-tracking/index.html`
+3. **注册上线**：在 `avatar-versions.js` 中注册后，即可在页面中切换
+4. **分享交流**：欢迎通过 Issue 或 PR 分享你的自定义形象，统一格式有助于社区交流
+
+### 参考实现
+
+- 纺锤鲸鱼：`src/face-tracking/procedural-mesh-renderer.js` → `ProceduralSpindleWhaleAvatar`
+- 球形头像：`src/face-tracking/procedural-mesh-renderer.js` → `ProceduralSphereAvatar`
+- 形象注册表：`src/face-tracking/avatar-versions.js`
+
+---
 ## 参与贡献
 
 CheapLive 是为 TRAE AI 创造力大赛开发的项目，欢迎提交 Issue 和 PR。
