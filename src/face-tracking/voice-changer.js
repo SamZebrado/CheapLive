@@ -196,6 +196,14 @@ class VoiceChanger {
         rate: this.rate,
         monitorMode: this.monitorMode,
         pitchShift: this.engineMode === 'soundtouch' ? 'available' : 'unavailable (native fallback)',
+        // Robot 调试字段
+        dryMix: this._nativeEffects?.dryGain?.gain?.value ?? 0,
+        filterType: this._nativeEffects?.filterNode?.type ?? 'none',
+        filterFreq: this._nativeEffects?.filterNode?.frequency?.value ?? 0,
+        filterQ: this._nativeEffects?.filterNode?.Q?.value ?? 0,
+        waveshaperLen: this._nativeEffects?.waveshaper?.curve?.length ?? 0,
+        compressorRatio: this._nativeEffects?.compressor?.ratio?.value ?? 0,
+        outputGainValue: this.outputGain?.gain?.value ?? 0,
       },
       lastError: this._lastError ? {
         name: this._lastError.name || 'Error',
@@ -206,7 +214,7 @@ class VoiceChanger {
   }
 
   _isNativeGraphConnected() {
-    if (this.engineMode !== 'native') return false;
+    if (this.engineMode !== 'native' && this.engineMode !== 'fallback') return false;
     return !!this._nativeEffects.filterNode;
   }
 
@@ -441,7 +449,8 @@ class VoiceChanger {
     this._destroyNativeEffects();
 
     // 创建效果节点
-    // inputGain → filterNode → waveshaper → compressor → outputGain
+    // Wet: inputGain → filterNode → waveshaper → compressor → processor → outputGain → destination
+    // Dry: inputGain → dryGain → destination (parallel, used for robot dry/wet mix)
     this._nativeEffects.filterNode = ctx.createBiquadFilter();
     this._nativeEffects.filterNode.type = 'lowshelf';
     this._nativeEffects.filterNode.frequency.value = 1000;
@@ -455,12 +464,20 @@ class VoiceChanger {
     this._nativeEffects.compressor.attack.value = 0.003;
     this._nativeEffects.compressor.release.value = 0.25;
 
-    // 连接效果链：inputGain → filter → waveshaper → compressor → processor
+    // Dry mix gain node（平行干信号路径）
+    this._nativeEffects.dryGain = ctx.createGain();
+    this._nativeEffects.dryGain.gain.value = 0;
+
+    // 连接 wet 效果链
     this.inputGain.disconnect();
     this.inputGain.connect(this._nativeEffects.filterNode);
     this._nativeEffects.filterNode.connect(this._nativeEffects.waveshaper);
     this._nativeEffects.waveshaper.connect(this._nativeEffects.compressor);
     this._nativeEffects.compressor.connect(this.processor);
+
+    // 连接 dry 平行路径（绕过效果链，直接到 destination）
+    this.inputGain.connect(this._nativeEffects.dryGain);
+    this._nativeEffects.dryGain.connect(this.audioContext.destination);
   }
 
   _destroyNativeEffects() {
@@ -468,6 +485,7 @@ class VoiceChanger {
     if (ef.filterNode) { try { ef.filterNode.disconnect(); } catch (e) {} ef.filterNode = null; }
     if (ef.waveshaper) { try { ef.waveshaper.disconnect(); } catch (e) {} ef.waveshaper = null; }
     if (ef.compressor) { try { ef.compressor.disconnect(); } catch (e) {} ef.compressor = null; }
+    if (ef.dryGain) { try { ef.dryGain.disconnect(); } catch (e) {} ef.dryGain = null; }
   }
 
   // ---- Native preset 效果 ----
@@ -477,7 +495,8 @@ class VoiceChanger {
 
     switch (presetKey) {
       case 'normal':
-        // 原声：旁路效果链
+        // 原声：旁路效果链，dryGain=0（全部走 wet 旁路）
+        ef.dryGain.gain.value = 0;
         ef.filterNode.type = 'allpass';
         ef.filterNode.frequency.value = 1000;
         ef.waveshaper.curve = null;
@@ -486,42 +505,47 @@ class VoiceChanger {
         break;
 
       case 'cute':
-        // 基础可爱声效：highpass + 轻微失真
-        ef.filterNode.type = 'highpass';
-        ef.filterNode.frequency.value = 600;
-        ef.waveshaper.curve = this._makeCurve(30);
+        // 明亮/可爱声效：highshelf 提升高频 + 轻微失真
+        ef.dryGain.gain.value = 0;
+        ef.filterNode.type = 'highshelf';
+        ef.filterNode.frequency.value = 1500;
+        ef.filterNode.gain.value = 8;
+        ef.waveshaper.curve = this._makeCurve(25);
         ef.compressor.threshold.value = -30;
-        ef.compressor.ratio.value = 4;
+        ef.compressor.ratio.value = 3;
         break;
 
       case 'robot':
-        // 基础机器人声效：ring modulation via waveshaper
+        // 机器人声效：70% dry + 30% wet（bandpass + 安全 tanh 失真）
+        ef.dryGain.gain.value = 0.7;
         ef.filterNode.type = 'bandpass';
-        ef.filterNode.frequency.value = 1500;
-        ef.filterNode.Q.value = 2;
+        ef.filterNode.frequency.value = 1200;
+        ef.filterNode.Q.value = 1.0;
         ef.waveshaper.curve = this._makeRobotCurve();
-        ef.compressor.threshold.value = -20;
-        ef.compressor.ratio.value = 8;
+        ef.compressor.threshold.value = -24;
+        ef.compressor.ratio.value = 4;
         break;
 
       case 'deep':
-        // 基础低沉声效：lowpass + bass boost + 压缩
+        // 低沉声效：lowshelf 低频增强 + 软削波
+        ef.dryGain.gain.value = 0;
         ef.filterNode.type = 'lowshelf';
-        ef.filterNode.frequency.value = 300;
+        ef.filterNode.frequency.value = 200;
         ef.filterNode.gain.value = 15;
         ef.waveshaper.curve = this._makeSoftClipCurve();
         ef.compressor.threshold.value = -20;
-        ef.compressor.ratio.value = 6;
+        ef.compressor.ratio.value = 5;
         break;
 
       case 'radio':
-        // 基础收音机声效：bandpass + 失真 + 压缩
+        // 收音机声效：bandpass 窄频 + 失真 + 强力压缩
+        ef.dryGain.gain.value = 0;
         ef.filterNode.type = 'bandpass';
-        ef.filterNode.frequency.value = 2000;
+        ef.filterNode.frequency.value = 1500;
         ef.filterNode.Q.value = 0.5;
-        ef.waveshaper.curve = this._makeCurve(80);
+        ef.waveshaper.curve = this._makeCurve(70);
         ef.compressor.threshold.value = -24;
-        ef.compressor.ratio.value = 10;
+        ef.compressor.ratio.value = 8;
         break;
     }
   }
@@ -554,8 +578,8 @@ class VoiceChanger {
     const curve = new Float32Array(samples);
     for (let i = 0; i < samples; i++) {
       const x = i * 2 / samples - 1;
-      // 量化/阶梯效果模拟机器人声
-      curve[i] = Math.round(x * 4) / 4;
+      // 安全 tanh 软削波：不会产生零值，保留信号
+      curve[i] = Math.tanh(x * 2.5) * 0.8;
     }
     return curve;
   }

@@ -461,10 +461,13 @@ test('applyPreset — native 引擎时调用 _applyNativePreset', async () => {
   const ef = vc._nativeEffects;
   assert.ok(ef.filterNode, 'filterNode 应存在');
   assert.equal(ef.filterNode.type, 'bandpass');
-  assert.equal(ef.filterNode.frequency.value, 1500);
-  assert.equal(ef.filterNode.Q.value, 2);
+  assert.equal(ef.filterNode.frequency.value, 1200);
+  assert.equal(ef.filterNode.Q.value, 1.0);
   assert.notEqual(ef.waveshaper.curve, null, 'robot 应有 waveshaper curve');
-  assert.equal(ef.compressor.ratio.value, 8);
+  assert.equal(ef.compressor.ratio.value, 4);
+  // robot dryMix = 0.7 (70% dry)
+  assert.ok(ef.dryGain, 'dryGain 应存在');
+  assert.equal(ef.dryGain.gain.value, 0.7);
 });
 
 test('applyPreset normal — native 引擎旁路效果链', async () => {
@@ -479,17 +482,19 @@ test('applyPreset normal — native 引擎旁路效果链', async () => {
   assert.equal(ef.compressor.ratio.value, 1);
 });
 
-test('applyPreset cute — native 引擎设置 highpass + 失真', async () => {
+test('applyPreset cute — native 引擎设置 highshelf + 失真', async () => {
   const win = makeWindow();
   const nav = makeNav();
   const vc = new VoiceChanger({ window: win, navigator: nav, document: {} });
   await vc.start();
   vc.applyPreset('cute');
   const ef = vc._nativeEffects;
-  assert.equal(ef.filterNode.type, 'highpass');
-  assert.equal(ef.filterNode.frequency.value, 600);
+  assert.equal(ef.filterNode.type, 'highshelf');
+  assert.equal(ef.filterNode.frequency.value, 1500);
+  assert.equal(ef.filterNode.gain.value, 8);
   assert.notEqual(ef.waveshaper.curve, null);
-  assert.equal(ef.compressor.ratio.value, 4);
+  assert.equal(ef.compressor.ratio.value, 3);
+  assert.equal(ef.dryGain.gain.value, 0);
 });
 
 test('applyPreset deep — native 引擎设置 lowshelf + bass boost', async () => {
@@ -500,10 +505,10 @@ test('applyPreset deep — native 引擎设置 lowshelf + bass boost', async () 
   vc.applyPreset('deep');
   const ef = vc._nativeEffects;
   assert.equal(ef.filterNode.type, 'lowshelf');
-  assert.equal(ef.filterNode.frequency.value, 300);
+  assert.equal(ef.filterNode.frequency.value, 200);
   assert.equal(ef.filterNode.gain.value, 15);
   assert.notEqual(ef.waveshaper.curve, null);
-  assert.equal(ef.compressor.ratio.value, 6);
+  assert.equal(ef.compressor.ratio.value, 5);
 });
 
 test('applyPreset radio — native 引擎设置 bandpass + 失真', async () => {
@@ -514,10 +519,10 @@ test('applyPreset radio — native 引擎设置 bandpass + 失真', async () => 
   vc.applyPreset('radio');
   const ef = vc._nativeEffects;
   assert.equal(ef.filterNode.type, 'bandpass');
-  assert.equal(ef.filterNode.frequency.value, 2000);
+  assert.equal(ef.filterNode.frequency.value, 1500);
   assert.equal(ef.filterNode.Q.value, 0.5);
   assert.notEqual(ef.waveshaper.curve, null);
-  assert.equal(ef.compressor.ratio.value, 10);
+  assert.equal(ef.compressor.ratio.value, 8);
 });
 
 test('presets 中全部包含 pitch 与 tempo 数值', () => {
@@ -704,4 +709,112 @@ test('SoundTouch 脚本加载失败仍能以 native 启动', async () => {
   assert.equal(vc.state, 'enabled');
   assert.equal(vc.engineMode, 'native');
   assert.equal(vc._engineSource, null);
+});
+
+// ================================================================
+// Robot 效果质量测试
+// ================================================================
+
+test('robot preset 不会把 outputGain 设为 0', async () => {
+  const win = makeWindow();
+  const nav = makeNav();
+  const vc = new VoiceChanger({ window: win, navigator: nav, document: {} });
+  await vc.start();
+  vc.applyPreset('robot');
+  assert.ok(vc._nativeEffects.dryGain.gain.value > 0, 'dryGain 不应为 0');
+  // outputGain 由 applyMonitorMode 控制，不直接被 preset 清 0
+  const d = vc.getDiagnostics();
+  assert.ok(d.current.outputGainValue >= 0, 'outputGain 不应为负');
+});
+
+test('robot preset 的 waveshaper curve 不全为 0', async () => {
+  const win = makeWindow();
+  const nav = makeNav();
+  const vc = new VoiceChanger({ window: win, navigator: nav, document: {} });
+  await vc.start();
+  vc.applyPreset('robot');
+  const curve = vc._nativeEffects.waveshaper.curve;
+  assert.ok(curve instanceof Float32Array);
+  // 检查 curve 不全为 0
+  let hasNonZero = false;
+  for (let i = 0; i < curve.length; i++) {
+    if (curve[i] !== 0) { hasNonZero = true; break; }
+  }
+  assert.ok(hasNonZero, 'robot waveshaper curve 不应全为 0');
+});
+
+test('robot preset 的 filter frequency/Q 在合理范围', async () => {
+  const win = makeWindow();
+  const nav = makeNav();
+  const vc = new VoiceChanger({ window: win, navigator: nav, document: {} });
+  await vc.start();
+  vc.applyPreset('robot');
+  const ef = vc._nativeEffects;
+  assert.ok(ef.filterNode.frequency.value >= 800 && ef.filterNode.frequency.value <= 2000,
+    `robot filter frequency ${ef.filterNode.frequency.value} 应在 800-2000 范围`);
+  assert.ok(ef.filterNode.Q.value >= 0.5 && ef.filterNode.Q.value <= 2.0,
+    `robot filter Q ${ef.filterNode.Q.value} 应在 0.5-2.0 范围`);
+});
+
+test('robot dryMix = 0.7，其他 preset dryMix = 0', async () => {
+  const win = makeWindow();
+  const nav = makeNav();
+  const vc = new VoiceChanger({ window: win, navigator: nav, document: {} });
+  await vc.start();
+
+  vc.applyPreset('robot');
+  assert.equal(vc._nativeEffects.dryGain.gain.value, 0.7);
+
+  vc.applyPreset('cute');
+  assert.equal(vc._nativeEffects.dryGain.gain.value, 0);
+
+  vc.applyPreset('deep');
+  assert.equal(vc._nativeEffects.dryGain.gain.value, 0);
+
+  vc.applyPreset('radio');
+  assert.equal(vc._nativeEffects.dryGain.gain.value, 0);
+
+  vc.applyPreset('normal');
+  assert.equal(vc._nativeEffects.dryGain.gain.value, 0);
+});
+
+test('normal preset 不使用强处理', async () => {
+  const win = makeWindow();
+  const nav = makeNav();
+  const vc = new VoiceChanger({ window: win, navigator: nav, document: {} });
+  await vc.start();
+  vc.applyPreset('normal');
+  const ef = vc._nativeEffects;
+  assert.equal(ef.filterNode.type, 'allpass');
+  assert.equal(ef.waveshaper.curve, null);
+  assert.equal(ef.compressor.ratio.value, 1);
+  assert.ok(ef.compressor.threshold.value <= -50, 'normal 不应有强压缩');
+});
+
+test('preset 切换后 _currentPreset 正确更新', async () => {
+  const win = makeWindow();
+  const nav = makeNav();
+  const vc = new VoiceChanger({ window: win, navigator: nav, document: {} });
+  await vc.start();
+
+  const presets = ['normal', 'cute', 'robot', 'deep', 'radio'];
+  for (const preset of presets) {
+    vc.applyPreset(preset);
+    assert.equal(vc._currentPreset, preset);
+  }
+});
+
+test('_makeRobotCurve 不包含 0 值数组', () => {
+  const vc = new VoiceChanger({ window: {} });
+  const curve = vc._makeRobotCurve();
+  assert.ok(curve instanceof Float32Array);
+  // tanh 曲线：验证 start 和 end 有非零值
+  assert.ok(Math.abs(curve[0]) > 0, 'curve[0] 不应为 0');
+  assert.ok(Math.abs(curve[curve.length - 1]) > 0, 'curve[last] 不应为 0');
+  // 检查中间值
+  let hasNonZero = false;
+  for (let i = 0; i < curve.length; i++) {
+    if (curve[i] !== 0) { hasNonZero = true; break; }
+  }
+  assert.ok(hasNonZero, 'robot curve 不应全为 0');
 });
