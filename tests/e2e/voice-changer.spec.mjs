@@ -56,7 +56,7 @@ test('voice changer presets are selectable', async ({ page }) => {
   await page.waitForTimeout(1500);
   
   // Test all 5 presets - use force:true since panel may be hidden
-  const presets = ['normal', 'loli', 'uncle', 'robot', 'monster'];
+  const presets = ['normal', 'cute', 'robot', 'deep', 'radio'];
   for (const preset of presets) {
     await page.selectOption('#voiceChangerPreset', preset, { force: true });
     const presetVal = await page.$eval('#voiceChangerPreset', el => el.value);
@@ -113,7 +113,7 @@ test('VoiceChanger applyPreset updates pitch and tempo', async ({ page }) => {
       // Try to apply preset via the UI select
       const select = document.getElementById('voiceChangerPreset');
       if (select) {
-        select.value = 'loli';
+        select.value = 'cute';
         select.dispatchEvent(new Event('change'));
       }
       
@@ -217,8 +217,8 @@ test('voice changer mock success path - toggle/preset/monitor update VoiceChange
   expect(result.hasVoiceChanger).toBe(true);
   expect(result.vcEnabled).toBe(true);
 
-  // Apply 'loli' preset and verify pitch/tempo change
-  await page.selectOption('#voiceChangerPreset', 'loli', { force: true });
+  // Apply 'cute' preset and verify pitch/tempo change
+  await page.selectOption('#voiceChangerPreset', 'cute', { force: true });
   await page.waitForTimeout(300);
 
   const afterPreset = await page.evaluate(() => {
@@ -230,12 +230,12 @@ test('voice changer mock success path - toggle/preset/monitor update VoiceChange
     };
   });
 
-  // loli preset: pitch=1.5, tempo=1.05
+  // cute preset: pitch=1.5, tempo=1.05
   expect(afterPreset.pitch).toBeCloseTo(1.5, 1);
   expect(afterPreset.tempo).toBeCloseTo(1.05, 1);
 
-  // Apply 'uncle' preset
-  await page.selectOption('#voiceChangerPreset', 'uncle', { force: true });
+  // Apply 'deep' preset
+  await page.selectOption('#voiceChangerPreset', 'deep', { force: true });
   await page.waitForTimeout(300);
 
   const afterUncle = await page.evaluate(() => {
@@ -243,7 +243,7 @@ test('voice changer mock success path - toggle/preset/monitor update VoiceChange
     return { pitch: ft.voiceChanger?.pitch, tempo: ft.voiceChanger?.tempo };
   });
 
-  // uncle preset: pitch=0.7, tempo=0.95
+  // deep preset: pitch=0.7, tempo=0.95
   expect(afterUncle.pitch).toBeCloseTo(0.7, 1);
   expect(afterUncle.tempo).toBeCloseTo(0.95, 1);
 

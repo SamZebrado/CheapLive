@@ -110,6 +110,7 @@ class FaceTracker {
 
     // 按需加载的模块（懒加载）
     this.voiceChanger = null;
+    this._lastVcFailure = null;     // 失败诊断快照
     this.liveSubtitle = null;
     this.voiceChangerEnabled = false;
     this.subtitleEnabled = false;
@@ -621,38 +622,55 @@ class FaceTracker {
       vcToggle.addEventListener('change', async (e) => {
         this.voiceChangerEnabled = e.target.checked;
         if (this.voiceChangerEnabled) {
-          // Bug 3 修复：增加 loading 状态提示
-          this.status.textContent = '正在加载变声模型（测试中）...';
-          vcToggle.disabled = true;  // 禁用开关防止重复点击
+          this.status.textContent = '正在检查浏览器支持...';
+          vcToggle.disabled = true;
 
           if (!this.voiceChanger) {
             const { VoiceChanger } = await import('./voice-changer.js');
             this.voiceChanger = new VoiceChanger();
           }
-          if (!this.voiceChanger.isSupported()) {
-            this.status.textContent = '变声不可用: 当前环境缺少 Web Audio API 或音频输入支持（功能仍在测试中）';
+
+          // 诊断性支持检查
+          const sup = this.voiceChanger.isSupported();
+          if (!sup.supported) {
+            this.status.textContent = '变声不可用: ' + sup.reasons.join('；');
             vcToggle.checked = false;
             vcToggle.disabled = false;
             this.voiceChangerEnabled = false;
+            this.updateDebugPanel();
             return;
           }
+
+          // 发起启动流程
           try {
+            this.status.textContent = '正在加载 SoundTouch 处理库...';
             await this.voiceChanger.start();
-            this.status.textContent = '变声已开启（测试中）';
+            this.status.textContent = '变声已开启';
             vcToggle.disabled = false;
+            const panel = document.getElementById('voiceChangerPanel');
+            if (panel) panel.classList.remove('hidden');
+            this.updateDebugPanel();
           } catch (err) {
-            // Bug 3 修复：明确错误提示，不静默失败
-            this.status.textContent = '变声模型加载失败: ' + err.message + '（功能仍在测试中，已回退到原声）';
+            // 保存失败诊断快照（在 stop() 清除状态之前）
+            this._lastVcFailure = {
+              failStage: this.voiceChanger?.failStage || 'unknown',
+              errorName: err.name || 'Error',
+              errorMessage: err.message,
+              diagnostics: this.voiceChanger?.getDiagnostics(),
+            };
+            this.status.textContent = '变声启动失败: ' + err.message;
             vcToggle.checked = false;
             vcToggle.disabled = false;
             this.voiceChangerEnabled = false;
             if (this.voiceChanger) {
               this.voiceChanger.stop();
             }
+            // 不要关闭面板，让用户看到错误详情
+            const panel = document.getElementById('voiceChangerPanel');
+            if (panel) panel.classList.remove('hidden');
+            this.updateDebugPanel();
             return;
           }
-          const panel = document.getElementById('voiceChangerPanel');
-          if (panel) panel.classList.remove('hidden');
         } else {
           if (this.voiceChanger) {
             this.voiceChanger.stop();
@@ -660,25 +678,29 @@ class FaceTracker {
           const panel = document.getElementById('voiceChangerPanel');
           if (panel) panel.classList.add('hidden');
           this.status.textContent = '变声已关闭';
+          this.updateDebugPanel();
         }
       });
     }
 
     if (vcPreset) {
       vcPreset.addEventListener('change', (e) => {
-        if (this.voiceChanger) {
+        if (this.voiceChanger && this.voiceChangerEnabled) {
           this.voiceChanger.applyPreset(e.target.value);
-          this.status.textContent = `变声预设: ${e.target.options[e.target.selectedIndex].text}`;
+          const opt = e.target.options[e.target.selectedIndex];
+          this.status.textContent = `变声预设: ${opt ? opt.text : e.target.value}`;
+          this.updateDebugPanel();
         }
       });
     }
 
     if (vcMonitor) {
       vcMonitor.addEventListener('change', (e) => {
-        if (this.voiceChanger) {
+        if (this.voiceChanger && this.voiceChangerEnabled) {
           this.voiceChanger.setMonitorMode(e.target.value);
           const labels = { original: '原声监听', changed: '变声监听', mute: '静音监听' };
-          this.status.textContent = `监听模式: ${labels[e.target.value]}`;
+          this.status.textContent = `监听模式: ${labels[e.target.value] || e.target.value}`;
+          this.updateDebugPanel();
         }
       });
     }
@@ -760,7 +782,6 @@ class FaceTracker {
           }
         } else {
           if (this.liveSubtitle) this.liveSubtitle.stop();
-          // 关闭字幕时清空主页面所有字幕层（Bug 1 修复）
           this.updateSubtitle('');
           this.status.textContent = '字幕已关闭';
         }
@@ -783,6 +804,62 @@ class FaceTracker {
         window.open('./subtitle.html', '_blank');
       });
     }
+  }
+
+  // 更新调试面板
+  updateDebugPanel() {
+    const panel = document.getElementById('vcDebugPanel');
+    if (!panel) return;
+    const vc = this.voiceChanger;
+    if (!vc) {
+      panel.innerHTML = '<div class="vc-debug-row"><span>状态: 未初始化</span></div>';
+      return;
+    }
+    const d = vc.getDiagnostics();
+    const sup = d.support;
+    const rows = [
+      `<div class="vc-debug-row"><span class="vc-debug-label">状态</span><span class="vc-debug-value">${d.state}</span></div>`,
+      `<div class="vc-debug-row"><span class="vc-debug-label">Web Audio</span><span class="vc-debug-value ${sup.details.webAudio ? 'ok' : 'fail'}">${sup.details.webAudio ? 'OK' : 'NO'}</span></div>`,
+      `<div class="vc-debug-row"><span class="vc-debug-label">getUserMedia</span><span class="vc-debug-value ${sup.details.getUserMedia ? 'ok' : 'fail'}">${sup.details.getUserMedia ? 'OK' : 'NO'}</span></div>`,
+      `<div class="vc-debug-row"><span class="vc-debug-label">安全上下文</span><span class="vc-debug-value ${sup.details.secureContext ? 'ok' : 'fail'}">${sup.details.secureContext ? 'YES' : 'NO'}</span></div>`,
+      `<div class="vc-debug-row"><span class="vc-debug-label">引擎来源</span><span class="vc-debug-value">${d.engine.source}</span></div>`,
+      `<div class="vc-debug-row"><span class="vc-debug-label">AudioContext</span><span class="vc-debug-value">${d.audioContext.state}</span></div>`,
+      `<div class="vc-debug-row"><span class="vc-debug-label">麦克风</span><span class="vc-debug-value">${d.mic.hasStream ? (d.mic.tracksActive ? 'LIVE (tracks=' + d.mic.trackCount + ')' : 'INACTIVE') : 'NONE'}</span></div>`,
+      `<div class="vc-debug-row"><span class="vc-debug-label">音频图</span><span class="vc-debug-value ${d.graph.connected ? 'ok' : 'fail'}">${d.graph.connected ? 'CONNECTED' : 'DISCONNECTED'} (src=${d.graph.hasSource} proc=${d.graph.hasProcessor})</span></div>`,
+      `<div class="vc-debug-row"><span class="vc-debug-label">监听</span><span class="vc-debug-value">${d.current.monitorMode}</span></div>`,
+      `<div class="vc-debug-row"><span class="vc-debug-label">预设</span><span class="vc-debug-value">${d.current.preset} (pitch=${d.current.pitch} tempo=${d.current.tempo})</span></div>`,
+    ];
+
+    // 显示失败阶段和错误详情
+    if (d.failStage || d.lastError) {
+      rows.push(`<div class="vc-debug-section">--- 失败详情 ---</div>`);
+      if (d.failStage) {
+        rows.push(`<div class="vc-debug-row vc-debug-error"><span class="vc-debug-label">failStage</span><span class="vc-debug-value">${d.failStage}</span></div>`);
+      }
+      if (d.lastError) {
+        rows.push(`<div class="vc-debug-row vc-debug-error"><span class="vc-debug-label">errorName</span><span class="vc-debug-value">${d.lastError.name}</span></div>`);
+        rows.push(`<div class="vc-debug-row vc-debug-error"><span class="vc-debug-label">errorMessage</span><span class="vc-debug-value">${d.lastError.message}</span></div>`);
+      }
+    }
+
+    // 显示失败快照（stop 后保留的诊断）
+    if (d.lastFailure) {
+      const lf = d.lastFailure;
+      rows.push(`<div class="vc-debug-section">--- 失败时快照 ---</div>`);
+      rows.push(`<div class="vc-debug-row"><span class="vc-debug-label">failStage</span><span class="vc-debug-value">${lf.failStage}</span></div>`);
+      rows.push(`<div class="vc-debug-row vc-debug-error"><span class="vc-debug-label">errorName</span><span class="vc-debug-value">${lf.errorName}</span></div>`);
+      rows.push(`<div class="vc-debug-row vc-debug-error"><span class="vc-debug-label">errorMessage</span><span class="vc-debug-value">${lf.errorMessage}</span></div>`);
+      rows.push(`<div class="vc-debug-row"><span class="vc-debug-label">mic.hasStream</span><span class="vc-debug-value">${lf.mic.hasStream}</span></div>`);
+      rows.push(`<div class="vc-debug-row"><span class="vc-debug-label">mic.trackCount</span><span class="vc-debug-value">${lf.mic.trackCount}</span></div>`);
+      rows.push(`<div class="vc-debug-row"><span class="vc-debug-label">graph.hasSource</span><span class="vc-debug-value">${lf.graph.hasSource}</span></div>`);
+      rows.push(`<div class="vc-debug-row"><span class="vc-debug-label">graph.hasProcessor</span><span class="vc-debug-value">${lf.graph.hasProcessor}</span></div>`);
+      rows.push(`<div class="vc-debug-row"><span class="vc-debug-label">graph.hasInputGain</span><span class="vc-debug-value">${lf.graph.hasInputGain}</span></div>`);
+      rows.push(`<div class="vc-debug-row"><span class="vc-debug-label">graph.hasOutputGain</span><span class="vc-debug-value">${lf.graph.hasOutputGain}</span></div>`);
+      rows.push(`<div class="vc-debug-row"><span class="vc-debug-label">engine.source</span><span class="vc-debug-value">${lf.engine.source}</span></div>`);
+      rows.push(`<div class="vc-debug-row"><span class="vc-debug-label">audioContext</span><span class="vc-debug-value">${lf.audioContext.state}</span></div>`);
+    }
+
+    panel.innerHTML = rows.join('');
   }
 
   updateSubtitle(text) {
