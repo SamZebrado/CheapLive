@@ -110,13 +110,28 @@ class VoiceChanger {
     if (!this._document) {
       throw new Error('当前环境不支持动态加载脚本');
     }
-    return new Promise((resolve, reject) => {
-      const script = this._document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/soundtouchjs@0.1.29/dist/soundtouch.min.js';
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error('SoundTouchJS 加载失败：请检查网络连接'));
-      this._document.head.appendChild(script);
-    });
+
+    // 尝试 CDN 加载，失败则回退到本地文件
+    const urls = [
+      'https://cdn.jsdelivr.net/npm/soundtouchjs@0.1.29/dist/soundtouch.min.js',
+      './lib/soundtouch.min.js',
+    ];
+
+    for (const url of urls) {
+      try {
+        await new Promise((resolve, reject) => {
+          const script = this._document.createElement('script');
+          script.src = url;
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('加载失败'));
+          this._document.head.appendChild(script);
+        });
+        return; // 加载成功
+      } catch (e) {
+        // 继续尝试下一个 URL
+      }
+    }
+    throw new Error('SoundTouchJS 加载失败：CDN 与本地文件均不可用，请检查网络连接');
   }
 
   async start(existingStream) {
