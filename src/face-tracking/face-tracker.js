@@ -253,6 +253,9 @@ class FaceTracker {
         const perfRadio = document.querySelector(`input[name="perfMode"][value="${settings.perfMode}"]`);
         if (perfRadio) perfRadio.checked = true;
       }
+
+      // 恢复模型参数
+      this._loadModelOptions();
     } catch (e) {
       console.warn('加载设置失败:', e);
     }
@@ -269,8 +272,92 @@ class FaceTracker {
         perfMode: this.perfMode,
       };
       localStorage.setItem('cheaplive_settings', JSON.stringify(settings));
+      // 模型参数单独保存
+      if (this.avatar && this.avatar.getModelOptions) {
+        localStorage.setItem('cheaplive.avatarModelOptions', JSON.stringify(this.avatar.getModelOptions()));
+      }
     } catch (e) {
       console.warn('保存设置失败:', e);
+    }
+  }
+
+  _setupModelParamSliders() {
+    const defs = this.avatar?.getModelOptions?.() || {};
+    const paramDefs = [
+      { id: 'paramBodyLength', key: 'bodyLength', min: 60, max: 350, def: 210 },
+      { id: 'paramHeadX', key: 'headX', min: 40, max: 90, def: 70 },
+      { id: 'paramHeadY', key: 'headY', min: 35, max: 80, def: 58 },
+      { id: 'paramHeadZ', key: 'headZ', min: 35, max: 80, def: 54 },
+      { id: 'paramBodyEndX', key: 'bodyEndX', min: 2, max: 25, def: 9 },
+      { id: 'paramBodyEndY', key: 'bodyEndY', min: 2, max: 25, def: 5 },
+      { id: 'paramTailLength', key: 'tailLength', min: 10, max: 80, def: 35 },
+    ];
+
+    for (const pdef of paramDefs) {
+      const slider = document.getElementById(pdef.id);
+      const valEl = document.getElementById(pdef.id + 'Val');
+      if (!slider) continue;
+      const val = defs[pdef.key] ?? pdef.def;
+      slider.value = val;
+      if (valEl) valEl.textContent = val;
+      slider.addEventListener('input', () => {
+        const v = parseInt(slider.value);
+        if (valEl) valEl.textContent = v;
+        if (this.avatar?.setModelOptions) {
+          this.avatar.setModelOptions({ [pdef.key]: v });
+        }
+        this.saveSettings();
+      });
+    }
+
+    // 重置按钮
+    const resetBtn = document.getElementById('paramReset');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        if (this.avatar?.resetModelOptions) {
+          this.avatar.resetModelOptions();
+        }
+        const opts = this.avatar?.getModelOptions?.() || {};
+        for (const pdef of paramDefs) {
+          const slider = document.getElementById(pdef.id);
+          const valEl = document.getElementById(pdef.id + 'Val');
+          if (slider) slider.value = opts[pdef.key] ?? pdef.def;
+          if (valEl) valEl.textContent = opts[pdef.key] ?? pdef.def;
+        }
+        localStorage.removeItem('cheaplive.avatarModelOptions');
+      });
+    }
+  }
+
+  _loadModelOptions() {
+    try {
+      const raw = localStorage.getItem('cheaplive.avatarModelOptions');
+      if (!raw) return;
+      const opts = JSON.parse(raw);
+      if (!opts || typeof opts !== 'object') return;
+      if (this.avatar?.setModelOptions) {
+        this.avatar.setModelOptions(opts);
+      }
+      // 更新 UI 滑块
+      const paramDefs = [
+        { id: 'paramBodyLength', key: 'bodyLength', def: 210 },
+        { id: 'paramHeadX', key: 'headX', def: 70 },
+        { id: 'paramHeadY', key: 'headY', def: 58 },
+        { id: 'paramHeadZ', key: 'headZ', def: 54 },
+        { id: 'paramBodyEndX', key: 'bodyEndX', def: 9 },
+        { id: 'paramBodyEndY', key: 'bodyEndY', def: 5 },
+        { id: 'paramTailLength', key: 'tailLength', def: 35 },
+      ];
+      const cur = this.avatar?.getModelOptions?.() || {};
+      for (const pdef of paramDefs) {
+        const slider = document.getElementById(pdef.id);
+        const valEl = document.getElementById(pdef.id + 'Val');
+        if (slider) slider.value = cur[pdef.key] ?? pdef.def;
+        if (valEl) valEl.textContent = cur[pdef.key] ?? pdef.def;
+      }
+    } catch (e) {
+      console.warn('加载模型参数失败，回退默认:', e);
+      localStorage.removeItem('cheaplive.avatarModelOptions');
     }
   }
 
@@ -328,6 +415,9 @@ class FaceTracker {
     document.getElementById('testPoseReset').addEventListener('click', () => {
       this.avatar.updateParams({ headYaw: 0.5, headPitch: 0.5, headRoll: 0.5 });
     });
+
+    // 模型参数调节
+    this._setupModelParamSliders();
 
     // 镜像开关：交换左右面部数据，而非翻转图形
     const mirrorToggle = document.getElementById('mirrorMode');

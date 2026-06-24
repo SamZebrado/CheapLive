@@ -771,20 +771,17 @@ export const SPINDLE_DEFAULT_AMBIENT = 0.58;
 export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
   constructor(canvasId, options = {}) {
     super(canvasId);
-    this.spindleMesh = createSpindleMesh({
-        headX: 70,
-        headY: 58,
-        headZ: 54,
-        bodyLength: 210,
-        bodyEndX: 9,
-        bodyEndY: 5,
-        columns: 42,
-        rows: 35,
-        topColor: '#c3b681',
-        bottomColor: '#eee1bc',
-        faceTopColor: '#d1c394',
-        faceBottomColor: '#f4e8c8',
-      });
+    // 默认模型参数
+    this._modelOptions = {
+      headX: 70, headY: 58, headZ: 54,
+      bodyLength: 210,
+      bodyEndX: 9, bodyEndY: 5,
+      tailLength: 35,
+      columns: 42, rows: 35,
+      topColor: '#c3b681', bottomColor: '#eee1bc',
+      faceTopColor: '#d1c394', faceBottomColor: '#f4e8c8',
+    };
+    this.spindleMesh = createSpindleMesh(this._modelOptions);
     // 真正正面视角，没有 3/4 视图的不对称
     this.baseYaw = 0;
     this.basePitch = 0;
@@ -802,23 +799,51 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     this.draw();
   }
 
-  /** 动态调整身体长度并重建 mesh */
-  setBodyLength(length) {
-    this.spindleMesh = createSpindleMesh({
-      headX: 70,
-      headY: 58,
-      headZ: 54,
-      bodyLength: Math.max(80, Math.min(350, length)),
-      bodyEndX: 9,
-      bodyEndY: 5,
-      columns: 42,
-      rows: 35,
-      topColor: '#c3b681',
-      bottomColor: '#eee1bc',
-      faceTopColor: '#d1c394',
-      faceBottomColor: '#f4e8c8',
-    });
+  /** 获取当前模型参数 */
+  getModelOptions() {
+    return { ...this._modelOptions };
+  }
+
+  /** 设置模型参数并重建 mesh */
+  setModelOptions(opts) {
+    const prev = this._modelOptions;
+    this._modelOptions = {
+      headX: clamp(opts.headX ?? prev.headX, 40, 90),
+      headY: clamp(opts.headY ?? prev.headY, 35, 80),
+      headZ: clamp(opts.headZ ?? prev.headZ, 35, 80),
+      bodyLength: clamp(opts.bodyLength ?? prev.bodyLength, 60, 350),
+      bodyEndX: clamp(opts.bodyEndX ?? prev.bodyEndX, 2, 25),
+      bodyEndY: clamp(opts.bodyEndY ?? prev.bodyEndY, 2, 25),
+      tailLength: clamp(opts.tailLength ?? prev.tailLength, 10, 80),
+      columns: prev.columns,
+      rows: prev.rows,
+      topColor: prev.topColor,
+      bottomColor: prev.bottomColor,
+      faceTopColor: prev.faceTopColor,
+      faceBottomColor: prev.faceBottomColor,
+    };
+    this.spindleMesh = createSpindleMesh(this._modelOptions);
     this.draw();
+  }
+
+  /** 重置为默认参数 */
+  resetModelOptions() {
+    this._modelOptions = {
+      headX: 70, headY: 58, headZ: 54,
+      bodyLength: 210,
+      bodyEndX: 9, bodyEndY: 5,
+      tailLength: 35,
+      columns: 42, rows: 35,
+      topColor: '#c3b681', bottomColor: '#eee1bc',
+      faceTopColor: '#d1c394', faceBottomColor: '#f4e8c8',
+    };
+    this.spindleMesh = createSpindleMesh(this._modelOptions);
+    this.draw();
+  }
+
+  /** 动态调整身体长度（兼容旧 API） */
+  setBodyLength(length) {
+    this.setModelOptions({ bodyLength: length });
   }
 
   /**
@@ -933,15 +958,19 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
-      // 虹膜：固定大小，不随 eyeWide 变化
-      const basePupilR = eyeBase * scale * 0.55;
-      const pupilR = basePupilR;
+      // 虹膜/瞳孔：按眼白短轴比例，不是固定圆
+      const irisScale = 0.50;   // 虹膜占眼白短轴的比例
+      const pupilScale = 0.28;  // 瞳孔占眼白短轴的比例
+      const irisR = Math.min(rx, ry) * irisScale;
+      const pupilR2 = Math.min(rx, ry) * pupilScale;
 
-      // 视线偏移：根据 gazeX/gazeY 偏移瞳孔位置
-      const maxOffsetX = Math.max(0, rx - pupilR) * 0.5;
-      const maxOffsetY = Math.max(0, ry - pupilR) * 0.5;
-      const pupilX = t.screenX + (gazeX || 0) * maxOffsetX;
-      const pupilY = t.screenY + (gazeY || 0) * maxOffsetY;
+      // 视线偏移：根据 gazeX/gazeY 偏移虹膜/瞳孔位置
+      const maxOffsetX = Math.max(0, rx - irisR) * 0.55;
+      const maxOffsetY = Math.max(0, ry - irisR) * 0.55;
+      const gazeOffsetX = (gazeX || 0) * maxOffsetX;
+      const gazeOffsetY = (gazeY || 0) * maxOffsetY;
+      const irisCX = t.screenX + gazeOffsetX;
+      const irisCY = t.screenY + gazeOffsetY;
 
       ctx.save();
       ctx.globalAlpha = facing;
@@ -983,11 +1012,31 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
 
         // 瞳孔
         if (easedOpen > 0.15) {
+          // Clip 到可见眼白区域内
+          ctx.save();
           ctx.beginPath();
-          ctx.ellipse(pupilX, pupilY, Math.min(pupilR, rx * 0.4), Math.min(pupilR, ry * 0.4), ang, 0, Math.PI * 2);
-          ctx.fillStyle = '#1f1f1f';
+          ctx.moveTo(t.screenX - rx * 0.85, t.screenY);
+          ctx.quadraticCurveTo(t.screenX, t.screenY - visibleH + topCurve, t.screenX + rx * 0.85, t.screenY);
+          ctx.quadraticCurveTo(t.screenX, t.screenY + ry * 0.4, t.screenX - rx * 0.85, t.screenY);
+          ctx.closePath();
+          ctx.clip();
+
+          // 虹膜
+          const halfIrisR = irisR * 0.8;
+          ctx.beginPath();
+          ctx.ellipse(irisCX, irisCY, halfIrisR, halfIrisR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+          ctx.fillStyle = '#7a6b5c';
           ctx.globalAlpha = Math.max(0.4, facing) * Math.min(1, easedOpen * 1.5);
           ctx.fill();
+
+          // 瞳孔
+          const halfPupilR = pupilR2 * 0.8;
+          ctx.beginPath();
+          ctx.ellipse(irisCX, irisCY, halfPupilR, halfPupilR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+          ctx.fillStyle = '#1a1a1a';
+          ctx.fill();
+
+          ctx.restore();
           ctx.globalAlpha = facing;
         }
       } else {
@@ -1000,12 +1049,38 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.strokeStyle = '#222';
         ctx.stroke();
 
-        // 瞳孔：固定大小
+        // 虹膜 + 瞳孔：作为眼白内部 decal，clip 在眼白内
+        ctx.save();
+        // 用眼白椭圆做 clip 区域
         ctx.beginPath();
-        ctx.ellipse(pupilX, pupilY, pupilR, pupilR, ang, 0, Math.PI * 2);
-        ctx.fillStyle = '#1f1f1f';
+        ctx.ellipse(t.screenX, t.screenY, rx - 1, ry - 1, ang, 0, Math.PI * 2);
+        ctx.clip();
+
+        // 虹膜：淡色圆环
+        ctx.beginPath();
+        ctx.ellipse(irisCX, irisCY, irisR, irisR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#7a6b5c';
         ctx.globalAlpha = Math.max(0.4, facing) * easedOpen;
         ctx.fill();
+
+        // 瞳孔：深色椭圆，在虹膜中心
+        ctx.beginPath();
+        ctx.ellipse(irisCX, irisCY, pupilR2, pupilR2 * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fill();
+
+        // 高光：小白点，可选
+        if (easedOpen > 0.5) {
+          const hlX = irisCX + irisR * 0.3;
+          const hlY = irisCY - irisR * 0.3;
+          ctx.beginPath();
+          ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = Math.max(0.3, facing) * 0.7;
+          ctx.fill();
+        }
+
+        ctx.restore();
         ctx.globalAlpha = facing;
       }
       ctx.restore();

@@ -85,6 +85,38 @@
           <button id="testRollRight" class="btn-small">↻ 右倾</button>
           <button id="testPoseReset" class="btn-small">姿势归零</button>
         </div>
+        <div class="avatar-controls model-params">
+          <span class="control-label">形体调节</span>
+          <div class="model-param-row">
+            <label for="paramBodyLength">身体长度 <span id="paramBodyLengthVal">210</span></label>
+            <input type="range" id="paramBodyLength" min="60" max="350" value="210" step="1">
+          </div>
+          <div class="model-param-row">
+            <label for="paramHeadX">头部宽度 <span id="paramHeadXVal">70</span></label>
+            <input type="range" id="paramHeadX" min="40" max="90" value="70" step="1">
+          </div>
+          <div class="model-param-row">
+            <label for="paramHeadY">头部高度 <span id="paramHeadYVal">58</span></label>
+            <input type="range" id="paramHeadY" min="35" max="80" value="58" step="1">
+          </div>
+          <div class="model-param-row">
+            <label for="paramHeadZ">头部厚度 <span id="paramHeadZVal">54</span></label>
+            <input type="range" id="paramHeadZ" min="35" max="80" value="54" step="1">
+          </div>
+          <div class="model-param-row">
+            <label for="paramBodyEndX">身体末端宽度 <span id="paramBodyEndXVal">9</span></label>
+            <input type="range" id="paramBodyEndX" min="2" max="25" value="9" step="1">
+          </div>
+          <div class="model-param-row">
+            <label for="paramBodyEndY">身体末端高度 <span id="paramBodyEndYVal">5</span></label>
+            <input type="range" id="paramBodyEndY" min="2" max="25" value="5" step="1">
+          </div>
+          <div class="model-param-row">
+            <label for="paramTailLength">尾巴长度 <span id="paramTailLengthVal">35</span></label>
+            <input type="range" id="paramTailLength" min="10" max="80" value="35" step="1">
+          </div>
+          <button id="paramReset" class="btn-small">重置默认</button>
+        </div>
         <button id="exitAppMode" class="exit-app-btn">✕ 退出应用模式</button>
         <div class="mirror-toggle">
           <label class="toggle-switch">
