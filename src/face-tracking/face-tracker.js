@@ -883,6 +883,7 @@ class FaceTracker {
       },
       outputFaceBlendshapes: true,
       outputFacialTransformationMatrixes: true,
+      refineLandmarks: true,  // 启用虹膜追踪（478个landmarks）
       runningMode: 'VIDEO',
       numFaces: 1,
     });
@@ -1014,6 +1015,11 @@ class FaceTracker {
           if (results.facialTransformationMatrixes && results.facialTransformationMatrixes.length > 0) {
             this.updateHeadPose(results.facialTransformationMatrixes[0], landmarks);
           }
+
+          // 虹膜追踪：提取左右虹膜中心位置
+          if (landmarks.length >= 478) {
+            this.updateIrisGaze(landmarks);
+          }
         }
       } else {
         // 不渲染画面，但仍在后台更新 blendshapes（保持 avatar 动画）
@@ -1022,6 +1028,10 @@ class FaceTracker {
         }
         if (results.facialTransformationMatrixes && results.facialTransformationMatrixes.length > 0) {
           this.updateHeadPose(results.facialTransformationMatrixes[0], results.faceLandmarks[0]);
+        }
+        // 虹膜追踪（后台也更新）
+        if (results.faceLandmarks && results.faceLandmarks.length > 0 && results.faceLandmarks[0].length >= 478) {
+          this.updateIrisGaze(results.faceLandmarks[0]);
         }
       }
     }
@@ -1225,6 +1235,59 @@ class FaceTracker {
         lastSample.headX = headXRaw;
         lastSample.headY = headYRaw;
       }
+    }
+  }
+
+  // 虹膜追踪：从 MediaPipe 478 landmarks 中提取虹膜位置，计算视线方向
+  updateIrisGaze(landmarks) {
+    if (landmarks.length < 478) return;
+
+    // MediaPipe iris landmarks:
+    //   左眼虹膜中心: 468, 左眼虹膜轮廓: 469-472
+    //   右眼虹膜中心: 473, 右眼虹膜轮廓: 474-477
+    //
+    // 计算视线方向：虹膜在眼框内的归一化偏移 [-1, 1]
+    function computeGaze(irisIdx, eyeLeftIdx, eyeRightIdx, eyeTopIdx, eyeBottomIdx) {
+      const iris = landmarks[irisIdx];
+      const eyeLeft = landmarks[eyeLeftIdx];
+      const eyeRight = landmarks[eyeRightIdx];
+      const eyeTop = landmarks[eyeTopIdx];
+      const eyeBottom = landmarks[eyeBottomIdx];
+
+      const eyeW = eyeRight.x - eyeLeft.x;
+      const eyeH = eyeBottom.y - eyeTop.y;
+      if (eyeW < 0.001 || eyeH < 0.001) return { x: 0, y: 0 };
+
+      // 归一化到 [0, 1]
+      const nx = (iris.x - eyeLeft.x) / eyeW;
+      const ny = (iris.y - eyeTop.y) / eyeH;
+
+      // 映射到 [-1, 1]，0 表示居中
+      return {
+        x: Math.max(-1, Math.min(1, (nx - 0.5) * 2)),
+        y: Math.max(-1, Math.min(1, (ny - 0.5) * 2)),
+      };
+    }
+
+    // 左眼: 虹膜468, 眼角33(左)/133(右), 上下眼睑159(上)/145(下)
+    const leftGaze = computeGaze(468, 33, 133, 159, 145);
+    // 右眼: 虹膜473, 眼角362(左)/263(右), 上下眼睑386(上)/374(下)
+    const rightGaze = computeGaze(473, 362, 263, 386, 374);
+
+    // 平滑处理
+    const smoothLeftX = this.smoother('gazeLeftX', leftGaze.x);
+    const smoothLeftY = this.smoother('gazeLeftY', leftGaze.y);
+    const smoothRightX = this.smoother('gazeRightX', rightGaze.x);
+    const smoothRightY = this.smoother('gazeRightY', rightGaze.y);
+
+    // 直接更新 avatar（不经过 setParam 的 0-1 clamp，因为 gaze 范围是 [-1, 1]）
+    if (this.avatar) {
+      this.avatar.updateParams({
+        gazeLeftX: this.mirrorData ? smoothRightX : smoothLeftX,
+        gazeLeftY: this.mirrorData ? smoothRightY : smoothLeftY,
+        gazeRightX: this.mirrorData ? smoothLeftX : smoothRightX,
+        gazeRightY: this.mirrorData ? smoothLeftY : smoothRightY,
+      });
     }
   }
 
