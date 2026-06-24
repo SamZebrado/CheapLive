@@ -787,6 +787,13 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     // 光照参数（可选）
     this.lightDir = options.lightDir ?? { ...SPINDLE_DEFAULT_LIGHT_DIR };
     this.ambient = options.ambient ?? SPINDLE_DEFAULT_AMBIENT;
+
+    // 动态甩尾：追踪 yaw 速度
+    this._lastYaw = 0;
+    this._yawVelocity = 0;
+    this._tailSway = 0;
+    this._tailSwayDecay = 0.92;
+
     this.draw();
   }
 
@@ -845,6 +852,16 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       angleX: np.headPitch + this.basePitch,
       angleZ: np.headRoll + this.baseRoll,
     };
+
+    // 动态甩尾：基于 yaw 速度的横向位移
+    const currentYaw = np.headYaw;
+    this._yawVelocity = currentYaw - this._lastYaw;
+    this._lastYaw = currentYaw;
+    const maxSway = 15;
+    const swayTarget = -this._yawVelocity * 40;
+    this._tailSway = this._tailSway * this._tailSwayDecay + swayTarget * (1 - this._tailSwayDecay);
+    this._tailSway = Math.max(-maxSway, Math.min(maxSway, this._tailSway));
+    rot.tailSway = this._tailSway;
 
     const minSide = Math.min(w, h);
     // scale：以头部左右直径为基准，占画面 ~55%

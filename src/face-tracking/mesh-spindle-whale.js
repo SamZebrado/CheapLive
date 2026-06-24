@@ -720,7 +720,7 @@ function bendProfileDeriv(s) {
 }
 
 function applySoftRotation(x, y, z, nx, ny, nz, s, params) {
-  const { angleY = 0, angleX = 0, angleZ = 0 } = params;
+  const { angleY = 0, angleX = 0, angleZ = 0, tailSway = 0 } = params;
 
   const bend = bendProfile(s);
 
@@ -756,6 +756,15 @@ function applySoftRotation(x, y, z, nx, ny, nz, s, params) {
   let nx3 = nx2 * cosY + nz2 * sinY;
   let nz3 = -nx2 * sinY + nz2 * cosY;
   let ny3 = ny2;
+
+  // 动态甩尾：基于 yawVelocity 的横向位移，从身体后半段开始，到尾部最大
+  if (tailSway !== 0) {
+    const swayStart = 0.45;
+    const t = s < swayStart ? 0 : Math.max(0, Math.min(1, (s - swayStart) / (1.0 - swayStart)));
+    const swayWeight = t * t * (3 - 2 * t);
+    const x4 = x3 + tailSway * swayWeight;
+    return { x: x4, y: y3, z: z3, nx: nx3, ny: ny3, nz: nz3 };
+  }
 
   return { x: x3, y: y3, z: z3, nx: nx3, ny: ny3, nz: nz3 };
 }
