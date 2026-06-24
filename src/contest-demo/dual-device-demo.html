@@ -3,15 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CheapLive — 双端模拟演示</title>
+  <title>CheapLive — 参赛演示 Demo</title>
   <style>
-    /* ===== CSS Variables (reuse contest-demo palette) ===== */
+    /* ===== Design Tokens (产品目标稿视觉风格) ===== */
     :root {
       --bg-primary: #0a0e1a;
       --bg-secondary: #111827;
       --bg-card: #1a2236;
       --bg-card-hover: #1f2a42;
+      --bg-stage: #0d1424;
       --border-color: #2a3654;
+      --border-soft: #1f2a42;
       --text-primary: #e8edf5;
       --text-secondary: #8896b3;
       --text-muted: #5a6a85;
@@ -19,9 +21,13 @@
       --color-accent2: #69db7c;
       --color-warning: #ffd43b;
       --color-danger: #ff6b6b;
-      --radius: 12px;
-      --radius-sm: 8px;
-      --shadow: 0 4px 24px rgba(0,0,0,0.4);
+      --color-purple: #b197fc;
+      --color-pink: #ff8cc8;
+      --radius: 14px;
+      --radius-sm: 10px;
+      --radius-xs: 6px;
+      --shadow: 0 8px 32px rgba(0,0,0,0.45);
+      --shadow-glow: 0 0 40px rgba(79,195,247,0.12);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,1348 +38,1546 @@
       color: var(--text-primary);
       min-height: 100vh;
       overflow-x: hidden;
-    }
-
-    /* ===== Hero ===== */
-    .hero {
-      background: linear-gradient(135deg, #0a0e1a 0%, #111827 50%, #0f1f3d 100%);
-      border-bottom: 1px solid var(--border-color);
-      padding: 28px 40px;
-      position: relative;
-      overflow: hidden;
-    }
-    .hero::before {
-      content: '';
-      position: absolute;
-      top: -50%; right: -10%;
-      width: 500px; height: 500px;
-      background: radial-gradient(circle, rgba(79,195,247,0.06) 0%, transparent 70%);
-      pointer-events: none;
-    }
-    .hero-tag {
-      display: inline-block;
-      background: rgba(79,195,247,0.12);
-      border: 1px solid rgba(79,195,247,0.3);
-      color: var(--color-accent);
-      font-size: 11px; font-weight: 600;
-      letter-spacing: 0.08em; text-transform: uppercase;
-      padding: 4px 10px; border-radius: 20px;
-      margin-bottom: 10px;
-    }
-    .hero h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
-    .hero h1 span { color: var(--color-accent); }
-    .hero-sub {
-      color: var(--text-secondary); font-size: 13px;
-      line-height: 1.6; max-width: 700px; margin-top: 4px;
-    }
-
-    /* ===== Demo Notice Banner ===== */
-    .demo-notice {
-      background: rgba(255,212,59,0.06);
-      border: 1px solid rgba(255,212,59,0.2);
-      border-radius: var(--radius-sm);
-      padding: 12px 16px;
-      margin-top: 14px;
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      font-size: 11px;
-      color: var(--text-secondary);
-      line-height: 1.7;
-      max-width: 820px;
-    }
-    .demo-notice .notice-badge {
-      flex-shrink: 0;
-      display: inline-block;
-      background: rgba(255,212,59,0.12);
-      border: 1px solid rgba(255,212,59,0.3);
-      color: var(--color-warning);
-      font-size: 9px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      padding: 3px 8px;
-      border-radius: 10px;
-      white-space: nowrap;
-    }
-    .demo-notice .notice-text {
-      flex: 1;
-    }
-    .demo-notice .notice-text strong {
-      color: var(--text-primary);
-    }
-
-    /* ===== Main Layout ===== */
-    .main-stage {
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
-      gap: 24px;
-      padding: 28px 32px;
-      max-width: 1500px;
-      margin: 0 auto;
-      flex-wrap: wrap;
-    }
-
-    /* ===== Device Shell ===== */
-    .device-shell {
-      background: linear-gradient(180deg, #1c2333 0%, #151d2e 100%);
-      border: 3px solid #3a4560;
-      border-radius: 32px;
-      overflow: hidden;
-      position: relative;
-      width: 420px;
-      min-height: 620px;
-      box-shadow: 0 8px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
-    }
-    .device-shell.tablet {
-      width: 460px;
-      border-radius: 28px;
-    }
-    /* status bar notch */
-    .device-notch {
-      background: #0d1117;
-      height: 28px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      border-bottom: 1px solid var(--border-color);
-      position: relative;
-    }
-    .device-notch .time {
-      font-size: 10px; color: var(--text-muted);
-      font-family: 'SF Mono', monospace;
-    }
-    .device-notch .notch-dot {
-      width: 6px; height: 6px;
-      background: var(--color-accent);
-      border-radius: 50%;
-      opacity: 0.6;
-    }
-    /* device screen area */
-    .device-screen {
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      max-height: 560px;
-      overflow-y: auto;
-    }
-    .device-screen::-webkit-scrollbar { width: 4px; }
-    .device-screen::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
-
-    /* ===== Section ===== */
-    .section-title {
-      font-size: 10px; font-weight: 600;
-      color: var(--text-muted); text-transform: uppercase;
-      letter-spacing: 0.08em;
-      display: flex; align-items: center; gap: 6px;
-    }
-    .section-title::after {
-      content: ''; flex: 1; height: 1px;
-      background: var(--border-color);
-    }
-
-    /* ===== Status Row ===== */
-    .status-row {
-      display: flex; align-items: center; gap: 8px;
-      font-size: 12px; color: var(--text-secondary);
-      background: rgba(255,255,255,0.03);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm);
-      padding: 8px 12px;
-    }
-    .status-dot {
-      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-    }
-    .status-dot.green { background: var(--color-accent2); animation: pulse 2s infinite; }
-    .status-dot.blue { background: var(--color-accent); animation: pulse 1.5s infinite; }
-    .status-dot.yellow { background: var(--color-warning); }
-    .status-dot.red { background: var(--color-danger); }
-    .status-dot.gray { background: var(--text-muted); }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
-
-    /* ===== Toggle Switch ===== */
-    .toggle-row {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 10px 12px;
-      background: rgba(255,255,255,0.02);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm);
-    }
-    .toggle-label {
-      font-size: 12px; color: var(--text-primary); font-weight: 500;
-    }
-    .toggle-switch {
-      position: relative; width: 44px; height: 24px;
-      background: #3a4560; border-radius: 12px;
-      cursor: pointer; transition: background 0.2s;
-      flex-shrink: 0;
-    }
-    .toggle-switch.on { background: var(--color-accent2); }
-    .toggle-switch::after {
-      content: ''; position: absolute;
-      top: 2px; left: 2px;
-      width: 20px; height: 20px;
-      background: #fff; border-radius: 50%;
-      transition: transform 0.2s;
-    }
-    .toggle-switch.on::after { transform: translateX(20px); }
-
-    /* ===== Preset Buttons ===== */
-    .preset-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 5px;
-    }
-    .preset-btn {
-      background: rgba(255,255,255,0.04);
-      border: 1px solid var(--border-color);
-      border-radius: 6px;
-      padding: 8px 4px;
-      text-align: center;
-      font-size: 11px; color: var(--text-secondary);
-      cursor: pointer; transition: all 0.15s;
-    }
-    .preset-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
-    .preset-btn.active {
-      background: rgba(79,195,247,0.12);
-      border-color: rgba(79,195,247,0.5);
-      color: var(--color-accent);
-    }
-    .preset-btn .picon { font-size: 15px; display: block; margin-bottom: 2px; }
-
-    /* ===== Buttons ===== */
-    .btn {
-      font-size: 12px; font-weight: 500;
-      padding: 8px 16px; border-radius: 6px;
-      border: 1px solid var(--border-color);
-      background: rgba(255,255,255,0.04);
-      color: var(--text-secondary);
-      cursor: pointer; transition: all 0.15s;
-      text-align: center;
-    }
-    .btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
-    .btn.primary {
-      background: rgba(79,195,247,0.15);
-      border-color: rgba(79,195,247,0.4);
-      color: var(--color-accent);
-    }
-    .btn.primary:hover { background: rgba(79,195,247,0.25); }
-    .btn.danger {
-      background: rgba(255,107,107,0.15);
-      border-color: rgba(255,107,107,0.4);
-      color: var(--color-danger);
-    }
-    .btn.success {
-      background: rgba(105,219,124,0.15);
-      border-color: rgba(105,219,124,0.4);
-      color: var(--color-accent2);
-    }
-    .btn:disabled {
-      opacity: 0.4; cursor: not-allowed;
-    }
-
-    /* ===== Server Status Card ===== */
-    .server-card {
-      background: rgba(255,255,255,0.03);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm);
-      padding: 12px;
-    }
-    .server-card .url {
-      font-family: 'SF Mono', monospace;
-      font-size: 11px; color: var(--color-accent);
-      background: rgba(79,195,247,0.08);
-      padding: 4px 8px; border-radius: 4px;
-      margin: 6px 0; word-break: break-all;
-    }
-
-    /* ===== Metrics ===== */
-    .metrics-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 8px;
-    }
-    .metric-item {
-      background: rgba(255,255,255,0.03);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm);
-      padding: 8px 10px; text-align: center;
-    }
-    .metric-item .val {
-      font-size: 16px; font-weight: 700;
-      color: var(--color-accent); font-family: 'SF Mono', monospace;
-    }
-    .metric-item .lbl {
-      font-size: 9px; color: var(--text-muted);
-      text-transform: uppercase; letter-spacing: 0.05em;
-    }
-
-    /* ===== Connection Area ===== */
-    .conn-area {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 16px;
-      min-width: 180px;
-      padding: 20px 0;
-    }
-    .conn-flow {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0;
-    }
-    .conn-node {
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 8px 14px;
-      font-size: 11px; color: var(--text-secondary);
-      text-align: center; min-width: 120px;
-      transition: all 0.3s;
-    }
-    .conn-node.active {
-      border-color: rgba(79,195,247,0.5);
-      background: rgba(79,195,247,0.1);
-      color: var(--color-accent);
-    }
-    .conn-node.ok {
-      border-color: rgba(105,219,124,0.5);
-      background: rgba(105,219,124,0.1);
-      color: var(--color-accent2);
-    }
-    .conn-arrow {
-      color: var(--text-muted);
-      font-size: 14px; line-height: 1;
-      padding: 2px 0;
-      transition: color 0.3s;
-    }
-    .conn-arrow.flowing { color: var(--color-accent); }
-    .conn-spark {
-      display: flex; flex-direction: column;
-      align-items: center; gap: 1px;
-      padding: 2px 0;
-    }
-    .conn-spark .dot {
-      width: 3px; height: 3px;
-      background: var(--color-accent);
-      border-radius: 50%;
-      opacity: 0;
-    }
-    .conn-spark .dot.a1 { animation: spark 1.2s infinite 0s; }
-    .conn-spark .dot.a2 { animation: spark 1.2s infinite 0.3s; }
-    .conn-spark .dot.a3 { animation: spark 1.2s infinite 0.6s; }
-    @keyframes spark {
-      0%, 100% { opacity: 0; transform: translateY(0); }
-      50% { opacity: 1; transform: translateY(-2px); }
-    }
-    /* latency badge */
-    .latency-badge {
-      background: rgba(105,219,124,0.12);
-      border: 1px solid rgba(105,219,124,0.4);
-      border-radius: 20px;
-      padding: 6px 16px;
-      font-size: 12px; font-weight: 600;
-      color: var(--color-accent2);
-      font-family: 'SF Mono', monospace;
-      transition: all 0.3s;
-    }
-    .latency-badge.warn {
-      background: rgba(255,212,59,0.12);
-      border-color: rgba(255,212,59,0.4);
-      color: var(--color-warning);
-    }
-    /* status badges */
-    .badge {
-      display: inline-block;
-      font-size: 10px; font-weight: 600;
-      letter-spacing: 0.05em; text-transform: uppercase;
-      padding: 3px 8px; border-radius: 10px;
-    }
-    .badge.simulated {
-      background: rgba(255,212,59,0.12);
-      border: 1px solid rgba(255,212,59,0.3);
-      color: var(--color-warning);
-    }
-    .badge.experimental {
-      background: rgba(79,195,247,0.12);
-      border: 1px solid rgba(79,195,247,0.3);
-      color: var(--color-accent);
-    }
-    .badge.ready {
-      background: rgba(105,219,124,0.12);
-      border: 1px solid rgba(105,219,124,0.3);
-      color: var(--color-accent2);
-    }
-
-    /* ===== Avatar Preview ===== */
-    .avatar-preview {
-      background: #0d1525;
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm);
-      aspect-ratio: 4/3;
-      position: relative;
-      overflow: hidden;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .avatar-preview canvas {
-      width: 100%; height: 100%;
-      display: block;
-    }
-    .avatar-placeholder {
-      color: var(--text-muted);
-      font-size: 13px;
-      text-align: center;
       line-height: 1.5;
     }
-    .avatar-placeholder .icon-large {
-      font-size: 48px; display: block;
-      margin-bottom: 8px; opacity: 0.5;
+
+    /* ===== Top Bar ===== */
+    .topbar {
+      background: linear-gradient(135deg, #0a0e1a 0%, #111827 60%, #0f1f3d 100%);
+      border-bottom: 1px solid var(--border-color);
+      padding: 20px 32px;
+      position: relative;
+      overflow: hidden;
+    }
+    .topbar::before {
+      content: '';
+      position: absolute;
+      top: -60%; right: -8%;
+      width: 480px; height: 480px;
+      background: radial-gradient(circle, rgba(79,195,247,0.07) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .topbar-inner {
+      max-width: 1280px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px; flex-wrap: wrap;
+      position: relative;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-logo {
+      width: 38px; height: 38px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--color-accent), var(--color-purple));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; font-weight: 800; color: #0a0e1a;
+    }
+    .brand-text h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+    .brand-text h1 span { color: var(--color-accent); }
+    .brand-text .tag {
+      display: inline-block;
+      background: rgba(79,195,247,0.12);
+      border: 1px solid rgba(79,195,247,0.3);
+      color: var(--color-accent);
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 2px 8px; border-radius: 16px;
+      margin-top: 2px;
     }
 
-    /* ===== Subtitle Area ===== */
-    .subtitle-area {
-      background: rgba(0,0,0,0.4);
+    .lang-switch {
+      display: flex; gap: 4px;
+      background: var(--bg-card);
       border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm);
-      padding: 10px 14px;
-      font-size: 13px; color: var(--text-primary);
-      min-height: 42px;
-      display: flex; align-items: center;
-      font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      border-radius: 20px;
+      padding: 3px;
     }
-    .subtitle-area.off {
-      color: var(--text-muted); font-style: italic;
+    .lang-btn {
+      border: none; background: transparent;
+      color: var(--text-secondary);
+      font-size: 12px; font-weight: 600;
+      padding: 6px 14px; border-radius: 16px;
+      cursor: pointer; transition: all 0.2s;
     }
+    .lang-btn.active {
+      background: var(--color-accent);
+      color: #0a0e1a;
+    }
+    .lang-btn:not(.active):hover { color: var(--text-primary); }
 
-    /* ===== Log Panel ===== */
-    .log-panel {
-      background: rgba(0,0,0,0.3);
-      border: 1px solid var(--border-color);
+    /* ===== Demo Notice ===== */
+    .notice-wrap { max-width: 1280px; margin: 0 auto; padding: 14px 32px 0; }
+    .demo-notice {
+      background: rgba(255,212,59,0.06);
+      border: 1px solid rgba(255,212,59,0.22);
       border-radius: var(--radius-sm);
-      padding: 8px 10px;
-      font-family: 'SF Mono', monospace;
-      font-size: 10px;
-      color: var(--text-muted);
-      max-height: 100px;
-      overflow-y: auto;
+      padding: 12px 16px;
+      display: flex; align-items: flex-start; gap: 10px;
+      font-size: 12px; color: var(--text-secondary);
       line-height: 1.6;
     }
-    .log-panel .log-entry { padding: 1px 0; }
-    .log-panel .log-entry.info { color: var(--text-secondary); }
-    .log-panel .log-entry.success { color: var(--color-accent2); }
-    .log-panel .log-entry.warn { color: var(--color-warning); }
-    .log-panel .log-entry.remote { color: var(--color-accent); }
+    .demo-notice .icon { color: var(--color-warning); font-size: 14px; flex-shrink: 0; margin-top: 1px; }
 
-    /* ===== Bottom Bar ===== */
-    .bottom-bar {
-      background: var(--bg-secondary);
-      border-top: 1px solid var(--border-color);
-      padding: 12px 32px;
-      display: flex; gap: 24px; align-items: center;
-      font-size: 12px; color: var(--text-muted);
-      flex-wrap: wrap;
+    /* ===== Main Layout ===== */
+    .main {
+      max-width: 1280px; margin: 0 auto;
+      padding: 20px 32px 48px;
     }
-    .bottom-bar .note {
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 1.4fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+    .panel-title {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 14px; font-weight: 700;
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .panel-title .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--color-accent2);
+      box-shadow: 0 0 8px var(--color-accent2);
+    }
+    .panel-title .dot.app { background: var(--color-accent); box-shadow: 0 0 8px var(--color-accent); }
+    .panel-title .dot.viewer { background: var(--color-pink); box-shadow: 0 0 8px var(--color-pink); }
+    .panel-title .badge {
+      margin-left: auto;
+      font-size: 10px; font-weight: 600;
+      padding: 2px 8px; border-radius: 10px;
+      background: rgba(105,219,124,0.12);
+      color: var(--color-accent2);
+      border: 1px solid rgba(105,219,124,0.25);
+    }
+
+    /* ===== Avatar Stage (Center) ===== */
+    .stage-panel {
+      background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-stage) 100%);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow), var(--shadow-glow);
+      display: flex; flex-direction: column;
+    }
+    .stage-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .stage-header .title { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .stage-header .live-badge {
+      font-size: 10px; font-weight: 700;
+      padding: 3px 8px; border-radius: 10px;
+      background: rgba(255,107,107,0.15);
+      color: var(--color-danger);
+      border: 1px solid rgba(255,107,107,0.3);
+      display: flex; align-items: center; gap: 4px;
+    }
+    .stage-header .live-badge::before {
+      content: ''; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--color-danger);
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    .stage-canvas-wrap {
+      position: relative;
+      background:
+        radial-gradient(ellipse at 50% 35%, rgba(79,195,247,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse at 50% 100%, rgba(177,151,252,0.06) 0%, transparent 50%),
+        var(--bg-stage);
+      flex: 1; min-height: 340px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .stage-canvas-wrap::before {
+      content: '';
+      position: absolute; bottom: 0; left: 50%;
+      transform: translateX(-50%);
+      width: 70%; height: 24px;
+      background: radial-gradient(ellipse, rgba(79,195,247,0.18) 0%, transparent 70%);
+      filter: blur(8px);
+    }
+    #avatarCanvas { display: block; position: relative; z-index: 1; }
+    .stage-overlay {
+      position: absolute; top: 12px; left: 12px;
+      display: flex; flex-direction: column; gap: 6px;
+      z-index: 2;
+    }
+    .stage-chip {
+      font-size: 10px; font-weight: 600;
+      padding: 3px 8px; border-radius: 8px;
+      background: rgba(10,14,26,0.7);
+      border: 1px solid var(--border-soft);
       color: var(--text-secondary);
+      backdrop-filter: blur(6px);
+    }
+    .stage-chip .val { color: var(--color-accent); }
+
+    /* ===== Controls ===== */
+    .controls { padding: 16px 18px; border-top: 1px solid var(--border-soft); }
+    .ctrl-section { margin-bottom: 16px; }
+    .ctrl-section:last-child { margin-bottom: 0; }
+    .ctrl-label {
+      font-size: 11px; font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+    .avatar-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .avatar-btn {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius-xs);
+      padding: 10px 6px;
+      cursor: pointer; transition: all 0.18s;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      color: var(--text-secondary);
+      font-size: 11px; font-weight: 600;
+    }
+    .avatar-btn:hover { border-color: var(--color-accent); color: var(--text-primary); }
+    .avatar-btn.active {
+      background: rgba(79,195,247,0.12);
+      border-color: var(--color-accent);
+      color: var(--color-accent);
+    }
+    .avatar-btn .emoji { font-size: 20px; }
+
+    .expr-grid, .action-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+    .ctrl-btn {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius-xs);
+      padding: 8px 4px;
+      cursor: pointer; transition: all 0.15s;
+      color: var(--text-secondary);
+      font-size: 11px; font-weight: 600;
+    }
+    .ctrl-btn:hover { border-color: var(--color-accent); color: var(--text-primary); background: var(--bg-card-hover); }
+    .ctrl-btn:active { transform: scale(0.96); }
+    .ctrl-btn.active {
+      background: rgba(105,219,124,0.12);
+      border-color: var(--color-accent2);
+      color: var(--color-accent2);
+    }
+
+    /* ===== Side Panels (App / Viewer) ===== */
+    .side-state {
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .state-row {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 12px;
+      padding: 7px 10px;
+      background: var(--bg-secondary);
+      border-radius: var(--radius-xs);
+    }
+    .state-row .k { color: var(--text-muted); }
+    .state-row .v { color: var(--text-primary); font-weight: 600; font-family: 'SF Mono', Menlo, monospace; font-size: 11px; }
+    .state-row .v.on { color: var(--color-accent2); }
+    .state-row .v.off { color: var(--text-muted); }
+    .state-row .v.warn { color: var(--color-warning); }
+
+    /* ===== Voice Sections ===== */
+    .voice-section {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 980px) { .voice-section { grid-template-columns: 1fr; } }
+
+    .voice-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+    .voice-card.ai { border-color: rgba(177,151,252,0.3); }
+    .voice-card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .voice-card-head .name { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .voice-card-head .name .emoji { font-size: 18px; }
+    .voice-badge {
+      font-size: 10px; font-weight: 700;
+      padding: 3px 9px; border-radius: 10px;
+      letter-spacing: 0.04em;
+    }
+    .voice-badge.web {
+      background: rgba(105,219,124,0.12);
+      color: var(--color-accent2);
+      border: 1px solid rgba(105,219,124,0.3);
+    }
+    .voice-badge.app-only {
+      background: rgba(177,151,252,0.12);
+      color: var(--color-purple);
+      border: 1px solid rgba(177,151,252,0.3);
+    }
+    .voice-desc {
+      font-size: 12px; color: var(--text-secondary);
+      line-height: 1.6; margin-bottom: 14px;
+    }
+
+    .preset-row {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      margin-bottom: 12px;
+    }
+    .preset-btn {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-soft);
+      border-radius: 16px;
+      padding: 6px 12px;
+      cursor: pointer; transition: all 0.15s;
+      color: var(--text-secondary);
+      font-size: 11px; font-weight: 600;
+    }
+    .preset-btn:hover { border-color: var(--color-accent); color: var(--text-primary); }
+    .preset-btn.active {
+      background: rgba(79,195,247,0.14);
+      border-color: var(--color-accent);
+      color: var(--color-accent);
+    }
+    .preset-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .voice-toggle {
+      width: 100%;
+      padding: 10px;
+      border: none; border-radius: var(--radius-xs);
+      background: var(--color-accent);
+      color: #0a0e1a;
+      font-size: 13px; font-weight: 700;
+      cursor: pointer; transition: all 0.18s;
+    }
+    .voice-toggle:hover { filter: brightness(1.1); }
+    .voice-toggle.on { background: var(--color-danger); color: #fff; }
+    .voice-toggle.ai-btn {
+      background: var(--bg-secondary);
+      border: 1px solid rgba(177,151,252,0.4);
+      color: var(--color-purple);
+    }
+    .voice-toggle.ai-btn:hover { background: rgba(177,151,252,0.1); }
+
+    .voice-status {
+      margin-top: 10px;
+      font-size: 11px;
+      padding: 8px 10px;
+      border-radius: var(--radius-xs);
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .voice-status .ind {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .voice-status.ready .ind { background: var(--color-accent2); }
+    .voice-status.requesting .ind { background: var(--color-warning); animation: pulse 1s infinite; }
+    .voice-status.enabled .ind { background: var(--color-accent); }
+    .voice-status.error .ind { background: var(--color-danger); }
+
+    /* ===== AI Modal ===== */
+    .ai-modal-mask {
+      position: fixed; inset: 0;
+      background: rgba(5,8,16,0.7);
+      backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    .ai-modal-mask.show { display: flex; }
+    .ai-modal {
+      background: var(--bg-card);
+      border: 1px solid rgba(177,151,252,0.3);
+      border-radius: var(--radius);
+      padding: 28px;
+      max-width: 440px; width: 90%;
+      box-shadow: var(--shadow), 0 0 60px rgba(177,151,252,0.15);
+    }
+    .ai-modal h3 { font-size: 17px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .ai-modal p { font-size: 13px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 18px; }
+    .ai-modal .close-btn {
+      width: 100%; padding: 10px;
+      background: var(--color-purple); color: #0a0e1a;
+      border: none; border-radius: var(--radius-xs);
+      font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+
+    /* ===== Event Log ===== */
+    .log-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+    .log-list {
+      max-height: 200px; overflow-y: auto;
+      background: var(--bg-stage);
+      border-radius: var(--radius-xs);
+      padding: 10px;
+      font-family: 'SF Mono', Menlo, monospace;
       font-size: 11px;
     }
+    .log-list::-webkit-scrollbar { width: 6px; }
+    .log-list::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+    .log-entry {
+      padding: 4px 0;
+      color: var(--text-secondary);
+      border-bottom: 1px solid rgba(42,54,84,0.3);
+      display: flex; gap: 8px;
+    }
+    .log-entry:last-child { border-bottom: none; }
+    .log-entry .ts { color: var(--text-muted); flex-shrink: 0; }
+    .log-entry .src { font-weight: 700; flex-shrink: 0; }
+    .log-entry .src.app { color: var(--color-accent); }
+    .log-entry .src.viewer { color: var(--color-pink); }
+    .log-entry .src.sys { color: var(--color-accent2); }
+    .log-entry .msg { color: var(--text-primary); }
 
-    /* ===== Responsive ===== */
-    @media (max-width: 1100px) {
-      .main-stage {
-        flex-direction: column;
-        align-items: center;
-      }
-      .conn-area {
-        flex-direction: row;
-        min-width: unset;
-        padding: 0;
-        gap: 20px;
-      }
-      .conn-flow {
-        flex-direction: row;
-      }
-      .device-shell { width: 100%; max-width: 420px; }
-      .device-shell.tablet { width: 100%; max-width: 460px; }
+    /* ===== Sync Indicator ===== */
+    .sync-bar {
+      display: flex; align-items: center; justify-content: center;
+      gap: 8px;
+      padding: 8px;
+      font-size: 11px; color: var(--text-muted);
+    }
+    .sync-bar .arrow {
+      color: var(--color-accent2);
+      animation: flow 2s infinite;
+    }
+    @keyframes flow { 0%,100%{opacity:0.4} 50%{opacity:1} }
+
+    .footer-note {
+      text-align: center; font-size: 11px; color: var(--text-muted);
+      padding: 24px 0 0;
     }
   </style>
 </head>
 <body>
-
-<!-- ===== Hero ===== -->
-<div class="hero">
-  <div class="hero-tag">CONTEST DEMO</div>
-  <h1>CheapLive — <span>双端模拟演示</span></h1>
-  <p class="hero-sub">
-    Single-page simulated multi-device demo. Uses the same state schema and UI flow planned for real app-web control.
-    App端采集与控制 → 本地 Server/Session → 直播端展示。
-  </p>
-  <div class="demo-notice">
-    <span class="notice-badge">CONTEST NOTICE</span>
-    <div class="notice-text">
-      <strong>本页面为 CheapLive 参赛演示 Demo</strong>，用于展示 App 端与直播端的交互流程。
-      参赛期间，本扩展功能所必需的 <strong>Android APK、Android 源代码和 App 端闭源实现暂不公开</strong>。
-      如有需要，请等候至比赛结束后的公开安排。
-    </div>
-  </div>
-</div>
-
-<!-- ===== Main Stage ===== -->
-<div class="main-stage">
-
-  <!-- ===== LEFT: App Device ===== -->
-  <div class="device-shell" id="appDevice">
-    <div class="device-notch">
-      <span class="time" id="appTime">12:00</span>
-      <span class="notch-dot"></span>
-    </div>
-    <div class="device-screen">
-
-      <!-- App Header -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-        <div>
-          <div style="font-size:14px;font-weight:700;color:var(--text-primary);">CheapLive App</div>
-          <div style="font-size:10px;color:var(--text-muted);">v1.0.0-debug</div>
-        </div>
-        <div class="badge simulated">Simulated</div>
-      </div>
-
-      <!-- Server Status -->
-      <div class="section-title">Local Server</div>
-      <div class="server-card">
-        <div class="status-row" style="margin-bottom:8px;">
-          <span class="status-dot" id="appServerDot"></span>
-          <span id="appServerStatus">Stopped</span>
-        </div>
-        <div class="url" id="appServerUrl">--</div>
-        <div style="display:flex;gap:8px;margin-top:8px;">
-          <button class="btn primary" id="btnStartServer" onclick="demo.startServer()">Start Server</button>
-          <button class="btn danger" id="btnStopServer" disabled onclick="demo.stopServer()">Stop</button>
+  <!-- ===== Top Bar ===== -->
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-logo">C</div>
+        <div class="brand-text">
+          <h1>Cheap<span>Live</span></h1>
+          <span class="tag" data-i18n="tag">参赛演示 Demo</span>
         </div>
       </div>
-
-      <!-- Session Info -->
-      <div class="section-title">Capture</div>
-      <div class="status-row">
-        <span class="status-dot" id="appCapDot"></span>
-        <span id="appCapStatus">Not capturing</span>
+      <div class="lang-switch" role="group">
+        <button class="lang-btn active" data-lang="zh">中文</button>
+        <button class="lang-btn" data-lang="en">English</button>
       </div>
-
-      <!-- Toggles -->
-      <div class="toggle-row">
-        <span class="toggle-label">Face Capture</span>
-        <div class="toggle-switch" id="appFaceToggle" onclick="demo.toggleFaceCapture()"></div>
-      </div>
-      <div class="toggle-row">
-        <span class="toggle-label">Voice Changer</span>
-        <div class="toggle-switch" id="appVoiceToggle" onclick="demo.toggleVoiceChanger()"></div>
-      </div>
-      <div class="toggle-row">
-        <span class="toggle-label">Subtitle</span>
-        <div class="toggle-switch" id="appSubToggle" onclick="demo.toggleSubtitle()"></div>
-      </div>
-
-      <!-- Mode -->
-      <div class="section-title">Capture Mode</div>
-      <div style="display:flex;gap:6px;">
-        <button class="btn success" id="btnSimMode" onclick="demo.setCaptureMode('simulated')">Simulated</button>
-        <button class="btn" id="btnRealMode" onclick="demo.setCaptureMode('real')">Real Camera <span class="badge experimental">Exp.</span></button>
-      </div>
-
-      <!-- Voice Presets -->
-      <div class="section-title">Voice Preset</div>
-      <div class="preset-grid" id="appPresetGrid">
-        <div class="preset-btn active" data-preset="original" onclick="demo.setPreset('original')"><span class="picon">🎤</span>Original</div>
-        <div class="preset-btn" data-preset="chipmunk" onclick="demo.setPreset('chipmunk')"><span class="picon">🐿️</span>Chipmunk</div>
-        <div class="preset-btn" data-preset="robot" onclick="demo.setPreset('robot')"><span class="picon">🤖</span>Robot</div>
-        <div class="preset-btn" data-preset="deep" onclick="demo.setPreset('deep')"><span class="picon">🎸</span>Deep</div>
-        <div class="preset-btn" data-preset="alien" onclick="demo.setPreset('alien')"><span class="picon">👽</span>Alien</div>
-        <div class="preset-btn" data-preset="echo" onclick="demo.setPreset('echo')"><span class="picon">📻</span>Echo</div>
-      </div>
-
-      <!-- Metrics -->
-      <div class="section-title">Stats</div>
-      <div class="metrics-row">
-        <div class="metric-item">
-          <div class="val" id="appFps">--</div>
-          <div class="lbl">FPS</div>
-        </div>
-        <div class="metric-item">
-          <div class="val" id="appFrames">0</div>
-          <div class="lbl">Frames Sent</div>
-        </div>
-        <div class="metric-item">
-          <div class="val" id="appLatency">--</div>
-          <div class="lbl">Est. Latency</div>
-        </div>
-      </div>
-
-      <!-- Avatar mini preview -->
-      <div class="section-title">App Preview</div>
-      <div class="avatar-preview" style="aspect-ratio:16/9;">
-        <canvas id="appAvatarCanvas"></canvas>
-      </div>
-
     </div>
   </div>
 
-  <!-- ===== MIDDLE: Connection Area ===== -->
-  <div class="conn-area" id="connArea">
-    <div class="conn-flow">
-      <div class="conn-node" id="connApp">📱 App Capture</div>
-
-      <div class="conn-spark" id="connSpark1">
-        <span class="dot a1"></span><span class="dot a2"></span><span class="dot a3"></span>
-      </div>
-      <div class="conn-arrow" id="connArrow1">↓</div>
-
-      <div class="conn-node" id="connServer">⚡ Local Server</div>
-
-      <div class="conn-spark" id="connSpark2">
-        <span class="dot a1"></span><span class="dot a2"></span><span class="dot a3"></span>
-      </div>
-      <div class="conn-arrow" id="connArrow2">↓</div>
-
-      <div class="conn-node" id="connViewer">💻 Viewer</div>
-    </div>
-
-    <div class="latency-badge" id="latencyBadge">-- ms</div>
-
-    <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;">
-      <span class="badge" id="badgeConn" style="opacity:0.4;">disconnected</span>
-      <span class="badge simulated" id="badgeSim" style="font-size:9px;">Single-page simulated</span>
-    </div>
-
-    <div class="note" style="font-size:10px;color:var(--text-muted);text-align:center;max-width:160px;">
-      App-Web control flow preview.<br>No real network required.
+  <!-- ===== Demo Notice ===== -->
+  <div class="notice-wrap">
+    <div class="demo-notice">
+      <span class="icon">⚠</span>
+      <span id="noticeText"></span>
     </div>
   </div>
 
-  <!-- ===== RIGHT: Viewer Device ===== -->
-  <div class="device-shell tablet" id="viewerDevice">
-    <div class="device-notch">
-      <span class="time" id="viewerTime">12:00</span>
-      <span class="notch-dot"></span>
+  <!-- ===== Main ===== -->
+  <div class="main">
+    <!-- ===== Three-column layout ===== -->
+    <div class="layout">
+      <!-- App Side -->
+      <div class="panel">
+        <div class="panel-title">
+          <span class="dot app"></span>
+          <span data-i18n="appSide">App 端</span>
+          <span class="badge" data-i18n="appBadge">模拟</span>
+        </div>
+        <div class="side-state" id="appState"></div>
+      </div>
+
+      <!-- Avatar Stage -->
+      <div class="stage-panel">
+        <div class="stage-header">
+          <div class="title">
+            <span class="dot"></span>
+            <span data-i18n="stage">Avatar 舞台</span>
+          </div>
+          <div class="live-badge">LIVE</div>
+        </div>
+        <div class="stage-canvas-wrap">
+          <div class="stage-overlay">
+            <div class="stage-chip"><span data-i18n="avatarLabel">形象</span>: <span class="val" id="chipAvatar">—</span></div>
+            <div class="stage-chip"><span data-i18n="exprLabel">表情</span>: <span class="val" id="chipExpr">—</span></div>
+            <div class="stage-chip"><span data-i18n="actionLabel">动作</span>: <span class="val" id="chipAction">—</span></div>
+          </div>
+          <canvas id="avatarCanvas" width="360" height="340"></canvas>
+        </div>
+        <div class="controls">
+          <div class="ctrl-section">
+            <div class="ctrl-label" data-i18n="chooseAvatar">选择 Avatar</div>
+            <div class="avatar-grid" id="avatarGrid"></div>
+          </div>
+          <div class="ctrl-section">
+            <div class="ctrl-label" data-i18n="expression">表情</div>
+            <div class="expr-grid" id="exprGrid"></div>
+          </div>
+          <div class="ctrl-section">
+            <div class="ctrl-label" data-i18n="action">动作</div>
+            <div class="action-grid" id="actionGrid"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Viewer Side -->
+      <div class="panel">
+        <div class="panel-title">
+          <span class="dot viewer"></span>
+          <span data-i18n="viewerSide">直播端</span>
+          <span class="badge" data-i18n="viewerBadge">模拟</span>
+        </div>
+        <div class="side-state" id="viewerState"></div>
+        <div class="sync-bar">
+          <span data-i18n="synced">状态已同步</span>
+          <span class="arrow">⟷</span>
+        </div>
+      </div>
     </div>
-    <div class="device-screen">
 
-      <!-- Viewer Header -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-        <div>
-          <div style="font-size:14px;font-weight:700;color:var(--text-primary);">Live Viewer</div>
-          <div style="font-size:10px;color:var(--text-muted);">Stream Client</div>
+    <!-- ===== Voice Sections ===== -->
+    <div class="voice-section">
+      <!-- Web Voice -->
+      <div class="voice-card">
+        <div class="voice-card-head">
+          <div class="name"><span class="emoji">🎙</span><span data-i18n="webVoice">普通变声</span></div>
+          <span class="voice-badge web" data-i18n="webBadge">网页 Demo 可用</span>
         </div>
-        <div class="badge" id="viewerConnBadge" style="opacity:0.4;">disconnected</div>
-      </div>
-
-      <!-- Avatar Display -->
-      <div class="section-title">Avatar</div>
-      <div class="avatar-preview" id="viewerAvatarArea">
-        <canvas id="viewerAvatarCanvas"></canvas>
-      </div>
-
-      <!-- Status -->
-      <div class="section-title">Received Status</div>
-      <div class="status-row">
-        <span class="status-dot" id="viewerConnDot"></span>
-        <span id="viewerConnStatus">Not connected</span>
-      </div>
-      <div class="metrics-row" style="grid-template-columns:1fr 1fr 1fr 1fr;">
-        <div class="metric-item">
-          <div class="val" id="viewerFrames">0</div>
-          <div class="lbl">Frames</div>
-        </div>
-        <div class="metric-item">
-          <div class="val" id="viewerLatency">--</div>
-          <div class="lbl">Latency</div>
-        </div>
-        <div class="metric-item">
-          <div class="val" id="viewerFaceStatus">OFF</div>
-          <div class="lbl">Face Cap</div>
-        </div>
-        <div class="metric-item">
-          <div class="val" id="viewerVoiceStatus">OFF</div>
-          <div class="lbl">Voice</div>
+        <div class="voice-desc" data-i18n="webVoiceDesc"></div>
+        <div class="preset-row" id="webPresetRow"></div>
+        <button class="voice-toggle" id="webVoiceToggle"></button>
+        <div class="voice-status" id="webVoiceStatus">
+          <span class="ind"></span><span id="webVoiceStatusText"></span>
         </div>
       </div>
 
-      <!-- Subtitle Display -->
-      <div class="section-title">Subtitle</div>
-      <div class="subtitle-area off" id="viewerSubtitle">Subtitle off</div>
-
-      <!-- Remote Control -->
-      <div class="section-title">Remote Control</div>
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        <div class="toggle-row">
-          <span class="toggle-label">App Face Capture</span>
-          <div class="toggle-switch" id="viewerFaceToggle" onclick="demo.toggleFaceCapture()"></div>
+      <!-- AI Voice -->
+      <div class="voice-card ai">
+        <div class="voice-card-head">
+          <div class="name"><span class="emoji">🤖</span><span data-i18n="aiVoice">AI 变声</span></div>
+          <span class="voice-badge app-only" data-i18n="aiBadge">仅真实 App 可用</span>
         </div>
-        <div class="toggle-row">
-          <span class="toggle-label">App Voice Changer</span>
-          <div class="toggle-switch" id="viewerVoiceToggle" onclick="demo.toggleVoiceChanger()"></div>
-        </div>
-        <div class="toggle-row">
-          <span class="toggle-label">App Subtitle</span>
-          <div class="toggle-switch" id="viewerSubToggle" onclick="demo.toggleSubtitle()"></div>
+        <div class="voice-desc" data-i18n="aiVoiceDesc"></div>
+        <div class="preset-row" id="aiPresetRow"></div>
+        <button class="voice-toggle ai-btn" id="aiVoiceBtn"></button>
+        <div class="voice-status" id="aiVoiceStatus">
+          <span class="ind"></span><span id="aiVoiceStatusText"></span>
         </div>
       </div>
+    </div>
 
-      <div class="section-title">Remote Preset</div>
-      <div class="preset-grid" id="viewerPresetGrid">
-        <div class="preset-btn active" data-preset="original" onclick="demo.setPreset('original')"><span class="picon">🎤</span>Original</div>
-        <div class="preset-btn" data-preset="chipmunk" onclick="demo.setPreset('chipmunk')"><span class="picon">🐿️</span>Chipmunk</div>
-        <div class="preset-btn" data-preset="robot" onclick="demo.setPreset('robot')"><span class="picon">🤖</span>Robot</div>
-        <div class="preset-btn" data-preset="deep" onclick="demo.setPreset('deep')"><span class="picon">🎸</span>Deep</div>
-        <div class="preset-btn" data-preset="alien" onclick="demo.setPreset('alien')"><span class="picon">👽</span>Alien</div>
-        <div class="preset-btn" data-preset="echo" onclick="demo.setPreset('echo')"><span class="picon">📻</span>Echo</div>
+    <!-- ===== Event Log ===== -->
+    <div class="log-panel" style="margin-top:16px;">
+      <div class="panel-title">
+        <span class="dot"></span>
+        <span data-i18n="eventLog">事件日志</span>
       </div>
+      <div class="log-list" id="logList"></div>
+    </div>
 
-      <!-- Log -->
-      <div class="section-title">Event Log</div>
-      <div class="log-panel" id="viewerLog">
-        <div class="log-entry info">Waiting for server...</div>
-      </div>
+    <div class="footer-note" data-i18n="footer"></div>
+  </div>
 
+  <!-- ===== AI Modal ===== -->
+  <div class="ai-modal-mask" id="aiModalMask">
+    <div class="ai-modal">
+      <h3>🤖 <span data-i18n="aiModalTitle">AI 变声（仅真实 App 可用）</span></h3>
+      <p id="aiModalText"></p>
+      <button class="close-btn" id="aiModalClose" data-i18n="close">知道了</button>
     </div>
   </div>
 
-</div>
+  <script type="module">
+  // ============================================================
+  // 复用主项目 VoiceChanger（通过 adapter，不复制第二套实现）
+  // ============================================================
+  import { ContestVoiceAdapter, CONTEST_VOICE_PRESETS } from './contest-voice-adapter.js';
+  const voiceAdapter = new ContestVoiceAdapter();
 
-<!-- ===== Bottom Bar ===== -->
-<div class="bottom-bar">
-  <span class="note">Single-page simulated multi-device demo. Camera and microphone permissions are only requested in real capture mode.</span>
-  <span style="flex:1;"></span>
-  <span class="badge simulated">Simulated</span>
-  <span class="badge experimental">Experimental voice mode</span>
-</div>
+  // ============================================================
+  // i18n
+  // ============================================================
+  const I18N = {
+    zh: {
+      tag: '参赛演示 Demo',
+      appSide: 'App 端',
+      appBadge: '模拟',
+      viewerSide: '直播端',
+      viewerBadge: '模拟',
+      stage: 'Avatar 舞台',
+      avatarLabel: '形象',
+      exprLabel: '表情',
+      actionLabel: '动作',
+      chooseAvatar: '选择 Avatar',
+      expression: '表情',
+      action: '动作',
+      synced: '状态已同步',
+      eventLog: '事件日志',
+      webVoice: '普通变声',
+      webBadge: '网页 Demo 可用',
+      aiVoice: 'AI 变声',
+      aiBadge: '仅真实 App 可用',
+      aiModalTitle: 'AI 变声（仅真实 App 可用）',
+      close: '知道了',
+      notice: '本页面为 CheapLive 参赛演示 Demo，用于展示 App 端与直播端的交互流程。参赛期间，本扩展功能所必需的 Android APK、Android 源代码和 App 端闭源实现暂不公开。如有需要，请等候至比赛结束后的公开安排。',
+      webVoiceDesc: '网页 Demo 可用，复用 CheapLive 主项目 Web Audio 变声模块。需要浏览器麦克风权限。',
+      aiVoiceDesc: 'AI 变声仅在真实 Android App 中可用。当前公开网页 Demo 只展示控制入口，不包含 App 端闭源实现、音频模型或 APK。',
+      aiModalText: 'AI 变声仅在真实 Android App 中可用。当前公开网页 Demo 只展示控制入口，不包含 App 端闭源实现、音频模型或 APK。',
+      footer: 'CheapLive 参赛演示 · 公开 Demo 仅展示交互流程，真实功能以 App 端实现为准',
+      // avatars
+      av_saca: '萨卡班甲鱼',
+      av_cat: '猫',
+      av_dog: '狗',
+      av_rabbit: '兔子',
+      av_fox: '狐狸',
+      av_bear: '小熊',
+      // expressions
+      ex_blink: '眨眼',
+      ex_mouth: '张嘴',
+      ex_smile: '微笑',
+      ex_wide: '惊讶',
+      // actions
+      ac_nod: '点头',
+      ac_look: '左右看',
+      ac_tail: '摇尾巴',
+      ac_bounce: '弹跳',
+      // voice presets
+      vp_original: '原声',
+      vp_cute: '可爱',
+      vp_robot: '机器人',
+      vp_deep: '低沉',
+      vp_radio: '电台',
+      // states
+      st_avatar: '当前 Avatar',
+      st_expr: '当前表情',
+      st_action: '当前动作',
+      st_webVoice: '普通变声',
+      st_aiVoice: 'AI 变声',
+      st_voicePreset: '变声预设',
+      st_captureMode: '采集模式',
+      st_faceCapture: '面捕',
+      st_subtitle: '字幕',
+      st_on: '开',
+      st_off: '关',
+      st_simulated: '模拟',
+      st_realAppOnly: '仅真实 App',
+      st_unavailable: '不可用',
+      // voice status
+      vs_ready: '就绪',
+      vs_checking: '正在检查主项目变声模块支持…',
+      vs_requesting: '请求麦克风权限中…',
+      vs_enabled: '已启用',
+      vs_error: '错误',
+      vs_permRequired: '需要麦克风权限',
+      vs_repairing: '主项目变声模块暂不可用，正在修复中',
+      vs_unsupported: '当前环境不支持主项目变声模块',
+      vs_webDemo: '网页 Demo 可用',
+      vs_appOnly: '仅真实 App 可用',
+      vs_clickInfo: '点击查看说明',
+      // toggle
+      toggleEnable: '启用普通变声',
+      toggleDisable: '停止普通变声',
+      aiBtnText: 'AI 变声（仅真实 App 可用）',
+      // logs
+      log_appAvatar: 'App 切换 Avatar',
+      log_viewerExpr: 'Viewer 远程触发表情',
+      log_viewerAction: 'Viewer 远程触发动作',
+      log_synced: '状态已同步',
+      log_appExpr: 'App 触发表情',
+      log_appAction: 'App 触发动作',
+      log_webVoiceOn: '普通变声已启用',
+      log_webVoiceOff: '普通变声已停止',
+      log_webVoicePerm: '普通变声：需要麦克风权限',
+      log_webVoiceErr: '普通变声出错',
+      log_aiInfo: 'AI 变声：仅真实 App 可用（已展示说明）',
+      log_init: 'Demo 已初始化',
+    },
+    en: {
+      tag: 'Contest Demo',
+      appSide: 'App Side',
+      appBadge: 'Simulated',
+      viewerSide: 'Viewer Side',
+      viewerBadge: 'Simulated',
+      stage: 'Avatar Stage',
+      avatarLabel: 'Avatar',
+      exprLabel: 'Expression',
+      actionLabel: 'Action',
+      chooseAvatar: 'Choose Avatar',
+      expression: 'Expression',
+      action: 'Action',
+      synced: 'State synced',
+      eventLog: 'Event Log',
+      webVoice: 'Web Voice Effect',
+      webBadge: 'Web Demo Available',
+      aiVoice: 'AI Voice Changer',
+      aiBadge: 'Real App Only',
+      aiModalTitle: 'AI Voice Changer (Real App Only)',
+      close: 'Got it',
+      notice: 'This page is a public demo for the CheapLive contest entry. It demonstrates the interaction flow between the app side and the viewer side. During the contest period, the Android APK, Android source code, and closed-source app-side implementation required by this extended feature will not be released. Please wait for post-contest release arrangements if needed.',
+      webVoiceDesc: 'Available in the web demo through the main CheapLive Web Audio voice changer module. Browser microphone permission is required.',
+      aiVoiceDesc: 'AI voice changing is available only in the real Android app. This public web demo only shows the control entry and does not include the closed-source app-side implementation, voice model, or APK.',
+      aiModalText: 'AI voice changing is available only in the real Android app. This public web demo only shows the control entry and does not include the closed-source app-side implementation, voice model, or APK.',
+      footer: 'CheapLive Contest Demo · Public demo shows interaction flow only; real features depend on the app-side implementation',
+      av_saca: 'Sacabambaspis',
+      av_cat: 'Cat',
+      av_dog: 'Dog',
+      av_rabbit: 'Rabbit',
+      av_fox: 'Fox',
+      av_bear: 'Bear',
+      ex_blink: 'Blink',
+      ex_mouth: 'Open Mouth',
+      ex_smile: 'Smile',
+      ex_wide: 'Eye Wide',
+      ac_nod: 'Nod',
+      ac_look: 'Look Around',
+      ac_tail: 'Tail Wag',
+      ac_bounce: 'Bounce',
+      vp_original: 'Original',
+      vp_cute: 'Cute',
+      vp_robot: 'Robot',
+      vp_deep: 'Deep',
+      vp_radio: 'Radio',
+      st_avatar: 'Avatar',
+      st_expr: 'Expression',
+      st_action: 'Action',
+      st_webVoice: 'Web Voice',
+      st_aiVoice: 'AI Voice',
+      st_voicePreset: 'Voice Preset',
+      st_captureMode: 'Capture Mode',
+      st_faceCapture: 'Face Capture',
+      st_subtitle: 'Subtitle',
+      st_on: 'ON',
+      st_off: 'OFF',
+      st_simulated: 'Simulated',
+      st_realAppOnly: 'Real App Only',
+      st_unavailable: 'Unavailable',
+      vs_ready: 'Ready',
+      vs_checking: 'Checking main-project voice module support…',
+      vs_requesting: 'Requesting microphone permission…',
+      vs_enabled: 'Enabled',
+      vs_error: 'Error',
+      vs_permRequired: 'Microphone permission required',
+      vs_repairing: 'The web voice effect is currently unavailable because the main-project voice changer is still being repaired.',
+      vs_unsupported: 'The current environment does not support the main-project voice module',
+      vs_webDemo: 'Web demo available',
+      vs_appOnly: 'Real app only',
+      vs_clickInfo: 'Click for info',
+      toggleEnable: 'Enable Web Voice',
+      toggleDisable: 'Stop Web Voice',
+      aiBtnText: 'AI Voice Changer (Real App Only)',
+      log_appAvatar: 'App switched avatar',
+      log_viewerExpr: 'Viewer triggered expression',
+      log_viewerAction: 'Viewer triggered action',
+      log_synced: 'State synced',
+      log_appExpr: 'App triggered expression',
+      log_appAction: 'App triggered action',
+      log_webVoiceOn: 'Web voice enabled',
+      log_webVoiceOff: 'Web voice stopped',
+      log_webVoicePerm: 'Web voice: microphone permission required',
+      log_webVoiceErr: 'Web voice error',
+      log_aiInfo: 'AI voice: real app only (info shown)',
+      log_init: 'Demo initialized',
+    }
+  };
 
-<script>
-(function() {
-  'use strict';
+  let LANG = 'zh';
+  function t(key) { return (I18N[LANG] && I18N[LANG][key]) || key; }
 
-  // ===== State =====
+  function setLang(lang) {
+    LANG = lang;
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+    document.querySelectorAll('.lang-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.lang === lang);
+    });
+    // text bindings
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const k = el.dataset.i18n;
+      if (k === 'webVoiceDesc') el.textContent = t('webVoiceDesc');
+      else if (k === 'aiVoiceDesc') el.textContent = t('aiVoiceDesc');
+      else if (k === 'footer') el.textContent = t('footer');
+      else if (k === 'notice') document.getElementById('noticeText').textContent = t('notice');
+      else el.textContent = t(k);
+    });
+    document.getElementById('noticeText').textContent = t('notice');
+    document.getElementById('aiModalText').textContent = t('aiModalText');
+    // re-render dynamic UI
+    renderAvatarGrid();
+    renderExprGrid();
+    renderActionGrid();
+    renderPresets();
+    renderStates();
+    renderVoiceStatus();
+    document.getElementById('webVoiceToggle').textContent = voiceAdapter.isActive ? t('toggleDisable') : t('toggleEnable');
+    document.getElementById('aiVoiceBtn').textContent = t('aiBtnText');
+  }
+
+  // ============================================================
+  // State (single source of truth, mirrors App API semantics)
+  // ============================================================
+  const AVATARS = ['saca', 'cat', 'dog', 'rabbit', 'fox', 'bear'];
+  const EXPRESSIONS = ['blink', 'mouth', 'smile', 'wide'];
+  const ACTIONS = ['nod', 'look', 'tail', 'bounce'];
+  const VOICE_PRESETS = ['original', 'cute', 'robot', 'deep', 'radio'];
+
   const state = {
-    serverState: 'stopped', // stopped | starting | running
-    faceCapture: false,
-    voiceChanger: false,
-    voicePreset: 'original',
+    avatar: 'saca',
+    expression: null,   // current transient expression
+    action: null,       // current transient action
+    webVoicePreset: 'original',
+    aiVoiceAvailable: 'real_app_only', // fixed
     captureMode: 'simulated',
+    faceCapture: false,
     subtitle: false,
-    connected: false,
-    latency: 0,
-    frameCount: 0,
-    fps: 0,
-    serverTimer: null,
-    frameTimer: null,
-    log: []
+    // animation params
+    anim: {
+      eyeOpen: 1,      // 0..1
+      mouthOpen: 0,    // 0..1
+      smile: 0,        // -1..1
+      eyeWide: 0,      // 0..1
+      nodPhase: 0,     // animation
+      lookDir: 0,      // -1..1
+      tailWag: 0,      // 0..1
+      bounceY: 0,      // px offset
+    },
+    animTargets: { eyeOpen: 1, mouthOpen: 0, smile: 0, eyeWide: 0, lookDir: 0, tailWag: 0, bounceY: 0 },
   };
 
-  const PRESET_NAMES = {
-    original: 'Original',
-    chipmunk: 'Chipmunk',
-    robot: 'Robot',
-    deep: 'Deep',
-    alien: 'Alien',
-    echo: 'Echo'
+  // ============================================================
+  // Avatar Canvas Renderer (lightweight 2D, product-stage look)
+  // ============================================================
+  const canvas = document.getElementById('avatarCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  // Avatar visual configs
+  const AVATAR_CFG = {
+    saca:   { body: '#8fb3d9', bodyDark: '#5a7da8', belly: '#cfe0f0', eye: '#1a1a2e', accent: '#4a6f94', hasTail: true, shape: 'spindle' },
+    cat:    { body: '#f0a868', bodyDark: '#d18b4a', belly: '#fce4c8', eye: '#2d1e0a', accent: '#e08840', hasTail: true, shape: 'round', ears: 'triangle' },
+    dog:    { body: '#c89968', bodyDark: '#a87a4a', belly: '#ecdcc4', eye: '#2a1a08', accent: '#8a5a30', hasTail: true, shape: 'round', ears: 'floppy' },
+    rabbit: { body: '#e8e8ec', bodyDark: '#c0c0c8', belly: '#ffffff', eye: '#ff6b9d', accent: '#ffb3c8', hasTail: true, shape: 'round', ears: 'long' },
+    fox:    { body: '#e8703a', bodyDark: '#c4541e', belly: '#fce8d0', eye: '#1a1a2e', accent: '#a04020', hasTail: true, shape: 'pointy', ears: 'triangle' },
+    bear:   { body: '#9a7b5a', bodyDark: '#7a5e40', belly: '#d4bc94', eye: '#1a1208', accent: '#6a4e30', hasTail: false, shape: 'round', ears: 'round' },
   };
 
-  // ===== Utility =====
-  function $(id) { return document.getElementById(id); }
+  function drawAvatar() {
+    ctx.clearRect(0, 0, W, H);
+    const cx = W / 2;
+    const cy = H / 2 + 10 + state.anim.bounceY;
+    const cfg = AVATAR_CFG[state.avatar];
+    const a = state.anim;
 
-  function addLog(source, msg, level) {
-    level = level || 'info';
-    state.log.push({ source, msg, level, ts: Date.now() });
-    if (state.log.length > 50) state.log.shift();
-    renderLog();
-    if (source === 'viewer') {
-      // remote command ack in app log too
-      const appLog = document.getElementById('appLog');
-      if (!appLog) return;
-    }
+    // ground shadow
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 110, 80 - Math.abs(a.bounceY) * 0.3, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    // slight head turn
+    ctx.rotate(a.lookDir * 0.12);
+
+    drawBody(cfg, a);
+    drawTail(cfg, a);
+    drawHead(cfg, a);
+    ctx.restore();
   }
 
-  function renderLog() {
-    const el = $('viewerLog');
-    if (!el) return;
-    el.innerHTML = state.log.slice(-12).map(function(e) {
-      var cls = e.level;
-      if (e.source === 'viewer' && e.level === 'info') cls = 'remote';
-      return '<div class="log-entry ' + cls + '">[' + e.source + '] ' + e.msg + '</div>';
-    }).join('');
-  }
+  function drawBody(cfg, a) {
+    const shape = cfg.shape;
+    ctx.fillStyle = cfg.body;
+    ctx.strokeStyle = cfg.bodyDark;
+    ctx.lineWidth = 2;
 
-  // ===== App Avatar mini renderer =====
-  var appCtx = null;
-  var viewerCtx = null;
-  var appAvatarAnim = 0;
-
-  function initAppCanvas() {
-    var c = $('appAvatarCanvas');
-    if (!c) return;
-    c.width = c.clientWidth || 300;
-    c.height = c.clientHeight || 169;
-    appCtx = c.getContext('2d');
-  }
-
-  function initViewerCanvas() {
-    var c = $('viewerAvatarCanvas');
-    if (!c) return;
-    var area = $('viewerAvatarArea');
-    var w = area ? area.clientWidth : 400;
-    var h = area ? area.clientHeight : 300;
-    c.width = w;
-    c.height = h;
-    viewerCtx = c.getContext('2d');
-  }
-
-  function drawAppAvatar() {
-    if (!appCtx) return;
-    var ctx = appCtx;
-    var w = ctx.canvas.width;
-    var h = ctx.canvas.height;
-    ctx.clearRect(0, 0, w, h);
-
-    // Background
-    ctx.fillStyle = '#0d1525';
-    ctx.fillRect(0, 0, w, h);
-
-    if (!state.connected) {
-      ctx.fillStyle = '#5a6a85';
-      ctx.font = '13px -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Server not started', w/2, h/2);
-      return;
-    }
-
-    // Simple animated avatar: a circle with face
-    var cx = w/2;
-    var cy = h/2 - 10;
-    var r = Math.min(w, h) * 0.25;
-
-    // Body glow
-    if (state.faceCapture) {
-      ctx.shadowColor = 'rgba(79,195,247,0.4)';
-      ctx.shadowBlur = 20;
-    }
-
-    // Body
-    var bodyGrad = ctx.createRadialGradient(cx, cy - r*0.3, r*0.1, cx, cy, r);
-    bodyGrad.addColorStop(0, '#ff9a3c');
-    bodyGrad.addColorStop(0.7, '#e8822a');
-    bodyGrad.addColorStop(1, '#c4601a');
-    ctx.fillStyle = bodyGrad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-
-    // Eyes
-    var eyeY = cy - r * 0.25;
-    var eyeSpacing = r * 0.4;
-    var eyeR = r * 0.22;
-
-    // White
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(cx - eyeSpacing, eyeY, eyeR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(cx + eyeSpacing, eyeY, eyeR, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Pupils
-    var pupilR = eyeR * 0.55;
-    ctx.fillStyle = '#0a0a0a';
-    ctx.beginPath();
-    ctx.arc(cx - eyeSpacing, eyeY, pupilR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(cx + eyeSpacing, eyeY, pupilR, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Mouth
-    if (state.faceCapture) {
-      var mouthY = cy + r * 0.3;
-      var mouthW = r * 0.5;
-      ctx.strokeStyle = '#c4601a';
-      ctx.lineWidth = 2;
+    if (shape === 'spindle') {
+      // Sacabambaspis: horizontal spindle
       ctx.beginPath();
-      ctx.arc(cx, mouthY, mouthW, 0.1, Math.PI - 0.1);
+      ctx.ellipse(0, 30, 95, 48, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // belly
+      ctx.fillStyle = cfg.belly;
+      ctx.beginPath();
+      ctx.ellipse(0, 42, 80, 32, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // head shield (front)
+      ctx.fillStyle = cfg.body;
+      ctx.beginPath();
+      ctx.ellipse(0, -10, 70, 55, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    } else if (shape === 'pointy') {
+      // Fox: pointed body
+      ctx.beginPath();
+      ctx.ellipse(0, 35, 70, 50, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = cfg.belly;
+      ctx.beginPath();
+      ctx.ellipse(0, 48, 50, 32, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // round body (cat/dog/rabbit/bear)
+      ctx.beginPath();
+      ctx.ellipse(0, 38, 68, 52, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = cfg.belly;
+      ctx.beginPath();
+      ctx.ellipse(0, 50, 48, 34, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawTail(cfg, a) {
+    if (!cfg.hasTail) return;
+    const wag = Math.sin(Date.now() * 0.008) * a.tailWag * 0.6;
+    ctx.save();
+    ctx.translate(-75, 35);
+    ctx.rotate(-0.4 + wag);
+
+    if (state.avatar === 'saca') {
+      // tail fin
+      ctx.fillStyle = cfg.bodyDark;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(-40, -25);
+      ctx.lineTo(-30, 15);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+    } else if (state.avatar === 'fox') {
+      ctx.fillStyle = cfg.body;
+      ctx.beginPath();
+      ctx.ellipse(-25, 0, 30, 16, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // white tip
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.ellipse(-48, 0, 12, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (state.avatar === 'rabbit') {
+      // tiny puff tail
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(-15, 0, 10, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // generic tail
+      ctx.fillStyle = cfg.body;
+      ctx.beginPath();
+      ctx.ellipse(-20, 0, 22, 10, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawHead(cfg, a) {
+    const shape = cfg.shape;
+    let headY = -30;
+    let headR = 52;
+    if (shape === 'spindle') headY = -10, headR = 55;
+
+    // ears
+    drawEars(cfg, headY, headR);
+
+    // head
+    ctx.fillStyle = cfg.body;
+    ctx.strokeStyle = cfg.bodyDark;
+    ctx.lineWidth = 2;
+    if (shape === 'pointy') {
+      // fox: triangular face
+      ctx.beginPath();
+      ctx.moveTo(0, headY - headR);
+      ctx.quadraticCurveTo(headR, headY, 0, headY + headR * 0.8);
+      ctx.quadraticCurveTo(-headR, headY, 0, headY - headR);
+      ctx.fill(); ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.arc(0, headY, headR, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    }
+
+    // eyes
+    drawEyes(cfg, headY, headR, a);
+
+    // nose / snout
+    drawNose(cfg, headY, headR);
+
+    // mouth (expression-driven)
+    drawMouth(cfg, headY, headR, a);
+
+    // whiskers for cat/fox
+    if (state.avatar === 'cat' || state.avatar === 'fox') {
+      drawWhiskers(cfg, headY, headR);
+    }
+  }
+
+  function drawEars(cfg, headY, headR) {
+    const ears = cfg.ears;
+    if (!ears) return;
+    ctx.fillStyle = cfg.body;
+    ctx.strokeStyle = cfg.bodyDark;
+    ctx.lineWidth = 2;
+
+    if (ears === 'triangle') {
+      // cat / fox
+      ctx.beginPath();
+      ctx.moveTo(-headR * 0.7, headY - headR * 0.5);
+      ctx.lineTo(-headR * 0.4, headY - headR * 1.4);
+      ctx.lineTo(-headR * 0.1, headY - headR * 0.6);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(headR * 0.7, headY - headR * 0.5);
+      ctx.lineTo(headR * 0.4, headY - headR * 1.4);
+      ctx.lineTo(headR * 0.1, headY - headR * 0.6);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      // inner ear
+      ctx.fillStyle = cfg.accent;
+      ctx.beginPath();
+      ctx.moveTo(-headR * 0.55, headY - headR * 0.6);
+      ctx.lineTo(-headR * 0.4, headY - headR * 1.15);
+      ctx.lineTo(-headR * 0.25, headY - headR * 0.65);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(headR * 0.55, headY - headR * 0.6);
+      ctx.lineTo(headR * 0.4, headY - headR * 1.15);
+      ctx.lineTo(headR * 0.25, headY - headR * 0.65);
+      ctx.closePath(); ctx.fill();
+    } else if (ears === 'floppy') {
+      // dog
+      ctx.fillStyle = cfg.bodyDark;
+      ctx.beginPath();
+      ctx.ellipse(-headR * 0.7, headY - headR * 0.2, 18, 30, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(headR * 0.7, headY - headR * 0.2, 18, 30, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (ears === 'long') {
+      // rabbit
+      ctx.fillStyle = cfg.body;
+      ctx.beginPath();
+      ctx.ellipse(-headR * 0.35, headY - headR * 1.1, 12, 38, -0.1, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(headR * 0.35, headY - headR * 1.1, 12, 38, 0.1, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // inner
+      ctx.fillStyle = cfg.accent;
+      ctx.beginPath();
+      ctx.ellipse(-headR * 0.35, headY - headR * 1.1, 6, 30, -0.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(headR * 0.35, headY - headR * 1.1, 6, 30, 0.1, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (ears === 'round') {
+      // bear
+      ctx.beginPath();
+      ctx.arc(-headR * 0.65, headY - headR * 0.75, 18, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(headR * 0.65, headY - headR * 0.75, 18, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = cfg.accent;
+      ctx.beginPath();
+      ctx.arc(-headR * 0.65, headY - headR * 0.75, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(headR * 0.65, headY - headR * 0.75, 10, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawEyes(cfg, headY, headR, a) {
+    const eyeY = headY - 5;
+    const eyeOffsetX = state.avatar === 'saca' ? 22 : 18;
+    const baseR = state.avatar === 'saca' ? 14 : 11;
+    const wide = 1 + a.eyeWide * 0.5;
+    const eyeR = baseR * wide;
+    const openH = a.eyeOpen;
+
+    if (state.avatar === 'saca') {
+      // big circular eyes
+      [-1, 1].forEach(s => {
+        // white
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.ellipse(s * eyeOffsetX, eyeY, eyeR, eyeR * openH, 0, 0, Math.PI * 2);
+        ctx.fill();
+        if (openH > 0.15) {
+          // pupil
+          ctx.fillStyle = cfg.eye;
+          ctx.beginPath();
+          ctx.arc(s * eyeOffsetX, eyeY, eyeR * 0.55, 0, Math.PI * 2);
+          ctx.fill();
+          // highlight
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(s * eyeOffsetX - 3, eyeY - 3, eyeR * 0.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    } else {
+      [-1, 1].forEach(s => {
+        // eye white
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.ellipse(s * eyeOffsetX, eyeY, eyeR, eyeR * openH, 0, 0, Math.PI * 2);
+        ctx.fill();
+        if (openH > 0.15) {
+          ctx.fillStyle = cfg.eye;
+          ctx.beginPath();
+          ctx.arc(s * eyeOffsetX + a.lookDir * 3, eyeY, eyeR * 0.6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(s * eyeOffsetX + a.lookDir * 3 - 2, eyeY - 2, eyeR * 0.22, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // eyelid line when blinking
+        if (openH < 0.5 && openH > 0.05) {
+          ctx.strokeStyle = cfg.bodyDark;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(s * eyeOffsetX - eyeR, eyeY);
+          ctx.lineTo(s * eyeOffsetX + eyeR, eyeY);
+          ctx.stroke();
+        }
+      });
+    }
+  }
+
+  function drawNose(cfg, headY, headR) {
+    if (state.avatar === 'saca') return; // no prominent nose
+    const noseY = headY + headR * 0.35;
+    ctx.fillStyle = cfg.eye;
+    if (state.avatar === 'cat' || state.avatar === 'dog' || state.avatar === 'bear') {
+      ctx.beginPath();
+      ctx.ellipse(0, noseY, 7, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (state.avatar === 'fox') {
+      ctx.beginPath();
+      ctx.ellipse(0, noseY + 8, 6, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (state.avatar === 'rabbit') {
+      ctx.beginPath();
+      ctx.ellipse(0, noseY, 5, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawMouth(cfg, headY, headR, a) {
+    const mouthY = headY + headR * 0.6;
+    ctx.strokeStyle = cfg.eye;
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+
+    if (a.mouthOpen > 0.1) {
+      // open mouth
+      ctx.fillStyle = '#3a1a2a';
+      ctx.beginPath();
+      ctx.ellipse(0, mouthY, 10, 8 * a.mouthOpen, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    } else if (a.smile > 0.1) {
+      // smile
+      ctx.beginPath();
+      ctx.moveTo(-14, mouthY - 4);
+      ctx.quadraticCurveTo(0, mouthY + 10 * a.smile, 14, mouthY - 4);
+      ctx.stroke();
+    } else if (a.smile < -0.1) {
+      // frown
+      ctx.beginPath();
+      ctx.moveTo(-14, mouthY + 4);
+      ctx.quadraticCurveTo(0, mouthY - 8, 14, mouthY + 4);
+      ctx.stroke();
+    } else {
+      // neutral
+      ctx.beginPath();
+      ctx.moveTo(-8, mouthY);
+      ctx.lineTo(8, mouthY);
       ctx.stroke();
     }
-
-    // Status text
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.font = '10px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    var statusLines = [];
-    if (state.faceCapture) statusLines.push('Face: Active');
-    if (state.voiceChanger) statusLines.push('Voice: ' + PRESET_NAMES[state.voicePreset]);
-    ctx.fillText(statusLines.join(' | ') || 'Idle', cx, h - 12);
-
-    // Mode badge
-    ctx.fillStyle = state.captureMode === 'simulated' ? 'rgba(255,212,59,0.8)' : 'rgba(79,195,247,0.8)';
-    ctx.font = '9px -apple-system, sans-serif';
-    ctx.fillText(state.captureMode === 'simulated' ? 'SIMULATED' : 'REAL CAMERA', cx, 16);
   }
 
-  function drawViewerAvatar() {
-    if (!viewerCtx) return;
-    var ctx = viewerCtx;
-    var w = ctx.canvas.width;
-    var h = ctx.canvas.height;
-    ctx.clearRect(0, 0, w, h);
-
-    // Background
-    ctx.fillStyle = '#0d1525';
-    ctx.fillRect(0, 0, w, h);
-
-    if (!state.connected) {
-      ctx.fillStyle = '#5a6a85';
-      ctx.font = '14px -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Waiting for connection...', w/2, h/2 - 10);
-      ctx.fillStyle = '#6e7681';
-      ctx.font = '11px -apple-system, sans-serif';
-      ctx.fillText('Start the App Server to begin', w/2, h/2 + 16);
-      return;
-    }
-
-    // Draw the same avatar but with more detail and the "live" indicator
-    var cx = w/2;
-    var cy = h/2 - 10;
-    var r = Math.min(w, h) * 0.3;
-    var time = appAvatarAnim * 0.05;
-
-    // Live indicator
-    ctx.fillStyle = '#69db7c';
-    ctx.beginPath();
-    ctx.arc(w - 20, 20, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(105,219,124,0.3)';
-    ctx.beginPath();
-    ctx.arc(w - 20, 20, 10, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#69db7c';
-    ctx.font = 'bold 10px -apple-system, sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText('LIVE', w - 30, 24);
-
-    // Glow
-    ctx.shadowColor = 'rgba(79,195,247,0.3)';
-    ctx.shadowBlur = 25 + Math.sin(time) * 5;
-
-    // Body
-    var bodyGrad = ctx.createRadialGradient(cx, cy - r*0.3, r*0.1, cx, cy, r);
-    bodyGrad.addColorStop(0, '#ff9a3c');
-    bodyGrad.addColorStop(0.7, '#e8822a');
-    bodyGrad.addColorStop(1, '#c4601a');
-    ctx.fillStyle = bodyGrad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-
-    // Eyes
-    var eyeY = cy - r * 0.25;
-    var eyeSpacing = r * 0.4;
-    var eyeR = r * 0.22;
-
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(cx - eyeSpacing, eyeY, eyeR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(cx + eyeSpacing, eyeY, eyeR, 0, Math.PI * 2);
-    ctx.fill();
-
-    var pupilR = eyeR * 0.55;
-    ctx.fillStyle = '#0a0a0a';
-    ctx.beginPath();
-    ctx.arc(cx - eyeSpacing, eyeY, pupilR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(cx + eyeSpacing, eyeY, pupilR, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Mouth animation
-    if (state.faceCapture) {
-      var mouthY = cy + r * 0.3;
-      var mouthW = r * 0.5;
-      ctx.strokeStyle = '#c4601a';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      var mouthOpen = 0.1 + Math.sin(time * 2) * 0.3;
-      ctx.arc(cx, mouthY, mouthW, mouthOpen, Math.PI - mouthOpen);
-      ctx.stroke();
-    }
-
-    // Overlay info
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(0, h - 36, w, 36);
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.font = '11px -apple-system, sans-serif';
-    ctx.textAlign = 'left';
-    var info = [];
-    info.push('Skin: Sacabambaspis');
-    if (state.faceCapture) info.push('Face: ON');
-    if (state.voiceChanger) info.push('Voice: ' + PRESET_NAMES[state.voicePreset]);
-    ctx.fillText(info.join('  |  '), 12, h - 12);
-  }
-
-  // ===== Sync all UI elements =====
-  function syncUI() {
-    // -- App side --
-    // Server
-    var serverDot = $('appServerDot');
-    var serverStatus = $('appServerStatus');
-    var serverUrl = $('appServerUrl');
-    var btnStart = $('btnStartServer');
-    var btnStop = $('btnStopServer');
-    var appCapDot = $('appCapDot');
-    var appCapStatus = $('appCapStatus');
-
-    serverDot.className = 'status-dot';
-    if (state.serverState === 'running') {
-      serverDot.className += ' green';
-      serverStatus.textContent = 'Running';
-      serverUrl.textContent = 'http://192.168.1.x:8081';
-      btnStart.disabled = true;
-      btnStop.disabled = false;
-      appCapDot.className = 'status-dot green';
-      appCapStatus.textContent = 'Capturing (simulated)';
-    } else if (state.serverState === 'starting') {
-      serverDot.className += ' yellow';
-      serverStatus.textContent = 'Starting...';
-      serverUrl.textContent = 'Initializing...';
-      btnStart.disabled = true;
-      btnStop.disabled = true;
-      appCapDot.className = 'status-dot yellow';
-      appCapStatus.textContent = 'Initializing...';
-    } else {
-      serverDot.className += ' gray';
-      serverStatus.textContent = 'Stopped';
-      serverUrl.textContent = '--';
-      btnStart.disabled = false;
-      btnStop.disabled = true;
-      appCapDot.className = 'status-dot gray';
-      appCapStatus.textContent = 'Not capturing';
-    }
-
-    // Toggles (app)
-    var appFT = $('appFaceToggle');
-    var appVT = $('appVoiceToggle');
-    var appST = $('appSubToggle');
-    appFT.className = 'toggle-switch' + (state.faceCapture ? ' on' : '');
-    appVT.className = 'toggle-switch' + (state.voiceChanger ? ' on' : '');
-    appST.className = 'toggle-switch' + (state.subtitle ? ' on' : '');
-
-    // Mode buttons
-    var btnSim = $('btnSimMode');
-    var btnReal = $('btnRealMode');
-    btnSim.className = 'btn' + (state.captureMode === 'simulated' ? ' success' : '');
-    btnReal.className = 'btn' + (state.captureMode === 'real' ? ' primary' : '');
-
-    // Presets (app)
-    var appBtns = document.querySelectorAll('#appPresetGrid .preset-btn');
-    appBtns.forEach(function(b) {
-      b.className = 'preset-btn' + (b.dataset.preset === state.voicePreset ? ' active' : '');
+  function drawWhiskers(cfg, headY, headR) {
+    ctx.strokeStyle = cfg.bodyDark;
+    ctx.lineWidth = 1;
+    const wy = headY + headR * 0.4;
+    [-1, 1].forEach(s => {
+      [-8, 0, 8].forEach(off => {
+        ctx.beginPath();
+        ctx.moveTo(s * 14, wy + off);
+        ctx.lineTo(s * 38, wy + off + s * 3);
+        ctx.stroke();
+      });
     });
+  }
 
-    // Metrics (app)
-    $('appFps').textContent = state.connected ? state.fps : '--';
-    $('appFrames').textContent = state.frameCount;
-    $('appLatency').textContent = state.connected ? state.latency + ' ms' : '--';
+  // ============================================================
+  // Animation loop
+  // ============================================================
+  function lerp(a, b, k) { return a + (b - a) * k; }
 
-    // -- Viewer side --
-    var vConnBadge = $('viewerConnBadge');
-    var vConnDot = $('viewerConnDot');
-    var vConnStatus = $('viewerConnStatus');
+  function tick() {
+    const a = state.anim;
+    const tg = state.animTargets;
+    a.eyeOpen = lerp(a.eyeOpen, tg.eyeOpen, 0.2);
+    a.mouthOpen = lerp(a.mouthOpen, tg.mouthOpen, 0.2);
+    a.smile = lerp(a.smile, tg.smile, 0.2);
+    a.eyeWide = lerp(a.eyeWide, tg.eyeWide, 0.2);
+    a.lookDir = lerp(a.lookDir, tg.lookDir, 0.15);
+    a.tailWag = lerp(a.tailWag, tg.tailWag, 0.2);
+    a.bounceY = lerp(a.bounceY, tg.bounceY, 0.2);
 
-    if (state.connected) {
-      vConnBadge.textContent = 'connected';
-      vConnBadge.style.opacity = '1';
-      vConnBadge.className = 'badge ready';
-      vConnDot.className = 'status-dot green';
-      vConnStatus.textContent = 'Connected to server';
-    } else {
-      vConnBadge.textContent = 'disconnected';
-      vConnBadge.style.opacity = '0.4';
-      vConnBadge.className = 'badge';
-      vConnDot.className = 'status-dot gray';
-      vConnStatus.textContent = 'Not connected';
+    // nod animation
+    if (state.action === 'nod') {
+      a.nodPhase += 0.15;
+      tg.bounceY = Math.sin(a.nodPhase) * 8;
+      if (a.nodPhase > Math.PI * 2) {
+        a.nodPhase = 0;
+        tg.bounceY = 0;
+        state.action = null;
+        renderStates();
+      }
+    }
+    // look animation
+    if (state.action === 'look') {
+      a.nodPhase += 0.04;
+      tg.lookDir = Math.sin(a.nodPhase * 2) * 1;
+      if (a.nodPhase > Math.PI) {
+        a.nodPhase = 0;
+        tg.lookDir = 0;
+        state.action = null;
+        renderStates();
+      }
     }
 
-    // Viewer metrics
-    $('viewerFrames').textContent = state.frameCount;
-    $('viewerLatency').textContent = state.connected ? state.latency + ' ms' : '--';
-    $('viewerFaceStatus').textContent = state.faceCapture ? 'ON' : 'OFF';
-    $('viewerFaceStatus').style.color = state.faceCapture ? 'var(--color-accent2)' : 'var(--text-muted)';
-    $('viewerVoiceStatus').textContent = state.voiceChanger ? 'ON' : 'OFF';
-    $('viewerVoiceStatus').style.color = state.voiceChanger ? 'var(--color-accent2)' : 'var(--text-muted)';
+    drawAvatar();
+    requestAnimationFrame(tick);
+  }
 
-    // Viewer toggles
-    var vFT = $('viewerFaceToggle');
-    var vVT = $('viewerVoiceToggle');
-    var vST = $('viewerSubToggle');
-    vFT.className = 'toggle-switch' + (state.faceCapture ? ' on' : '');
-    vVT.className = 'toggle-switch' + (state.voiceChanger ? ' on' : '');
-    vST.className = 'toggle-switch' + (state.subtitle ? ' on' : '');
-
-    // Viewer presets
-    var vBtns = document.querySelectorAll('#viewerPresetGrid .preset-btn');
-    vBtns.forEach(function(b) {
-      b.className = 'preset-btn' + (b.dataset.preset === state.voicePreset ? ' active' : '');
+  // ============================================================
+  // Controls rendering
+  // ============================================================
+  function renderAvatarGrid() {
+    const grid = document.getElementById('avatarGrid');
+    grid.innerHTML = '';
+    const emojis = { saca: '🐟', cat: '🐱', dog: '🐶', rabbit: '🐰', fox: '🦊', bear: '🐻' };
+    AVATARS.forEach(av => {
+      const btn = document.createElement('button');
+      btn.className = 'avatar-btn' + (state.avatar === av ? ' active' : '');
+      btn.innerHTML = `<span class="emoji">${emojis[av]}</span><span>${t('av_' + av)}</span>`;
+      btn.onclick = () => selectAvatar(av, 'app');
+      grid.appendChild(btn);
     });
+  }
 
-    // Subtitle
-    var subEl = $('viewerSubtitle');
-    if (state.subtitle && state.connected) {
-      subEl.className = 'subtitle-area';
-      subEl.textContent = state.subtitleText || 'Waiting for transcript...';
-    } else {
-      subEl.className = 'subtitle-area off';
-      subEl.textContent = 'Subtitle off';
+  function renderExprGrid() {
+    const grid = document.getElementById('exprGrid');
+    grid.innerHTML = '';
+    const emojis = { blink: '😉', mouth: '😮', smile: '😊', wide: '😲' };
+    EXPRESSIONS.forEach(ex => {
+      const btn = document.createElement('button');
+      btn.className = 'ctrl-btn' + (state.expression === ex ? ' active' : '');
+      btn.innerHTML = `${emojis[ex]} ${t('ex_' + ex)}`;
+      btn.onclick = () => triggerExpression(ex, 'app');
+      grid.appendChild(btn);
+    });
+    // viewer-side trigger buttons
+    const viewerPanel = document.getElementById('viewerState');
+    // handled in renderStates
+  }
+
+  function renderActionGrid() {
+    const grid = document.getElementById('actionGrid');
+    grid.innerHTML = '';
+    const emojis = { nod: '点头', look: '👀', tail: '🐾', bounce: '⬆️' };
+    const labels = { nod: '🙆', look: '👀', tail: '🐾', bounce: '⬆️' };
+    ACTIONS.forEach(ac => {
+      const btn = document.createElement('button');
+      btn.className = 'ctrl-btn' + (state.action === ac ? ' active' : '');
+      btn.innerHTML = `${labels[ac]} ${t('ac_' + ac)}`;
+      btn.onclick = () => triggerAction(ac, 'app');
+      grid.appendChild(btn);
+    });
+  }
+
+  function renderPresets() {
+    // web presets
+    const webRow = document.getElementById('webPresetRow');
+    webRow.innerHTML = '';
+    VOICE_PRESETS.forEach(p => {
+      const btn = document.createElement('button');
+      btn.className = 'preset-btn' + (voiceAdapter.preset === p ? ' active' : '');
+      btn.textContent = t('vp_' + p);
+      btn.onclick = () => { state.webVoicePreset = p; applyWebPreset(); renderPresets(); renderStates(); log('app', t('log_synced') + ': ' + t('vp_' + p)); };
+      webRow.appendChild(btn);
+    });
+    // ai presets (display only, disabled)
+    const aiRow = document.getElementById('aiPresetRow');
+    aiRow.innerHTML = '';
+    VOICE_PRESETS.forEach(p => {
+      const btn = document.createElement('button');
+      btn.className = 'preset-btn';
+      btn.textContent = t('vp_' + p);
+      btn.disabled = true;
+      btn.title = t('vs_appOnly');
+      aiRow.appendChild(btn);
+    });
+  }
+
+  // ============================================================
+  // State panels
+  // ============================================================
+  function renderStates() {
+    const appEl = document.getElementById('appState');
+    const viewerEl = document.getElementById('viewerState');
+    const rows = [
+      { k: 'st_avatar', v: t('av_' + state.avatar) },
+      { k: 'st_expr', v: state.expression ? t('ex_' + state.expression) : '—', cls: state.expression ? 'on' : 'off' },
+      { k: 'st_action', v: state.action ? t('ac_' + state.action) : '—', cls: state.action ? 'on' : 'off' },
+      { k: 'st_webVoice', v: voiceAdapter.isActive ? t('st_on') : t('st_off'), cls: voiceAdapter.isActive ? 'on' : 'off' },
+      { k: 'st_voicePreset', v: t('vp_' + voiceAdapter.preset) },
+      { k: 'st_aiVoice', v: t('st_realAppOnly'), cls: 'warn' },
+      { k: 'st_captureMode', v: t('st_simulated') },
+      { k: 'st_faceCapture', v: state.faceCapture ? t('st_on') : t('st_off'), cls: state.faceCapture ? 'on' : 'off' },
+      { k: 'st_subtitle', v: state.subtitle ? t('st_on') : t('st_off'), cls: state.subtitle ? 'on' : 'off' },
+    ];
+    const html = rows.map(r =>
+      `<div class="state-row"><span class="k">${t(r.k)}</span><span class="v ${r.cls || ''}">${r.v}</span></div>`
+    ).join('');
+    appEl.innerHTML = html;
+    viewerEl.innerHTML = html;
+
+    // chips
+    document.getElementById('chipAvatar').textContent = t('av_' + state.avatar);
+    document.getElementById('chipExpr').textContent = state.expression ? t('ex_' + state.expression) : '—';
+    document.getElementById('chipAction').textContent = state.action ? t('ac_' + state.action) : '—';
+
+    // viewer remote trigger buttons
+    const viewerBtns = document.createElement('div');
+    viewerBtns.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;';
+    const remoteExprBtn = document.createElement('button');
+    remoteExprBtn.className = 'ctrl-btn';
+    remoteExprBtn.style.cssText = 'flex:1;min-width:80px;';
+    remoteExprBtn.textContent = '😊 ' + t('ex_smile');
+    remoteExprBtn.onclick = () => triggerExpression('smile', 'viewer');
+    const remoteActBtn = document.createElement('button');
+    remoteActBtn.className = 'ctrl-btn';
+    remoteActBtn.style.cssText = 'flex:1;min-width:80px;';
+    remoteActBtn.textContent = '🐾 ' + t('ac_tail');
+    remoteActBtn.onclick = () => triggerAction('tail', 'viewer');
+    viewerBtns.appendChild(remoteExprBtn);
+    viewerBtns.appendChild(remoteActBtn);
+    viewerEl.appendChild(viewerBtns);
+  }
+
+  function renderVoiceStatus() {
+    const wsEl = document.getElementById('webVoiceStatus');
+    const wsText = document.getElementById('webVoiceStatusText');
+    wsEl.className = 'voice-status ' + voiceStatusClass();
+    wsText.textContent = voiceStatusText();
+
+    const aiEl = document.getElementById('aiVoiceStatus');
+    const aiText = document.getElementById('aiVoiceStatusText');
+    aiEl.className = 'voice-status';
+    aiText.textContent = t('vs_appOnly');
+  }
+
+  // ============================================================
+  // Interactions
+  // ============================================================
+  function selectAvatar(av, src) {
+    state.avatar = av;
+    renderAvatarGrid();
+    renderStates();
+    log(src, t('log_appAvatar') + ': ' + t('av_' + av));
+    log('sys', t('log_synced'));
+  }
+
+  function triggerExpression(ex, src) {
+    state.expression = ex;
+    const tg = state.animTargets;
+    // reset
+    tg.eyeOpen = 1; tg.mouthOpen = 0; tg.smile = 0; tg.eyeWide = 0;
+    switch (ex) {
+      case 'blink': tg.eyeOpen = 0.05; break;
+      case 'mouth': tg.mouthOpen = 0.9; break;
+      case 'smile': tg.smile = 0.9; break;
+      case 'wide': tg.eyeWide = 1; tg.mouthOpen = 0.4; break;
     }
+    renderExprGrid();
+    renderStates();
+    log(src, (src === 'viewer' ? t('log_viewerExpr') : t('log_appExpr')) + ': ' + t('ex_' + ex));
+    log('sys', t('log_synced'));
+    // auto-reset after 1.2s
+    setTimeout(() => {
+      if (state.expression === ex) {
+        state.expression = null;
+        tg.eyeOpen = 1; tg.mouthOpen = 0; tg.smile = 0; tg.eyeWide = 0;
+        renderExprGrid();
+        renderStates();
+      }
+    }, 1200);
+  }
 
-    // Connection area
-    var connApp = $('connApp');
-    var connServer = $('connServer');
-    var connViewer = $('connViewer');
-    var connArrow1 = $('connArrow1');
-    var connArrow2 = $('connArrow2');
-    var spark1 = $('connSpark1');
-    var spark2 = $('connSpark2');
-    var latBadge = $('latencyBadge');
-    var badgeConn = $('badgeConn');
-
-    if (state.connected) {
-      connApp.className = 'conn-node ok';
-      connServer.className = 'conn-node ok';
-      connViewer.className = 'conn-node ok';
-      connArrow1.className = 'conn-arrow flowing';
-      connArrow2.className = 'conn-arrow flowing';
-      spark1.style.display = '';
-      spark2.style.display = '';
-      latBadge.textContent = state.latency + ' ms';
-      latBadge.className = 'latency-badge' + (state.latency > 80 ? ' warn' : '');
-      badgeConn.textContent = 'connected';
-      badgeConn.style.opacity = '1';
-      badgeConn.className = 'badge ready';
-    } else if (state.serverState === 'starting') {
-      connApp.className = 'conn-node active';
-      connServer.className = 'conn-node active';
-      connViewer.className = 'conn-node';
-      connArrow1.className = 'conn-arrow flowing';
-      connArrow2.className = 'conn-arrow';
-      spark1.style.display = '';
-      spark2.style.display = 'none';
-      latBadge.textContent = '...';
-      latBadge.className = 'latency-badge';
-      badgeConn.textContent = 'syncing';
-      badgeConn.style.opacity = '1';
-      badgeConn.className = 'badge experimental';
-    } else {
-      connApp.className = 'conn-node';
-      connServer.className = 'conn-node';
-      connViewer.className = 'conn-node';
-      connArrow1.className = 'conn-arrow';
-      connArrow2.className = 'conn-arrow';
-      spark1.style.display = 'none';
-      spark2.style.display = 'none';
-      latBadge.textContent = '-- ms';
-      latBadge.className = 'latency-badge';
-      badgeConn.textContent = 'disconnected';
-      badgeConn.style.opacity = '0.4';
-      badgeConn.className = 'badge';
+  function triggerAction(ac, src) {
+    state.action = ac;
+    const tg = state.animTargets;
+    switch (ac) {
+      case 'nod': state.anim.nodPhase = 0; break;
+      case 'look': state.anim.nodPhase = 0; break;
+      case 'tail': tg.tailWag = 1; break;
+      case 'bounce': tg.bounceY = -18; setTimeout(() => { tg.bounceY = 0; }, 400); break;
+    }
+    renderActionGrid();
+    renderStates();
+    log(src, (src === 'viewer' ? t('log_viewerAction') : t('log_appAction')) + ': ' + t('ac_' + ac));
+    log('sys', t('log_synced'));
+    if (ac === 'tail') {
+      setTimeout(() => { tg.tailWag = 0; if (state.action === ac) { state.action = null; renderStates(); } }, 1500);
     }
   }
 
-  // ===== Update clock =====
-  function updateClocks() {
-    var now = new Date();
-    var time = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
-    $('appTime').textContent = time;
-    $('viewerTime').textContent = time;
-  }
-
-  // ===== Subtitle simulator =====
-  var subtitleLines = [
-    'Hello, this is a simulated subtitle stream.',
-    'The avatar is now capturing facial expressions.',
-    'Voice changer is: ',
-    'Connected viewers: 1',
-    'Frame rate is stable at ~30 fps.',
-    'Latency is within acceptable range.',
-    'Remote command received and acknowledged.',
-    'Preset changed successfully.',
-    'Face capture toggled from remote viewer.',
-    'This is a single-page simulated demo.'
-  ];
-  var subtitleIndex = 0;
-
-  function updateSubtitle() {
-    if (!state.subtitle || !state.connected) return;
-    var line = subtitleLines[subtitleIndex % subtitleLines.length];
-    if (line === 'Voice changer is: ') {
-      line += PRESET_NAMES[state.voicePreset];
-    }
-    state.subtitleText = line;
-    subtitleIndex++;
-    syncUI();
-  }
-
-  // ===== Frame loop =====
-  function frameLoop() {
-    if (!state.connected) return;
-
-    state.frameCount++;
-    state.fps = Math.round(30 + Math.random() * 5);
-    state.latency = Math.round(35 + Math.random() * 30);
-    appAvatarAnim++;
-
-    // Update subtitle every 2 seconds
-    if (state.subtitle && state.frameCount % 60 === 0) {
-      updateSubtitle();
-    }
-
-    syncUI();
-    drawAppAvatar();
-    drawViewerAvatar();
-  }
-
-  // ===== Public API =====
-  window.demo = {
-    startServer: function() {
-      if (state.serverState !== 'stopped') return;
-      state.serverState = 'starting';
-      state.connected = false;
-      syncUI();
-      addLog('app', 'Starting local server...', 'info');
-
-      // Simulate startup delay
-      state.serverTimer = setTimeout(function() {
-        state.serverState = 'running';
-        state.connected = true;
-        state.frameCount = 0;
-        state.latency = Math.round(35 + Math.random() * 20);
-        state.fps = 30;
-        syncUI();
-        addLog('app', 'Server started on http://192.168.1.x:8081', 'success');
-        addLog('viewer', 'Connected to server', 'success');
-
-        // Start frame loop
-        state.frameTimer = setInterval(frameLoop, 33);
-      }, 1500);
-    },
-
-    stopServer: function() {
-      if (state.serverState === 'stopped') return;
-      if (state.serverTimer) clearTimeout(state.serverTimer);
-      if (state.frameTimer) clearInterval(state.frameTimer);
-      state.serverState = 'stopped';
-      state.connected = false;
-      state.frameCount = 0;
-      state.fps = 0;
-      state.latency = 0;
-      addLog('app', 'Server stopped', 'warn');
-      addLog('viewer', 'Disconnected from server', 'warn');
-      syncUI();
-      drawAppAvatar();
-      drawViewerAvatar();
-    },
-
-    toggleFaceCapture: function() {
-      state.faceCapture = !state.faceCapture;
-      var msg = 'Face capture ' + (state.faceCapture ? 'ON' : 'OFF');
-      addLog('app', msg, state.faceCapture ? 'success' : 'info');
-      if (state.connected) {
-        addLog('viewer', 'remote command ack: ' + msg, 'remote');
-      }
-      syncUI();
-    },
-
-    toggleVoiceChanger: function() {
-      state.voiceChanger = !state.voiceChanger;
-      var msg = 'Voice changer ' + (state.voiceChanger ? 'ON' : 'OFF');
-      var suffix = state.voiceChanger ? ' (Experimental voice mode; fallback to original audio if resources are unavailable)' : '';
-      addLog('app', msg + suffix, state.voiceChanger ? 'success' : 'info');
-      if (state.connected) {
-        addLog('viewer', 'remote command ack: ' + msg, 'remote');
-      }
-      syncUI();
-    },
-
-    toggleSubtitle: function() {
-      state.subtitle = !state.subtitle;
-      var msg = 'Subtitle ' + (state.subtitle ? 'ON' : 'OFF');
-      addLog('app', msg, state.subtitle ? 'success' : 'info');
-      if (state.connected) {
-        addLog('viewer', 'remote command ack: ' + msg, 'remote');
-        if (state.subtitle) updateSubtitle();
-      }
-      syncUI();
-    },
-
-    setPreset: function(preset) {
-      if (!PRESET_NAMES[preset]) return;
-      state.voicePreset = preset;
-      addLog('app', 'Voice preset changed to ' + PRESET_NAMES[preset], 'success');
-      if (state.connected) {
-        addLog('viewer', 'remote command ack: preset changed to ' + PRESET_NAMES[preset], 'remote');
-      }
-      syncUI();
-    },
-
-    setCaptureMode: function(mode) {
-      state.captureMode = mode;
-      addLog('app', 'Capture mode: ' + mode, 'info');
-      syncUI();
-    },
-
-    getState: function() { return state; }
+  // ============================================================
+  // Web Voice — 复用主项目 VoiceChanger（通过 adapter，不复制第二套实现）
+  // ============================================================
+  // adapter 状态 → i18n key 后缀
+  const VOICE_STATUS_KEYS = {
+    'not-loaded': 'vs_ready',
+    'checking-support': 'vs_checking',
+    'requesting-microphone': 'vs_requesting',
+    'enabled': 'vs_enabled',
+    'disabled': 'vs_ready',
+    'repairing': 'vs_repairing',
+    'unsupported': 'vs_unsupported',
+    'permission-denied': 'vs_permRequired',
+    'error': 'vs_error',
   };
 
-  // ===== Init =====
+  function voiceStatusText() {
+    const key = VOICE_STATUS_KEYS[voiceAdapter.status] || 'vs_error';
+    let text = t(key);
+    if (voiceAdapter.reason && ['repairing', 'unsupported', 'permission-denied', 'error'].includes(voiceAdapter.status)) {
+      text += '：' + voiceAdapter.reason;
+    }
+    return text;
+  }
+
+  function voiceStatusClass() {
+    const map = {
+      'enabled': 'enabled',
+      'requesting-microphone': 'requesting',
+      'checking-support': 'requesting',
+      'repairing': 'requesting',
+      'error': 'error',
+      'permission-denied': 'error',
+      'unsupported': 'error',
+    };
+    return map[voiceAdapter.status] || 'ready';
+  }
+
+  voiceAdapter.onChange(() => {
+    renderVoiceStatus();
+    renderStates();
+    const toggle = document.getElementById('webVoiceToggle');
+    if (toggle) {
+      toggle.textContent = voiceAdapter.isActive ? t('toggleDisable') : t('toggleEnable');
+      toggle.classList.toggle('on', voiceAdapter.isActive);
+    }
+  });
+
+  async function toggleWebVoice() {
+    if (voiceAdapter.isActive) {
+      voiceAdapter.disable();
+      log('app', t('log_webVoiceOff'));
+      return;
+    }
+    log('app', t('vs_requesting'));
+    await voiceAdapter.enable();
+    if (voiceAdapter.isActive) {
+      log('app', t('log_webVoiceOn') + ' [' + t('vp_' + voiceAdapter.preset) + ']');
+    } else if (voiceAdapter.status === 'permission-denied') {
+      log('app', t('log_webVoicePerm'));
+    } else if (voiceAdapter.status === 'repairing' || voiceAdapter.status === 'unsupported' || voiceAdapter.status === 'error') {
+      log('app', t('log_webVoiceErr') + '：' + voiceAdapter.reason);
+    }
+  }
+
+  function applyWebPreset() {
+    voiceAdapter.applyPreset(state.webVoicePreset);
+  }
+
+  // ============================================================
+  // AI Voice (info only)
+  // ============================================================
+  function showAiModal() {
+    document.getElementById('aiModalMask').classList.add('show');
+    log('app', t('log_aiInfo'));
+  }
+  function closeAiModal() {
+    document.getElementById('aiModalMask').classList.remove('show');
+  }
+
+  // ============================================================
+  // Event log
+  // ============================================================
+  function log(src, msg) {
+    const list = document.getElementById('logList');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    const ts = new Date().toLocaleTimeString(LANG === 'zh' ? 'zh-CN' : 'en-US');
+    entry.innerHTML = `<span class="ts">${ts}</span><span class="src ${src}">[${src === 'app' ? (LANG === 'zh' ? 'App' : 'App') : src === 'viewer' ? (LANG === 'zh' ? 'Viewer' : 'Viewer') : (LANG === 'zh' ? '系统' : 'SYS')}]</span><span class="msg">${msg}</span>`;
+    list.appendChild(entry);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  // ============================================================
+  // Init
+  // ============================================================
   function init() {
-    updateClocks();
-    setInterval(updateClocks, 30000);
-    initAppCanvas();
-    initViewerCanvas();
-    syncUI();
-    drawAppAvatar();
-    drawViewerAvatar();
-
-    // Handle window resize
-    window.addEventListener('resize', function() {
-      initAppCanvas();
-      initViewerCanvas();
-      drawAppAvatar();
-      drawViewerAvatar();
+    setLang('zh');
+    renderVoiceStatus();
+    document.getElementById('webVoiceToggle').textContent = t('toggleEnable');
+    document.getElementById('aiVoiceBtn').textContent = t('aiBtnText');
+    // event listeners (module scope, no inline onclick)
+    document.querySelectorAll('.lang-btn').forEach(b => {
+      b.addEventListener('click', () => setLang(b.dataset.lang));
     });
+    document.getElementById('webVoiceToggle').addEventListener('click', toggleWebVoice);
+    document.getElementById('aiVoiceBtn').addEventListener('click', showAiModal);
+    document.getElementById('aiModalClose').addEventListener('click', closeAiModal);
+    document.getElementById('aiModalMask').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) closeAiModal();
+    });
+    log('sys', t('log_init'));
+    tick();
   }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-})();
-</script>
-
+  init();
+  </script>
 </body>
 </html>
