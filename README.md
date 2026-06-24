@@ -17,6 +17,7 @@
 | 多设备信令服务器 | 扩展玩法/待开发 | 局域网内多设备协作，需手动搭建 Node.js 服务 |
 | 网页旧多端模式 | 实验性 | 当前部署和真实跨设备连接仍有限制 |
 | CheapLive Capture Android App | ⏸️ 暂停开发 | 功能已移交参赛项目独立开发，比赛结束后酌情恢复 |
+| 参赛演示 Demo | 公开演示 | 双端模拟多设备交互 Demo；Android APK/源码比赛期间不公开 |
 | Live2D Cubism | 规划中 | Demo 阶段冻结，当前不能实际渲染 Live2D 模型 |
 | 透明悬浮浏览器 | 规划中 | 当前尚未实现 |
 
@@ -81,6 +82,8 @@ python3 -m http.server 8080
 CheapLive/
 ├── index.html                 # 项目说明与统一入口（当前首页）
 ├── src/
+│   ├── contest-demo/          # 参赛演示 Demo（公开）
+│   │   └── dual-device-demo.html  # 双端模拟多设备交互演示
 │   └── face-tracking/         # 单机面捕核心（当前推荐体验路径）
 │       ├── index.html         # 主页面
 │       ├── face-tracker.js    # 面部捕捉核心逻辑

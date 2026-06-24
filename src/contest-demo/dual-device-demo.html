@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CheapLive — 双端模拟演示</title>
+  <style>
+    /* ===== CSS Variables (reuse contest-demo palette) ===== */
+    :root {
+      --bg-primary: #0a0e1a;
+      --bg-secondary: #111827;
+      --bg-card: #1a2236;
+      --bg-card-hover: #1f2a42;
+      --border-color: #2a3654;
+      --text-primary: #e8edf5;
+      --text-secondary: #8896b3;
+      --text-muted: #5a6a85;
+      --color-accent: #4fc3f7;
+      --color-accent2: #69db7c;
+      --color-warning: #ffd43b;
+      --color-danger: #ff6b6b;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ===== Hero ===== */
+    .hero {
+      background: linear-gradient(135deg, #0a0e1a 0%, #111827 50%, #0f1f3d 100%);
+      border-bottom: 1px solid var(--border-color);
+      padding: 28px 40px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -50%; right: -10%;
+      width: 500px; height: 500px;
+      background: radial-gradient(circle, rgba(79,195,247,0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-tag {
+      display: inline-block;
+      background: rgba(79,195,247,0.12);
+      border: 1px solid rgba(79,195,247,0.3);
+      color: var(--color-accent);
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 4px 10px; border-radius: 20px;
+      margin-bottom: 10px;
+    }
+    .hero h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+    .hero h1 span { color: var(--color-accent); }
+    .hero-sub {
+      color: var(--text-secondary); font-size: 13px;
+      line-height: 1.6; max-width: 700px; margin-top: 4px;
+    }
+
+    /* ===== Demo Notice Banner ===== */
+    .demo-notice {
+      background: rgba(255,212,59,0.06);
+      border: 1px solid rgba(255,212,59,0.2);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      margin-top: 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      max-width: 820px;
+    }
+    .demo-notice .notice-badge {
+      flex-shrink: 0;
+      display: inline-block;
+      background: rgba(255,212,59,0.12);
+      border: 1px solid rgba(255,212,59,0.3);
+      color: var(--color-warning);
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 10px;
+      white-space: nowrap;
+    }
+    .demo-notice .notice-text {
+      flex: 1;
+    }
+    .demo-notice .notice-text strong {
+      color: var(--text-primary);
+    }
+
+    /* ===== Main Layout ===== */
+    .main-stage {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 24px;
+      padding: 28px 32px;
+      max-width: 1500px;
+      margin: 0 auto;
+      flex-wrap: wrap;
+    }
+
+    /* ===== Device Shell ===== */
+    .device-shell {
+      background: linear-gradient(180deg, #1c2333 0%, #151d2e 100%);
+      border: 3px solid #3a4560;
+      border-radius: 32px;
+      overflow: hidden;
+      position: relative;
+      width: 420px;
+      min-height: 620px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+    .device-shell.tablet {
+      width: 460px;
+      border-radius: 28px;
+    }
+    /* status bar notch */
+    .device-notch {
+      background: #0d1117;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border-bottom: 1px solid var(--border-color);
+      position: relative;
+    }
+    .device-notch .time {
+      font-size: 10px; color: var(--text-muted);
+      font-family: 'SF Mono', monospace;
+    }
+    .device-notch .notch-dot {
+      width: 6px; height: 6px;
+      background: var(--color-accent);
+      border-radius: 50%;
+      opacity: 0.6;
+    }
+    /* device screen area */
+    .device-screen {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-height: 560px;
+      overflow-y: auto;
+    }
+    .device-screen::-webkit-scrollbar { width: 4px; }
+    .device-screen::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
+
+    /* ===== Section ===== */
+    .section-title {
+      font-size: 10px; font-weight: 600;
+      color: var(--text-muted); text-transform: uppercase;
+      letter-spacing: 0.08em;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .section-title::after {
+      content: ''; flex: 1; height: 1px;
+      background: var(--border-color);
+    }
+
+    /* ===== Status Row ===== */
+    .status-row {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--text-secondary);
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 8px 12px;
+    }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .status-dot.green { background: var(--color-accent2); animation: pulse 2s infinite; }
+    .status-dot.blue { background: var(--color-accent); animation: pulse 1.5s infinite; }
+    .status-dot.yellow { background: var(--color-warning); }
+    .status-dot.red { background: var(--color-danger); }
+    .status-dot.gray { background: var(--text-muted); }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ===== Toggle Switch ===== */
+    .toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+    }
+    .toggle-label {
+      font-size: 12px; color: var(--text-primary); font-weight: 500;
+    }
+    .toggle-switch {
+      position: relative; width: 44px; height: 24px;
+      background: #3a4560; border-radius: 12px;
+      cursor: pointer; transition: background 0.2s;
+      flex-shrink: 0;
+    }
+    .toggle-switch.on { background: var(--color-accent2); }
+    .toggle-switch::after {
+      content: ''; position: absolute;
+      top: 2px; left: 2px;
+      width: 20px; height: 20px;
+      background: #fff; border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch.on::after { transform: translateX(20px); }
+
+    /* ===== Preset Buttons ===== */
+    .preset-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 5px;
+    }
+    .preset-btn {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 8px 4px;
+      text-align: center;
+      font-size: 11px; color: var(--text-secondary);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .preset-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+    .preset-btn.active {
+      background: rgba(79,195,247,0.12);
+      border-color: rgba(79,195,247,0.5);
+      color: var(--color-accent);
+    }
+    .preset-btn .picon { font-size: 15px; display: block; margin-bottom: 2px; }
+
+    /* ===== Buttons ===== */
+    .btn {
+      font-size: 12px; font-weight: 500;
+      padding: 8px 16px; border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: rgba(255,255,255,0.04);
+      color: var(--text-secondary);
+      cursor: pointer; transition: all 0.15s;
+      text-align: center;
+    }
+    .btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+    .btn.primary {
+      background: rgba(79,195,247,0.15);
+      border-color: rgba(79,195,247,0.4);
+      color: var(--color-accent);
+    }
+    .btn.primary:hover { background: rgba(79,195,247,0.25); }
+    .btn.danger {
+      background: rgba(255,107,107,0.15);
+      border-color: rgba(255,107,107,0.4);
+      color: var(--color-danger);
+    }
+    .btn.success {
+      background: rgba(105,219,124,0.15);
+      border-color: rgba(105,219,124,0.4);
+      color: var(--color-accent2);
+    }
+    .btn:disabled {
+      opacity: 0.4; cursor: not-allowed;
+    }
+
+    /* ===== Server Status Card ===== */
+    .server-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+    }
+    .server-card .url {
+      font-family: 'SF Mono', monospace;
+      font-size: 11px; color: var(--color-accent);
+      background: rgba(79,195,247,0.08);
+      padding: 4px 8px; border-radius: 4px;
+      margin: 6px 0; word-break: break-all;
+    }
+
+    /* ===== Metrics ===== */
+    .metrics-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+    .metric-item {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px; text-align: center;
+    }
+    .metric-item .val {
+      font-size: 16px; font-weight: 700;
+      color: var(--color-accent); font-family: 'SF Mono', monospace;
+    }
+    .metric-item .lbl {
+      font-size: 9px; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+
+    /* ===== Connection Area ===== */
+    .conn-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      min-width: 180px;
+      padding: 20px 0;
+    }
+    .conn-flow {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+    .conn-node {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 11px; color: var(--text-secondary);
+      text-align: center; min-width: 120px;
+      transition: all 0.3s;
+    }
+    .conn-node.active {
+      border-color: rgba(79,195,247,0.5);
+      background: rgba(79,195,247,0.1);
+      color: var(--color-accent);
+    }
+    .conn-node.ok {
+      border-color: rgba(105,219,124,0.5);
+      background: rgba(105,219,124,0.1);
+      color: var(--color-accent2);
+    }
+    .conn-arrow {
+      color: var(--text-muted);
+      font-size: 14px; line-height: 1;
+      padding: 2px 0;
+      transition: color 0.3s;
+    }
+    .conn-arrow.flowing { color: var(--color-accent); }
+    .conn-spark {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 1px;
+      padding: 2px 0;
+    }
+    .conn-spark .dot {
+      width: 3px; height: 3px;
+      background: var(--color-accent);
+      border-radius: 50%;
+      opacity: 0;
+    }
+    .conn-spark .dot.a1 { animation: spark 1.2s infinite 0s; }
+    .conn-spark .dot.a2 { animation: spark 1.2s infinite 0.3s; }
+    .conn-spark .dot.a3 { animation: spark 1.2s infinite 0.6s; }
+    @keyframes spark {
+      0%, 100% { opacity: 0; transform: translateY(0); }
+      50% { opacity: 1; transform: translateY(-2px); }
+    }
+    /* latency badge */
+    .latency-badge {
+      background: rgba(105,219,124,0.12);
+      border: 1px solid rgba(105,219,124,0.4);
+      border-radius: 20px;
+      padding: 6px 16px;
+      font-size: 12px; font-weight: 600;
+      color: var(--color-accent2);
+      font-family: 'SF Mono', monospace;
+      transition: all 0.3s;
+    }
+    .latency-badge.warn {
+      background: rgba(255,212,59,0.12);
+      border-color: rgba(255,212,59,0.4);
+      color: var(--color-warning);
+    }
+    /* status badges */
+    .badge {
+      display: inline-block;
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 0.05em; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 10px;
+    }
+    .badge.simulated {
+      background: rgba(255,212,59,0.12);
+      border: 1px solid rgba(255,212,59,0.3);
+      color: var(--color-warning);
+    }
+    .badge.experimental {
+      background: rgba(79,195,247,0.12);
+      border: 1px solid rgba(79,195,247,0.3);
+      color: var(--color-accent);
+    }
+    .badge.ready {
+      background: rgba(105,219,124,0.12);
+      border: 1px solid rgba(105,219,124,0.3);
+      color: var(--color-accent2);
+    }
+
+    /* ===== Avatar Preview ===== */
+    .avatar-preview {
+      background: #0d1525;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      aspect-ratio: 4/3;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .avatar-preview canvas {
+      width: 100%; height: 100%;
+      display: block;
+    }
+    .avatar-placeholder {
+      color: var(--text-muted);
+      font-size: 13px;
+      text-align: center;
+      line-height: 1.5;
+    }
+    .avatar-placeholder .icon-large {
+      font-size: 48px; display: block;
+      margin-bottom: 8px; opacity: 0.5;
+    }
+
+    /* ===== Subtitle Area ===== */
+    .subtitle-area {
+      background: rgba(0,0,0,0.4);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      font-size: 13px; color: var(--text-primary);
+      min-height: 42px;
+      display: flex; align-items: center;
+      font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    .subtitle-area.off {
+      color: var(--text-muted); font-style: italic;
+    }
+
+    /* ===== Log Panel ===== */
+    .log-panel {
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      font-family: 'SF Mono', monospace;
+      font-size: 10px;
+      color: var(--text-muted);
+      max-height: 100px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+    .log-panel .log-entry { padding: 1px 0; }
+    .log-panel .log-entry.info { color: var(--text-secondary); }
+    .log-panel .log-entry.success { color: var(--color-accent2); }
+    .log-panel .log-entry.warn { color: var(--color-warning); }
+    .log-panel .log-entry.remote { color: var(--color-accent); }
+
+    /* ===== Bottom Bar ===== */
+    .bottom-bar {
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border-color);
+      padding: 12px 32px;
+      display: flex; gap: 24px; align-items: center;
+      font-size: 12px; color: var(--text-muted);
+      flex-wrap: wrap;
+    }
+    .bottom-bar .note {
+      color: var(--text-secondary);
+      font-size: 11px;
+    }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 1100px) {
+      .main-stage {
+        flex-direction: column;
+        align-items: center;
+      }
+      .conn-area {
+        flex-direction: row;
+        min-width: unset;
+        padding: 0;
+        gap: 20px;
+      }
+      .conn-flow {
+        flex-direction: row;
+      }
+      .device-shell { width: 100%; max-width: 420px; }
+      .device-shell.tablet { width: 100%; max-width: 460px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ===== Hero ===== -->
+<div class="hero">
+  <div class="hero-tag">CONTEST DEMO</div>
+  <h1>CheapLive — <span>双端模拟演示</span></h1>
+  <p class="hero-sub">
+    Single-page simulated multi-device demo. Uses the same state schema and UI flow planned for real app-web control.
+    App端采集与控制 → 本地 Server/Session → 直播端展示。
+  </p>
+  <div class="demo-notice">
+    <span class="notice-badge">CONTEST NOTICE</span>
+    <div class="notice-text">
+      <strong>本页面为 CheapLive 参赛演示 Demo</strong>，用于展示 App 端与直播端的交互流程。
+      参赛期间，本扩展功能所必需的 <strong>Android APK、Android 源代码和 App 端闭源实现暂不公开</strong>。
+      如有需要，请等候至比赛结束后的公开安排。
+    </div>
+  </div>
+</div>
+
+<!-- ===== Main Stage ===== -->
+<div class="main-stage">
+
+  <!-- ===== LEFT: App Device ===== -->
+  <div class="device-shell" id="appDevice">
+    <div class="device-notch">
+      <span class="time" id="appTime">12:00</span>
+      <span class="notch-dot"></span>
+    </div>
+    <div class="device-screen">
+
+      <!-- App Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:var(--text-primary);">CheapLive App</div>
+          <div style="font-size:10px;color:var(--text-muted);">v1.0.0-debug</div>
+        </div>
+        <div class="badge simulated">Simulated</div>
+      </div>
+
+      <!-- Server Status -->
+      <div class="section-title">Local Server</div>
+      <div class="server-card">
+        <div class="status-row" style="margin-bottom:8px;">
+          <span class="status-dot" id="appServerDot"></span>
+          <span id="appServerStatus">Stopped</span>
+        </div>
+        <div class="url" id="appServerUrl">--</div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn primary" id="btnStartServer" onclick="demo.startServer()">Start Server</button>
+          <button class="btn danger" id="btnStopServer" disabled onclick="demo.stopServer()">Stop</button>
+        </div>
+      </div>
+
+      <!-- Session Info -->
+      <div class="section-title">Capture</div>
+      <div class="status-row">
+        <span class="status-dot" id="appCapDot"></span>
+        <span id="appCapStatus">Not capturing</span>
+      </div>
+
+      <!-- Toggles -->
+      <div class="toggle-row">
+        <span class="toggle-label">Face Capture</span>
+        <div class="toggle-switch" id="appFaceToggle" onclick="demo.toggleFaceCapture()"></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Voice Changer</span>
+        <div class="toggle-switch" id="appVoiceToggle" onclick="demo.toggleVoiceChanger()"></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Subtitle</span>
+        <div class="toggle-switch" id="appSubToggle" onclick="demo.toggleSubtitle()"></div>
+      </div>
+
+      <!-- Mode -->
+      <div class="section-title">Capture Mode</div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn success" id="btnSimMode" onclick="demo.setCaptureMode('simulated')">Simulated</button>
+        <button class="btn" id="btnRealMode" onclick="demo.setCaptureMode('real')">Real Camera <span class="badge experimental">Exp.</span></button>
+      </div>
+
+      <!-- Voice Presets -->
+      <div class="section-title">Voice Preset</div>
+      <div class="preset-grid" id="appPresetGrid">
+        <div class="preset-btn active" data-preset="original" onclick="demo.setPreset('original')"><span class="picon">🎤</span>Original</div>
+        <div class="preset-btn" data-preset="chipmunk" onclick="demo.setPreset('chipmunk')"><span class="picon">🐿️</span>Chipmunk</div>
+        <div class="preset-btn" data-preset="robot" onclick="demo.setPreset('robot')"><span class="picon">🤖</span>Robot</div>
+        <div class="preset-btn" data-preset="deep" onclick="demo.setPreset('deep')"><span class="picon">🎸</span>Deep</div>
+        <div class="preset-btn" data-preset="alien" onclick="demo.setPreset('alien')"><span class="picon">👽</span>Alien</div>
+        <div class="preset-btn" data-preset="echo" onclick="demo.setPreset('echo')"><span class="picon">📻</span>Echo</div>
+      </div>
+
+      <!-- Metrics -->
+      <div class="section-title">Stats</div>
+      <div class="metrics-row">
+        <div class="metric-item">
+          <div class="val" id="appFps">--</div>
+          <div class="lbl">FPS</div>
+        </div>
+        <div class="metric-item">
+          <div class="val" id="appFrames">0</div>
+          <div class="lbl">Frames Sent</div>
+        </div>
+        <div class="metric-item">
+          <div class="val" id="appLatency">--</div>
+          <div class="lbl">Est. Latency</div>
+        </div>
+      </div>
+
+      <!-- Avatar mini preview -->
+      <div class="section-title">App Preview</div>
+      <div class="avatar-preview" style="aspect-ratio:16/9;">
+        <canvas id="appAvatarCanvas"></canvas>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== MIDDLE: Connection Area ===== -->
+  <div class="conn-area" id="connArea">
+    <div class="conn-flow">
+      <div class="conn-node" id="connApp">📱 App Capture</div>
+
+      <div class="conn-spark" id="connSpark1">
+        <span class="dot a1"></span><span class="dot a2"></span><span class="dot a3"></span>
+      </div>
+      <div class="conn-arrow" id="connArrow1">↓</div>
+
+      <div class="conn-node" id="connServer">⚡ Local Server</div>
+
+      <div class="conn-spark" id="connSpark2">
+        <span class="dot a1"></span><span class="dot a2"></span><span class="dot a3"></span>
+      </div>
+      <div class="conn-arrow" id="connArrow2">↓</div>
+
+      <div class="conn-node" id="connViewer">💻 Viewer</div>
+    </div>
+
+    <div class="latency-badge" id="latencyBadge">-- ms</div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;">
+      <span class="badge" id="badgeConn" style="opacity:0.4;">disconnected</span>
+      <span class="badge simulated" id="badgeSim" style="font-size:9px;">Single-page simulated</span>
+    </div>
+
+    <div class="note" style="font-size:10px;color:var(--text-muted);text-align:center;max-width:160px;">
+      App-Web control flow preview.<br>No real network required.
+    </div>
+  </div>
+
+  <!-- ===== RIGHT: Viewer Device ===== -->
+  <div class="device-shell tablet" id="viewerDevice">
+    <div class="device-notch">
+      <span class="time" id="viewerTime">12:00</span>
+      <span class="notch-dot"></span>
+    </div>
+    <div class="device-screen">
+
+      <!-- Viewer Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:var(--text-primary);">Live Viewer</div>
+          <div style="font-size:10px;color:var(--text-muted);">Stream Client</div>
+        </div>
+        <div class="badge" id="viewerConnBadge" style="opacity:0.4;">disconnected</div>
+      </div>
+
+      <!-- Avatar Display -->
+      <div class="section-title">Avatar</div>
+      <div class="avatar-preview" id="viewerAvatarArea">
+        <canvas id="viewerAvatarCanvas"></canvas>
+      </div>
+
+      <!-- Status -->
+      <div class="section-title">Received Status</div>
+      <div class="status-row">
+        <span class="status-dot" id="viewerConnDot"></span>
+        <span id="viewerConnStatus">Not connected</span>
+      </div>
+      <div class="metrics-row" style="grid-template-columns:1fr 1fr 1fr 1fr;">
+        <div class="metric-item">
+          <div class="val" id="viewerFrames">0</div>
+          <div class="lbl">Frames</div>
+        </div>
+        <div class="metric-item">
+          <div class="val" id="viewerLatency">--</div>
+          <div class="lbl">Latency</div>
+        </div>
+        <div class="metric-item">
+          <div class="val" id="viewerFaceStatus">OFF</div>
+          <div class="lbl">Face Cap</div>
+        </div>
+        <div class="metric-item">
+          <div class="val" id="viewerVoiceStatus">OFF</div>
+          <div class="lbl">Voice</div>
+        </div>
+      </div>
+
+      <!-- Subtitle Display -->
+      <div class="section-title">Subtitle</div>
+      <div class="subtitle-area off" id="viewerSubtitle">Subtitle off</div>
+
+      <!-- Remote Control -->
+      <div class="section-title">Remote Control</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <div class="toggle-row">
+          <span class="toggle-label">App Face Capture</span>
+          <div class="toggle-switch" id="viewerFaceToggle" onclick="demo.toggleFaceCapture()"></div>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">App Voice Changer</span>
+          <div class="toggle-switch" id="viewerVoiceToggle" onclick="demo.toggleVoiceChanger()"></div>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">App Subtitle</span>
+          <div class="toggle-switch" id="viewerSubToggle" onclick="demo.toggleSubtitle()"></div>
+        </div>
+      </div>
+
+      <div class="section-title">Remote Preset</div>
+      <div class="preset-grid" id="viewerPresetGrid">
+        <div class="preset-btn active" data-preset="original" onclick="demo.setPreset('original')"><span class="picon">🎤</span>Original</div>
+        <div class="preset-btn" data-preset="chipmunk" onclick="demo.setPreset('chipmunk')"><span class="picon">🐿️</span>Chipmunk</div>
+        <div class="preset-btn" data-preset="robot" onclick="demo.setPreset('robot')"><span class="picon">🤖</span>Robot</div>
+        <div class="preset-btn" data-preset="deep" onclick="demo.setPreset('deep')"><span class="picon">🎸</span>Deep</div>
+        <div class="preset-btn" data-preset="alien" onclick="demo.setPreset('alien')"><span class="picon">👽</span>Alien</div>
+        <div class="preset-btn" data-preset="echo" onclick="demo.setPreset('echo')"><span class="picon">📻</span>Echo</div>
+      </div>
+
+      <!-- Log -->
+      <div class="section-title">Event Log</div>
+      <div class="log-panel" id="viewerLog">
+        <div class="log-entry info">Waiting for server...</div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== Bottom Bar ===== -->
+<div class="bottom-bar">
+  <span class="note">Single-page simulated multi-device demo. Camera and microphone permissions are only requested in real capture mode.</span>
+  <span style="flex:1;"></span>
+  <span class="badge simulated">Simulated</span>
+  <span class="badge experimental">Experimental voice mode</span>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ===== State =====
+  const state = {
+    serverState: 'stopped', // stopped | starting | running
+    faceCapture: false,
+    voiceChanger: false,
+    voicePreset: 'original',
+    captureMode: 'simulated',
+    subtitle: false,
+    connected: false,
+    latency: 0,
+    frameCount: 0,
+    fps: 0,
+    serverTimer: null,
+    frameTimer: null,
+    log: []
+  };
+
+  const PRESET_NAMES = {
+    original: 'Original',
+    chipmunk: 'Chipmunk',
+    robot: 'Robot',
+    deep: 'Deep',
+    alien: 'Alien',
+    echo: 'Echo'
+  };
+
+  // ===== Utility =====
+  function $(id) { return document.getElementById(id); }
+
+  function addLog(source, msg, level) {
+    level = level || 'info';
+    state.log.push({ source, msg, level, ts: Date.now() });
+    if (state.log.length > 50) state.log.shift();
+    renderLog();
+    if (source === 'viewer') {
+      // remote command ack in app log too
+      const appLog = document.getElementById('appLog');
+      if (!appLog) return;
+    }
+  }
+
+  function renderLog() {
+    const el = $('viewerLog');
+    if (!el) return;
+    el.innerHTML = state.log.slice(-12).map(function(e) {
+      var cls = e.level;
+      if (e.source === 'viewer' && e.level === 'info') cls = 'remote';
+      return '<div class="log-entry ' + cls + '">[' + e.source + '] ' + e.msg + '</div>';
+    }).join('');
+  }
+
+  // ===== App Avatar mini renderer =====
+  var appCtx = null;
+  var viewerCtx = null;
+  var appAvatarAnim = 0;
+
+  function initAppCanvas() {
+    var c = $('appAvatarCanvas');
+    if (!c) return;
+    c.width = c.clientWidth || 300;
+    c.height = c.clientHeight || 169;
+    appCtx = c.getContext('2d');
+  }
+
+  function initViewerCanvas() {
+    var c = $('viewerAvatarCanvas');
+    if (!c) return;
+    var area = $('viewerAvatarArea');
+    var w = area ? area.clientWidth : 400;
+    var h = area ? area.clientHeight : 300;
+    c.width = w;
+    c.height = h;
+    viewerCtx = c.getContext('2d');
+  }
+
+  function drawAppAvatar() {
+    if (!appCtx) return;
+    var ctx = appCtx;
+    var w = ctx.canvas.width;
+    var h = ctx.canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // Background
+    ctx.fillStyle = '#0d1525';
+    ctx.fillRect(0, 0, w, h);
+
+    if (!state.connected) {
+      ctx.fillStyle = '#5a6a85';
+      ctx.font = '13px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Server not started', w/2, h/2);
+      return;
+    }
+
+    // Simple animated avatar: a circle with face
+    var cx = w/2;
+    var cy = h/2 - 10;
+    var r = Math.min(w, h) * 0.25;
+
+    // Body glow
+    if (state.faceCapture) {
+      ctx.shadowColor = 'rgba(79,195,247,0.4)';
+      ctx.shadowBlur = 20;
+    }
+
+    // Body
+    var bodyGrad = ctx.createRadialGradient(cx, cy - r*0.3, r*0.1, cx, cy, r);
+    bodyGrad.addColorStop(0, '#ff9a3c');
+    bodyGrad.addColorStop(0.7, '#e8822a');
+    bodyGrad.addColorStop(1, '#c4601a');
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+
+    // Eyes
+    var eyeY = cy - r * 0.25;
+    var eyeSpacing = r * 0.4;
+    var eyeR = r * 0.22;
+
+    // White
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(cx - eyeSpacing, eyeY, eyeR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + eyeSpacing, eyeY, eyeR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Pupils
+    var pupilR = eyeR * 0.55;
+    ctx.fillStyle = '#0a0a0a';
+    ctx.beginPath();
+    ctx.arc(cx - eyeSpacing, eyeY, pupilR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + eyeSpacing, eyeY, pupilR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Mouth
+    if (state.faceCapture) {
+      var mouthY = cy + r * 0.3;
+      var mouthW = r * 0.5;
+      ctx.strokeStyle = '#c4601a';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, mouthY, mouthW, 0.1, Math.PI - 0.1);
+      ctx.stroke();
+    }
+
+    // Status text
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    var statusLines = [];
+    if (state.faceCapture) statusLines.push('Face: Active');
+    if (state.voiceChanger) statusLines.push('Voice: ' + PRESET_NAMES[state.voicePreset]);
+    ctx.fillText(statusLines.join(' | ') || 'Idle', cx, h - 12);
+
+    // Mode badge
+    ctx.fillStyle = state.captureMode === 'simulated' ? 'rgba(255,212,59,0.8)' : 'rgba(79,195,247,0.8)';
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.fillText(state.captureMode === 'simulated' ? 'SIMULATED' : 'REAL CAMERA', cx, 16);
+  }
+
+  function drawViewerAvatar() {
+    if (!viewerCtx) return;
+    var ctx = viewerCtx;
+    var w = ctx.canvas.width;
+    var h = ctx.canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // Background
+    ctx.fillStyle = '#0d1525';
+    ctx.fillRect(0, 0, w, h);
+
+    if (!state.connected) {
+      ctx.fillStyle = '#5a6a85';
+      ctx.font = '14px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Waiting for connection...', w/2, h/2 - 10);
+      ctx.fillStyle = '#6e7681';
+      ctx.font = '11px -apple-system, sans-serif';
+      ctx.fillText('Start the App Server to begin', w/2, h/2 + 16);
+      return;
+    }
+
+    // Draw the same avatar but with more detail and the "live" indicator
+    var cx = w/2;
+    var cy = h/2 - 10;
+    var r = Math.min(w, h) * 0.3;
+    var time = appAvatarAnim * 0.05;
+
+    // Live indicator
+    ctx.fillStyle = '#69db7c';
+    ctx.beginPath();
+    ctx.arc(w - 20, 20, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(105,219,124,0.3)';
+    ctx.beginPath();
+    ctx.arc(w - 20, 20, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#69db7c';
+    ctx.font = 'bold 10px -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('LIVE', w - 30, 24);
+
+    // Glow
+    ctx.shadowColor = 'rgba(79,195,247,0.3)';
+    ctx.shadowBlur = 25 + Math.sin(time) * 5;
+
+    // Body
+    var bodyGrad = ctx.createRadialGradient(cx, cy - r*0.3, r*0.1, cx, cy, r);
+    bodyGrad.addColorStop(0, '#ff9a3c');
+    bodyGrad.addColorStop(0.7, '#e8822a');
+    bodyGrad.addColorStop(1, '#c4601a');
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+
+    // Eyes
+    var eyeY = cy - r * 0.25;
+    var eyeSpacing = r * 0.4;
+    var eyeR = r * 0.22;
+
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(cx - eyeSpacing, eyeY, eyeR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + eyeSpacing, eyeY, eyeR, 0, Math.PI * 2);
+    ctx.fill();
+
+    var pupilR = eyeR * 0.55;
+    ctx.fillStyle = '#0a0a0a';
+    ctx.beginPath();
+    ctx.arc(cx - eyeSpacing, eyeY, pupilR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + eyeSpacing, eyeY, pupilR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Mouth animation
+    if (state.faceCapture) {
+      var mouthY = cy + r * 0.3;
+      var mouthW = r * 0.5;
+      ctx.strokeStyle = '#c4601a';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      var mouthOpen = 0.1 + Math.sin(time * 2) * 0.3;
+      ctx.arc(cx, mouthY, mouthW, mouthOpen, Math.PI - mouthOpen);
+      ctx.stroke();
+    }
+
+    // Overlay info
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, h - 36, w, 36);
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.font = '11px -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    var info = [];
+    info.push('Skin: Sacabambaspis');
+    if (state.faceCapture) info.push('Face: ON');
+    if (state.voiceChanger) info.push('Voice: ' + PRESET_NAMES[state.voicePreset]);
+    ctx.fillText(info.join('  |  '), 12, h - 12);
+  }
+
+  // ===== Sync all UI elements =====
+  function syncUI() {
+    // -- App side --
+    // Server
+    var serverDot = $('appServerDot');
+    var serverStatus = $('appServerStatus');
+    var serverUrl = $('appServerUrl');
+    var btnStart = $('btnStartServer');
+    var btnStop = $('btnStopServer');
+    var appCapDot = $('appCapDot');
+    var appCapStatus = $('appCapStatus');
+
+    serverDot.className = 'status-dot';
+    if (state.serverState === 'running') {
+      serverDot.className += ' green';
+      serverStatus.textContent = 'Running';
+      serverUrl.textContent = 'http://192.168.1.x:8081';
+      btnStart.disabled = true;
+      btnStop.disabled = false;
+      appCapDot.className = 'status-dot green';
+      appCapStatus.textContent = 'Capturing (simulated)';
+    } else if (state.serverState === 'starting') {
+      serverDot.className += ' yellow';
+      serverStatus.textContent = 'Starting...';
+      serverUrl.textContent = 'Initializing...';
+      btnStart.disabled = true;
+      btnStop.disabled = true;
+      appCapDot.className = 'status-dot yellow';
+      appCapStatus.textContent = 'Initializing...';
+    } else {
+      serverDot.className += ' gray';
+      serverStatus.textContent = 'Stopped';
+      serverUrl.textContent = '--';
+      btnStart.disabled = false;
+      btnStop.disabled = true;
+      appCapDot.className = 'status-dot gray';
+      appCapStatus.textContent = 'Not capturing';
+    }
+
+    // Toggles (app)
+    var appFT = $('appFaceToggle');
+    var appVT = $('appVoiceToggle');
+    var appST = $('appSubToggle');
+    appFT.className = 'toggle-switch' + (state.faceCapture ? ' on' : '');
+    appVT.className = 'toggle-switch' + (state.voiceChanger ? ' on' : '');
+    appST.className = 'toggle-switch' + (state.subtitle ? ' on' : '');
+
+    // Mode buttons
+    var btnSim = $('btnSimMode');
+    var btnReal = $('btnRealMode');
+    btnSim.className = 'btn' + (state.captureMode === 'simulated' ? ' success' : '');
+    btnReal.className = 'btn' + (state.captureMode === 'real' ? ' primary' : '');
+
+    // Presets (app)
+    var appBtns = document.querySelectorAll('#appPresetGrid .preset-btn');
+    appBtns.forEach(function(b) {
+      b.className = 'preset-btn' + (b.dataset.preset === state.voicePreset ? ' active' : '');
+    });
+
+    // Metrics (app)
+    $('appFps').textContent = state.connected ? state.fps : '--';
+    $('appFrames').textContent = state.frameCount;
+    $('appLatency').textContent = state.connected ? state.latency + ' ms' : '--';
+
+    // -- Viewer side --
+    var vConnBadge = $('viewerConnBadge');
+    var vConnDot = $('viewerConnDot');
+    var vConnStatus = $('viewerConnStatus');
+
+    if (state.connected) {
+      vConnBadge.textContent = 'connected';
+      vConnBadge.style.opacity = '1';
+      vConnBadge.className = 'badge ready';
+      vConnDot.className = 'status-dot green';
+      vConnStatus.textContent = 'Connected to server';
+    } else {
+      vConnBadge.textContent = 'disconnected';
+      vConnBadge.style.opacity = '0.4';
+      vConnBadge.className = 'badge';
+      vConnDot.className = 'status-dot gray';
+      vConnStatus.textContent = 'Not connected';
+    }
+
+    // Viewer metrics
+    $('viewerFrames').textContent = state.frameCount;
+    $('viewerLatency').textContent = state.connected ? state.latency + ' ms' : '--';
+    $('viewerFaceStatus').textContent = state.faceCapture ? 'ON' : 'OFF';
+    $('viewerFaceStatus').style.color = state.faceCapture ? 'var(--color-accent2)' : 'var(--text-muted)';
+    $('viewerVoiceStatus').textContent = state.voiceChanger ? 'ON' : 'OFF';
+    $('viewerVoiceStatus').style.color = state.voiceChanger ? 'var(--color-accent2)' : 'var(--text-muted)';
+
+    // Viewer toggles
+    var vFT = $('viewerFaceToggle');
+    var vVT = $('viewerVoiceToggle');
+    var vST = $('viewerSubToggle');
+    vFT.className = 'toggle-switch' + (state.faceCapture ? ' on' : '');
+    vVT.className = 'toggle-switch' + (state.voiceChanger ? ' on' : '');
+    vST.className = 'toggle-switch' + (state.subtitle ? ' on' : '');
+
+    // Viewer presets
+    var vBtns = document.querySelectorAll('#viewerPresetGrid .preset-btn');
+    vBtns.forEach(function(b) {
+      b.className = 'preset-btn' + (b.dataset.preset === state.voicePreset ? ' active' : '');
+    });
+
+    // Subtitle
+    var subEl = $('viewerSubtitle');
+    if (state.subtitle && state.connected) {
+      subEl.className = 'subtitle-area';
+      subEl.textContent = state.subtitleText || 'Waiting for transcript...';
+    } else {
+      subEl.className = 'subtitle-area off';
+      subEl.textContent = 'Subtitle off';
+    }
+
+    // Connection area
+    var connApp = $('connApp');
+    var connServer = $('connServer');
+    var connViewer = $('connViewer');
+    var connArrow1 = $('connArrow1');
+    var connArrow2 = $('connArrow2');
+    var spark1 = $('connSpark1');
+    var spark2 = $('connSpark2');
+    var latBadge = $('latencyBadge');
+    var badgeConn = $('badgeConn');
+
+    if (state.connected) {
+      connApp.className = 'conn-node ok';
+      connServer.className = 'conn-node ok';
+      connViewer.className = 'conn-node ok';
+      connArrow1.className = 'conn-arrow flowing';
+      connArrow2.className = 'conn-arrow flowing';
+      spark1.style.display = '';
+      spark2.style.display = '';
+      latBadge.textContent = state.latency + ' ms';
+      latBadge.className = 'latency-badge' + (state.latency > 80 ? ' warn' : '');
+      badgeConn.textContent = 'connected';
+      badgeConn.style.opacity = '1';
+      badgeConn.className = 'badge ready';
+    } else if (state.serverState === 'starting') {
+      connApp.className = 'conn-node active';
+      connServer.className = 'conn-node active';
+      connViewer.className = 'conn-node';
+      connArrow1.className = 'conn-arrow flowing';
+      connArrow2.className = 'conn-arrow';
+      spark1.style.display = '';
+      spark2.style.display = 'none';
+      latBadge.textContent = '...';
+      latBadge.className = 'latency-badge';
+      badgeConn.textContent = 'syncing';
+      badgeConn.style.opacity = '1';
+      badgeConn.className = 'badge experimental';
+    } else {
+      connApp.className = 'conn-node';
+      connServer.className = 'conn-node';
+      connViewer.className = 'conn-node';
+      connArrow1.className = 'conn-arrow';
+      connArrow2.className = 'conn-arrow';
+      spark1.style.display = 'none';
+      spark2.style.display = 'none';
+      latBadge.textContent = '-- ms';
+      latBadge.className = 'latency-badge';
+      badgeConn.textContent = 'disconnected';
+      badgeConn.style.opacity = '0.4';
+      badgeConn.className = 'badge';
+    }
+  }
+
+  // ===== Update clock =====
+  function updateClocks() {
+    var now = new Date();
+    var time = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+    $('appTime').textContent = time;
+    $('viewerTime').textContent = time;
+  }
+
+  // ===== Subtitle simulator =====
+  var subtitleLines = [
+    'Hello, this is a simulated subtitle stream.',
+    'The avatar is now capturing facial expressions.',
+    'Voice changer is: ',
+    'Connected viewers: 1',
+    'Frame rate is stable at ~30 fps.',
+    'Latency is within acceptable range.',
+    'Remote command received and acknowledged.',
+    'Preset changed successfully.',
+    'Face capture toggled from remote viewer.',
+    'This is a single-page simulated demo.'
+  ];
+  var subtitleIndex = 0;
+
+  function updateSubtitle() {
+    if (!state.subtitle || !state.connected) return;
+    var line = subtitleLines[subtitleIndex % subtitleLines.length];
+    if (line === 'Voice changer is: ') {
+      line += PRESET_NAMES[state.voicePreset];
+    }
+    state.subtitleText = line;
+    subtitleIndex++;
+    syncUI();
+  }
+
+  // ===== Frame loop =====
+  function frameLoop() {
+    if (!state.connected) return;
+
+    state.frameCount++;
+    state.fps = Math.round(30 + Math.random() * 5);
+    state.latency = Math.round(35 + Math.random() * 30);
+    appAvatarAnim++;
+
+    // Update subtitle every 2 seconds
+    if (state.subtitle && state.frameCount % 60 === 0) {
+      updateSubtitle();
+    }
+
+    syncUI();
+    drawAppAvatar();
+    drawViewerAvatar();
+  }
+
+  // ===== Public API =====
+  window.demo = {
+    startServer: function() {
+      if (state.serverState !== 'stopped') return;
+      state.serverState = 'starting';
+      state.connected = false;
+      syncUI();
+      addLog('app', 'Starting local server...', 'info');
+
+      // Simulate startup delay
+      state.serverTimer = setTimeout(function() {
+        state.serverState = 'running';
+        state.connected = true;
+        state.frameCount = 0;
+        state.latency = Math.round(35 + Math.random() * 20);
+        state.fps = 30;
+        syncUI();
+        addLog('app', 'Server started on http://192.168.1.x:8081', 'success');
+        addLog('viewer', 'Connected to server', 'success');
+
+        // Start frame loop
+        state.frameTimer = setInterval(frameLoop, 33);
+      }, 1500);
+    },
+
+    stopServer: function() {
+      if (state.serverState === 'stopped') return;
+      if (state.serverTimer) clearTimeout(state.serverTimer);
+      if (state.frameTimer) clearInterval(state.frameTimer);
+      state.serverState = 'stopped';
+      state.connected = false;
+      state.frameCount = 0;
+      state.fps = 0;
+      state.latency = 0;
+      addLog('app', 'Server stopped', 'warn');
+      addLog('viewer', 'Disconnected from server', 'warn');
+      syncUI();
+      drawAppAvatar();
+      drawViewerAvatar();
+    },
+
+    toggleFaceCapture: function() {
+      state.faceCapture = !state.faceCapture;
+      var msg = 'Face capture ' + (state.faceCapture ? 'ON' : 'OFF');
+      addLog('app', msg, state.faceCapture ? 'success' : 'info');
+      if (state.connected) {
+        addLog('viewer', 'remote command ack: ' + msg, 'remote');
+      }
+      syncUI();
+    },
+
+    toggleVoiceChanger: function() {
+      state.voiceChanger = !state.voiceChanger;
+      var msg = 'Voice changer ' + (state.voiceChanger ? 'ON' : 'OFF');
+      var suffix = state.voiceChanger ? ' (Experimental voice mode; fallback to original audio if resources are unavailable)' : '';
+      addLog('app', msg + suffix, state.voiceChanger ? 'success' : 'info');
+      if (state.connected) {
+        addLog('viewer', 'remote command ack: ' + msg, 'remote');
+      }
+      syncUI();
+    },
+
+    toggleSubtitle: function() {
+      state.subtitle = !state.subtitle;
+      var msg = 'Subtitle ' + (state.subtitle ? 'ON' : 'OFF');
+      addLog('app', msg, state.subtitle ? 'success' : 'info');
+      if (state.connected) {
+        addLog('viewer', 'remote command ack: ' + msg, 'remote');
+        if (state.subtitle) updateSubtitle();
+      }
+      syncUI();
+    },
+
+    setPreset: function(preset) {
+      if (!PRESET_NAMES[preset]) return;
+      state.voicePreset = preset;
+      addLog('app', 'Voice preset changed to ' + PRESET_NAMES[preset], 'success');
+      if (state.connected) {
+        addLog('viewer', 'remote command ack: preset changed to ' + PRESET_NAMES[preset], 'remote');
+      }
+      syncUI();
+    },
+
+    setCaptureMode: function(mode) {
+      state.captureMode = mode;
+      addLog('app', 'Capture mode: ' + mode, 'info');
+      syncUI();
+    },
+
+    getState: function() { return state; }
+  };
+
+  // ===== Init =====
+  function init() {
+    updateClocks();
+    setInterval(updateClocks, 30000);
+    initAppCanvas();
+    initViewerCanvas();
+    syncUI();
+    drawAppAvatar();
+    drawViewerAvatar();
+
+    // Handle window resize
+    window.addEventListener('resize', function() {
+      initAppCanvas();
+      initViewerCanvas();
+      drawAppAvatar();
+      drawViewerAvatar();
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+
+</body>
+</html>
