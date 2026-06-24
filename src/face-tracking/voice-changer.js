@@ -123,6 +123,12 @@ class VoiceChanger {
     if (this.started) return;
     await this.init();
 
+    // 关键修复：Chrome/Edge 的 AudioContext 默认处于 suspended 状态，
+    // 需要 resume() 才能真正开始处理音频
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
+
     // 如果传入了已有流则复用，否则主动请求麦克风
     let stream = existingStream;
     if (!stream) {
@@ -325,7 +331,11 @@ class VoiceChanger {
   async startRealtime() {
     if (this.started && this.isActive) return;
     if (!this.initialized) await this.init();
-    
+
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
+
     if (!this.source && this.stream) {
       this.source = this.audioContext.createMediaStreamSource(this.stream);
       this.source.connect(this.inputGain);
