@@ -14,6 +14,9 @@ test('voice changer panel loads without JS error', async ({ page }) => {
   const panel = await page.$('#voiceChangerPanel');
   expect(panel).not.toBeNull();
   
+  const debugPanel = await page.$('#vcDebugPanel');
+  expect(debugPanel).not.toBeNull();
+  
   expect(errs.length).toBe(0);
 });
 
@@ -21,11 +24,9 @@ test('voice changer toggle triggers handler state change', async ({ page, contex
   await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(1500);
 
-  // Verify toggle exists and is initially unchecked
   const toggleChecked = await page.$eval('#voiceChangerToggle', el => el.checked);
   expect(toggleChecked).toBe(false);
 
-  // Dispatch change event and verify faceTracker state updates
   await page.evaluate(() => {
     const toggle = document.getElementById('voiceChangerToggle');
     Object.defineProperty(toggle, 'checked', { value: true, writable: true });
@@ -34,20 +35,14 @@ test('voice changer toggle triggers handler state change', async ({ page, contex
   });
   await page.waitForTimeout(800);
 
-  // Verify voiceChangerEnabled state - on desktop with mocks, VC starts and vcEnabled=true.
-  // On mobile (no mic permission in headless), VC init fails and handler rolls back to false.
-  // Both are valid behaviors; verify the handler fired (checkbox reflects state change).
   const vcEnabled = await page.evaluate(() => {
     const ft = window.faceTracker;
     return ft ? ft.voiceChangerEnabled : null;
   });
-  // If vcEnabled=true, VoiceChanger started successfully; if=false, init failed (expected on mobile).
-  // The key invariant: voiceChanger must exist after toggle if vcEnabled=true.
   if (vcEnabled === true) {
     const hasVC = await page.evaluate(() => !!window.faceTracker?.voiceChanger);
     expect(hasVC).toBe(true);
   }
-  // Test passes if: desktop→vcEnabled=true, or mobile→vcEnabled=false (with rollback)
   expect(vcEnabled !== null).toBe(true);
 });
 
@@ -55,8 +50,8 @@ test('voice changer presets are selectable', async ({ page }) => {
   await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(1500);
   
-  // Test all 5 presets - use force:true since panel may be hidden
-  const presets = ['normal', 'loli', 'uncle', 'robot', 'monster'];
+  // Test all 5 presets (new naming)
+  const presets = ['normal', 'cute', 'robot', 'deep', 'radio'];
   for (const preset of presets) {
     await page.selectOption('#voiceChangerPreset', preset, { force: true });
     const presetVal = await page.$eval('#voiceChangerPreset', el => el.value);
@@ -68,7 +63,6 @@ test('voice changer monitor mode selection', async ({ page }) => {
   await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(1500);
   
-  // Test all 3 monitor modes - use force:true since panel may be hidden
   const modes = ['changed', 'original', 'mute'];
   for (const mode of modes) {
     await page.selectOption('#voiceChangerMonitor', mode, { force: true });
@@ -86,7 +80,6 @@ test('VoiceChanger class basic API in browser', async ({ page }) => {
       const ft = window.faceTracker;
       if (!ft) return { ok: false, error: 'no faceTracker' };
       
-      // VoiceChanger might not be loaded if no microphone
       if (!ft.voiceChanger) {
         return { ok: true, hasVoiceChanger: false, reason: 'not loaded (no mic)' };
       }
@@ -94,7 +87,9 @@ test('VoiceChanger class basic API in browser', async ({ page }) => {
       return {
         ok: true,
         hasVoiceChanger: true,
-        isSupported: ft.voiceChanger.isSupported ? ft.voiceChanger.isSupported() : 'N/A'
+        isSupported: ft.voiceChanger.isSupported ? ft.voiceChanger.isSupported() : 'N/A',
+        state: ft.voiceChanger.state,
+        engineSource: ft.voiceChanger.engineSource,
       };
     } catch(e) {
       return { ok: false, error: e.message };
@@ -110,10 +105,9 @@ test('VoiceChanger applyPreset updates pitch and tempo', async ({ page }) => {
   
   const result = await page.evaluate(() => {
     try {
-      // Try to apply preset via the UI select
       const select = document.getElementById('voiceChangerPreset');
       if (select) {
-        select.value = 'loli';
+        select.value = 'cute';
         select.dispatchEvent(new Event('change'));
       }
       
@@ -136,7 +130,6 @@ test('VoiceChanger applyPreset updates pitch and tempo', async ({ page }) => {
   });
   
   expect(result.ok).toBe(true);
-  // If VoiceChanger loaded, verify pitch changed
   if (result.hasVoiceChanger) {
     expect(result.pitch).toBeDefined();
   }
@@ -144,9 +137,7 @@ test('VoiceChanger applyPreset updates pitch and tempo', async ({ page }) => {
 
 // Mock success path: verify toggle + preset + monitor actually change VoiceChanger state
 test('voice changer mock success path - toggle/preset/monitor update VoiceChanger instance', async ({ page }) => {
-  // Set up browser API mocks before page JS runs
   await page.addInitScript(() => {
-    // Mock soundtouchjs
     window.soundtouch = {
       SoundTouch: function(sampleRate, channels) {
         this.sampleRate = sampleRate;
@@ -157,9 +148,8 @@ test('voice changer mock success path - toggle/preset/monitor update VoiceChange
         this._buffer = null;
       }
     };
-    // Mock getUserMedia
     const fakeStream = {
-      getAudioTracks: () => [{ kind: 'audio' }],
+      getAudioTracks: () => [{ kind: 'audio', readyState: 'live' }],
       getTracks: () => [{ kind: 'audio' }],
       getVideoTracks: () => [],
       addEventListener: () => {},
@@ -170,7 +160,6 @@ test('voice changer mock success path - toggle/preset/monitor update VoiceChange
       value: async () => fakeStream,
       writable: true,
     });
-    // Mock AudioContext
     const mockAudioContext = {
       state: 'running',
       sampleRate: 44100,
@@ -191,34 +180,36 @@ test('voice changer mock success path - toggle/preset/monitor update VoiceChange
   await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(500);
 
-  // Trigger the toggle via JS (checkbox is CSS-hidden and may be outside viewport)
+  // Trigger the toggle via JS
   await page.evaluate(() => {
     const toggle = document.getElementById('voiceChangerToggle');
-    // Set checked to true and dispatch change event
     Object.defineProperty(toggle, 'checked', { value: true, writable: true });
     toggle.checked = true;
     toggle.dispatchEvent(new Event('change', { bubbles: true }));
   });
   await page.waitForTimeout(1500);
 
-  // Verify VoiceChanger instance was created and panel is visible
+  // Verify VoiceChanger instance was created and is in enabled state
   const result = await page.evaluate(() => {
     const ft = window.faceTracker;
     if (!ft) return { ok: false, error: 'no faceTracker' };
+    const vc = ft.voiceChanger;
     return {
       ok: true,
-      hasVoiceChanger: !!ft.voiceChanger,
+      hasVoiceChanger: !!vc,
       vcEnabled: ft.voiceChangerEnabled,
-      panelVisible: !!ft.voiceChanger?.isActive,
+      state: vc?.state,
+      diagnostics: vc?.getDiagnostics(),
     };
   });
 
   expect(result.ok).toBe(true);
   expect(result.hasVoiceChanger).toBe(true);
   expect(result.vcEnabled).toBe(true);
+  expect(result.state).toBe('enabled');
 
-  // Apply 'loli' preset and verify pitch/tempo change
-  await page.selectOption('#voiceChangerPreset', 'loli', { force: true });
+  // Apply 'cute' preset and verify pitch/tempo change
+  await page.selectOption('#voiceChangerPreset', 'cute', { force: true });
   await page.waitForTimeout(300);
 
   const afterPreset = await page.evaluate(() => {
@@ -230,22 +221,22 @@ test('voice changer mock success path - toggle/preset/monitor update VoiceChange
     };
   });
 
-  // loli preset: pitch=1.5, tempo=1.05
+  // cute preset: pitch=1.5, tempo=1.05
   expect(afterPreset.pitch).toBeCloseTo(1.5, 1);
   expect(afterPreset.tempo).toBeCloseTo(1.05, 1);
 
-  // Apply 'uncle' preset
-  await page.selectOption('#voiceChangerPreset', 'uncle', { force: true });
+  // Apply 'deep' preset
+  await page.selectOption('#voiceChangerPreset', 'deep', { force: true });
   await page.waitForTimeout(300);
 
-  const afterUncle = await page.evaluate(() => {
+  const afterDeep = await page.evaluate(() => {
     const ft = window.faceTracker;
     return { pitch: ft.voiceChanger?.pitch, tempo: ft.voiceChanger?.tempo };
   });
 
-  // uncle preset: pitch=0.7, tempo=0.95
-  expect(afterUncle.pitch).toBeCloseTo(0.7, 1);
-  expect(afterUncle.tempo).toBeCloseTo(0.95, 1);
+  // deep preset: pitch=0.7, tempo=0.95
+  expect(afterDeep.pitch).toBeCloseTo(0.7, 1);
+  expect(afterDeep.tempo).toBeCloseTo(0.95, 1);
 
   // Change monitor mode to 'mute'
   await page.selectOption('#voiceChangerMonitor', 'mute', { force: true });
@@ -268,13 +259,114 @@ test('voice changer mock success path - toggle/preset/monitor update VoiceChange
   });
 
   expect(afterOriginal.monitorMode).toBe('original');
+
+  // Verify debug panel is populated
+  const debugContent = await page.$eval('#vcDebugPanel', el => el.textContent);
+  expect(debugContent).toContain('enabled');
+  expect(debugContent).toContain('Web Audio');
+});
+
+// Mock failure path: getUserMedia denied
+test('voice changer shows precise error when mic permission denied', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.soundtouch = {
+      SoundTouch: function(sampleRate, channels) {
+        this.sampleRate = sampleRate;
+        this.channels = channels;
+        this.pitch = 1.0;
+        this.tempo = 1.0;
+        this.rate = 1.0;
+      }
+    };
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+      value: async () => { throw { name: 'NotAllowedError', message: 'Permission denied' }; },
+      writable: true,
+    });
+    const mockAudioContext = {
+      state: 'running',
+      sampleRate: 44100,
+      destination: {},
+      createGain: () => ({ gain: { value: 0 }, connect: () => {} }),
+      createScriptProcessor: () => ({ onaudioprocess: null, connect: () => {} }),
+      createMediaStreamSource: () => ({ connect: () => {} }),
+      resume: async () => {},
+      close: async () => {},
+    };
+    window.AudioContext = function() { return mockAudioContext; };
+    window.webkitAudioContext = function() { return mockAudioContext; };
+  });
+
+  await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForTimeout(500);
+
+  await page.evaluate(() => {
+    const toggle = document.getElementById('voiceChangerToggle');
+    Object.defineProperty(toggle, 'checked', { value: true, writable: true });
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForTimeout(1500);
+
+  // Toggle should be rolled back and error message should be specific
+  const toggleChecked = await page.$eval('#voiceChangerToggle', el => el.checked);
+  expect(toggleChecked).toBe(false);
+
+  const statusText = await page.$eval('#status', el => el.textContent);
+  expect(statusText).toContain('权限被拒绝');
+});
+
+// Mock failure path: no mic device
+test('voice changer shows precise error when no mic device found', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.soundtouch = {
+      SoundTouch: function(sampleRate, channels) {
+        this.sampleRate = sampleRate;
+        this.channels = channels;
+        this.pitch = 1.0;
+        this.tempo = 1.0;
+        this.rate = 1.0;
+      }
+    };
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+      value: async () => { throw { name: 'NotFoundError', message: 'No device' }; },
+      writable: true,
+    });
+    const mockAudioContext = {
+      state: 'running',
+      sampleRate: 44100,
+      destination: {},
+      createGain: () => ({ gain: { value: 0 }, connect: () => {} }),
+      createScriptProcessor: () => ({ onaudioprocess: null, connect: () => {} }),
+      createMediaStreamSource: () => ({ connect: () => {} }),
+      resume: async () => {},
+      close: async () => {},
+    };
+    window.AudioContext = function() { return mockAudioContext; };
+    window.webkitAudioContext = function() { return mockAudioContext; };
+  });
+
+  await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForTimeout(500);
+
+  await page.evaluate(() => {
+    const toggle = document.getElementById('voiceChangerToggle');
+    Object.defineProperty(toggle, 'checked', { value: true, writable: true });
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForTimeout(1500);
+
+  const toggleChecked = await page.$eval('#voiceChangerToggle', el => el.checked);
+  expect(toggleChecked).toBe(false);
+
+  const statusText = await page.$eval('#status', el => el.textContent);
+  expect(statusText).toContain('未检测到麦克风');
 });
 
 test('voice changer mode selection: realtime and paragraph options exist', async ({ page }) => {
   await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(1500);
 
-  // Verify voiceChangerMode select has both options
   const modeSelect = await page.$('#voiceChangerMode');
   expect(modeSelect).not.toBeNull();
 
@@ -287,31 +379,23 @@ test('voice changer paragraph mode toggle activates paragraphControls', async ({
   await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(1500);
 
-  // Initially paragraphControls should not have 'active' class (realtime mode is default)
-  let paragraphActive = await page.$eval('#paragraphControls', el => el.classList.contains('active'));
-  // If VoiceChanger is not loaded (no mic), paragraphControls might not exist or have different behavior
-  // Just verify the element exists
   const paragraphControls = await page.$('#paragraphControls');
   expect(paragraphControls).not.toBeNull();
 
-  // Switch to paragraph mode
   await page.selectOption('#voiceChangerMode', 'paragraph', { force: true });
   await page.waitForTimeout(300);
 
-  // Verify paragraphControls is now active
-  paragraphActive = await page.$eval('#paragraphControls', el => el.classList.contains('active'));
+  const paragraphActive = await page.$eval('#paragraphControls', el => el.classList.contains('active'));
   expect(paragraphActive).toBe(true);
 
-  // Switch back to realtime mode
   await page.selectOption('#voiceChangerMode', 'realtime', { force: true });
   await page.waitForTimeout(300);
 
-  paragraphActive = await page.$eval('#paragraphControls', el => el.classList.contains('active'));
-  expect(paragraphActive).toBe(false);
+  const paragraphInactive = await page.$eval('#paragraphControls', el => el.classList.contains('active'));
+  expect(paragraphInactive).toBe(false);
 });
 
 test('voice changer paragraph mode is stored in VoiceChanger instance', async ({ page }) => {
-  // Use the mock setup from the existing mock success path test
   await page.addInitScript(() => {
     window.soundtouch = {
       SoundTouch: function(sampleRate, channels) {
@@ -320,7 +404,6 @@ test('voice changer paragraph mode is stored in VoiceChanger instance', async ({
         this.pitch = 1.0;
         this.tempo = 1.0;
         this.rate = 1.0;
-        this._buffer = null;
       }
     };
     const fakeStream = {
@@ -358,7 +441,6 @@ test('voice changer paragraph mode is stored in VoiceChanger instance', async ({
   await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(500);
 
-  // Enable voice changer first
   await page.evaluate(() => {
     const toggle = document.getElementById('voiceChangerToggle');
     Object.defineProperty(toggle, 'checked', { value: true, writable: true });
@@ -367,11 +449,9 @@ test('voice changer paragraph mode is stored in VoiceChanger instance', async ({
   });
   await page.waitForTimeout(1500);
 
-  // Switch to paragraph mode
   await page.selectOption('#voiceChangerMode', 'paragraph', { force: true });
   await page.waitForTimeout(300);
 
-  // Verify VoiceChanger instance mode is 'paragraph'
   const modeResult = await page.evaluate(() => {
     const ft = window.faceTracker;
     if (!ft?.voiceChanger) return { ok: false, error: 'no voiceChanger' };
@@ -385,16 +465,68 @@ test('voice changer paragraph mode is stored in VoiceChanger instance', async ({
   expect(modeResult.ok).toBe(true);
   expect(modeResult.mode).toBe('paragraph');
 
-  // Switch back to realtime
   await page.selectOption('#voiceChangerMode', 'realtime', { force: true });
   await page.waitForTimeout(300);
 
   const realtimeResult = await page.evaluate(() => {
     const ft = window.faceTracker;
-    return {
-      mode: ft.voiceChanger?.mode,
-    };
+    return { mode: ft.voiceChanger?.mode };
   });
 
   expect(realtimeResult.mode).toBe('realtime');
+});
+
+// Debug panel visibility
+test('debug panel shows diagnostic info after voice changer toggle', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.soundtouch = {
+      SoundTouch: function(sampleRate, channels) {
+        this.sampleRate = sampleRate;
+        this.channels = channels;
+        this.pitch = 1.0;
+        this.tempo = 1.0;
+        this.rate = 1.0;
+      }
+    };
+    const fakeStream = {
+      getAudioTracks: () => [{ kind: 'audio', readyState: 'live' }],
+      getTracks: () => [{ kind: 'audio' }],
+      getVideoTracks: () => [],
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => true,
+    };
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+      value: async () => fakeStream,
+      writable: true,
+    });
+    const mockAudioContext = {
+      state: 'running',
+      sampleRate: 44100,
+      destination: {},
+      createGain: () => ({ gain: { value: 0.8 }, connect: () => {} }),
+      createScriptProcessor: () => ({ onaudioprocess: null, connect: () => {} }),
+      createMediaStreamSource: () => ({ connect: () => {} }),
+      resume: async () => {},
+      close: async () => {},
+    };
+    window.AudioContext = function() { return mockAudioContext; };
+    window.webkitAudioContext = function() { return mockAudioContext; };
+  });
+
+  await page.goto('/src/face-tracking/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForTimeout(500);
+
+  await page.evaluate(() => {
+    const toggle = document.getElementById('voiceChangerToggle');
+    Object.defineProperty(toggle, 'checked', { value: true, writable: true });
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForTimeout(1500);
+
+  const debugText = await page.$eval('#vcDebugPanel', el => el.textContent);
+  expect(debugText).toContain('enabled');
+  expect(debugText).toContain('OK');
+  expect(debugText).toContain('CONNECTED');
 });

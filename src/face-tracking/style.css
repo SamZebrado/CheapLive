@@ -1066,6 +1066,46 @@ body.app-mode .avatar-version-select {
   50% { opacity: 0.6; }
 }
 
+/* 变声调试面板 */
+.vc-debug-panel {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg3);
+  border-radius: 6px;
+  margin: 0.5rem 0 0.75rem 0;
+  font-size: 0.7rem;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  line-height: 1.5;
+  color: var(--muted);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.vc-debug-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 1px 0;
+}
+
+.vc-debug-label {
+  color: var(--muted);
+}
+
+.vc-debug-value {
+  font-weight: 500;
+}
+
+.vc-debug-value.ok {
+  color: #4caf50;
+}
+
+.vc-debug-value.fail {
+  color: #e74c3c;
+}
+
+.vc-debug-error .vc-debug-value {
+  color: #e74c3c;
+}
+
 /* 移动端触控优化 */
 @media (max-width: 768px) {
   .sensitivity-slider {
