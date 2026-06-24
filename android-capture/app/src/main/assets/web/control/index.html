@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CheapLive 参赛控制面板</title>
+  <style>
+    :root {
+      --bg-primary: #0a0e1a;
+      --bg-card: #1a2236;
+      --border-color: #2a3654;
+      --text-primary: #e8edf5;
+      --text-secondary: #8896b3;
+      --text-muted: #5a6a85;
+      --color-accent: #4fc3f7;
+      --color-accent2: #69db7c;
+      --color-warning: #ffd43b;
+      --color-danger: #ff6b6b;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    .hero {
+      background: linear-gradient(135deg, #0a0e1a 0%, #111827 100%);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+    .hero h1 { font-size: 22px; margin-bottom: 6px; }
+    .hero h1 span { color: var(--color-accent); }
+    .hero-sub { color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+    .demo-notice {
+      background: rgba(255,212,59,0.06);
+      border: 1px solid rgba(255,212,59,0.2);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      margin-top: 12px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+    .demo-notice strong { color: var(--text-primary); }
+    .badge {
+      display: inline-block;
+      font-size: 10px; font-weight: 600;
+      padding: 3px 8px; border-radius: 10px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .badge.simulated { background: rgba(255,212,59,0.12); border: 1px solid rgba(255,212,59,0.3); color: var(--color-warning); }
+    .badge.experimental { background: rgba(79,195,247,0.12); border: 1px solid rgba(79,195,247,0.3); color: var(--color-accent); }
+    .badge.ready { background: rgba(105,219,124,0.12); border: 1px solid rgba(105,219,124,0.3); color: var(--color-accent2); }
+    .badge.danger { background: rgba(255,107,107,0.12); border: 1px solid rgba(255,107,107,0.3); color: var(--color-danger); }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .card-title {
+      font-size: 11px; font-weight: 600;
+      color: var(--text-muted); text-transform: uppercase;
+      letter-spacing: 0.08em; margin-bottom: 10px;
+    }
+    .status-row {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .status-row:last-child { border-bottom: none; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .status-dot.green { background: var(--color-accent2); }
+    .status-dot.red { background: var(--color-danger); }
+    .status-dot.gray { background: var(--text-muted); }
+    .status-dot.yellow { background: var(--color-warning); }
+    .status-label { color: var(--text-secondary); flex: 1; }
+    .status-value { color: var(--text-primary); font-weight: 500; font-family: 'SF Mono', monospace; font-size: 12px; }
+
+    .toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-label { font-size: 13px; color: var(--text-primary); }
+    .toggle-switch {
+      position: relative; width: 44px; height: 24px;
+      background: #3a4560; border-radius: 12px;
+      cursor: pointer; transition: background 0.2s; flex-shrink: 0;
+    }
+    .toggle-switch.on { background: var(--color-accent2); }
+    .toggle-switch::after {
+      content: ''; position: absolute; top: 2px; left: 2px;
+      width: 20px; height: 20px; background: #fff; border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch.on::after { transform: translateX(20px); }
+    .toggle-switch:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .preset-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+    }
+    .preset-btn {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border-color);
+      border-radius: 6px; padding: 8px 4px;
+      text-align: center; font-size: 11px; color: var(--text-secondary);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .preset-btn:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+    .preset-btn.active {
+      background: rgba(79,195,247,0.12);
+      border-color: rgba(79,195,247,0.5);
+      color: var(--color-accent);
+    }
+    .preset-btn .picon { font-size: 15px; display: block; margin-bottom: 2px; }
+
+    .mode-row { display: flex; gap: 8px; }
+    .btn {
+      font-size: 12px; font-weight: 500;
+      padding: 8px 16px; border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: rgba(255,255,255,0.04);
+      color: var(--text-secondary);
+      cursor: pointer; transition: all 0.15s; flex: 1;
+    }
+    .btn:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+    .btn.active { background: rgba(79,195,247,0.15); border-color: rgba(79,195,247,0.4); color: var(--color-accent); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .log-panel {
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      font-family: 'SF Mono', monospace;
+      font-size: 10px; color: var(--text-muted);
+      max-height: 150px; overflow-y: auto;
+      line-height: 1.6;
+    }
+    .log-entry { padding: 1px 0; }
+    .log-entry.info { color: var(--text-secondary); }
+    .log-entry.success { color: var(--color-accent2); }
+    .log-entry.warn { color: var(--color-warning); }
+    .log-entry.error { color: var(--color-danger); }
+    .log-entry.remote { color: var(--color-accent); }
+
+    .error-banner {
+      background: rgba(255,107,107,0.1);
+      border: 1px solid rgba(255,107,107,0.3);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      font-size: 12px; color: var(--color-danger);
+      margin-bottom: 12px;
+      display: none;
+    }
+    .error-banner.visible { display: block; }
+
+    .json-panel {
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 10px;
+      font-family: 'SF Mono', monospace;
+      font-size: 10px; color: var(--text-secondary);
+      max-height: 200px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="hero">
+    <h1>CheapLive — <span>参赛控制面板</span></h1>
+    <p class="hero-sub">
+      This is a contest control page for the app-web interaction flow.<br>
+      这是参赛版 App-Web 控制页面，用于演示网页端遥控 App 侧状态。
+    </p>
+    <div class="demo-notice">
+      <strong>本页面为 CheapLive 参赛演示 Demo</strong>。参赛期间，Android APK、Android 源代码和 App 端闭源实现暂不公开。
+      Real camera and microphone capture require user permission and may be unavailable in this demo environment.
+    </div>
+  </div>
+
+  <div class="error-banner" id="errorBanner"></div>
+
+  <div class="card">
+    <div class="card-title">Server Status</div>
+    <div class="status-row">
+      <span class="status-dot gray" id="serverDot"></span>
+      <span class="status-label">Server</span>
+      <span class="status-value" id="serverStatus">Connecting...</span>
+    </div>
+    <div class="status-row">
+      <span class="status-dot gray" id="connDot"></span>
+      <span class="status-label">Connection</span>
+      <span class="status-value" id="connStatus">--</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Frame Count</span>
+      <span class="status-value" id="frameCount">0</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Latency</span>
+      <span class="status-value" id="latency">-- ms</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Last Command</span>
+      <span class="status-value" id="lastCommand">--</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Capture Controls</div>
+    <div class="toggle-row">
+      <span class="toggle-label">Face Capture</span>
+      <div class="toggle-switch" id="faceToggle" onclick="sendControl('setFaceCapture')"></div>
+    </div>
+    <div class="toggle-row">
+      <span class="toggle-label">Voice Changer <span class="badge experimental">Experimental</span></span>
+      <div class="toggle-switch" id="voiceToggle" onclick="sendControl('setVoiceChanger')"></div>
+    </div>
+    <div class="toggle-row">
+      <span class="toggle-label">Subtitle</span>
+      <div class="toggle-switch" id="subToggle" onclick="sendControl('setSubtitle')"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Voice Preset</div>
+    <div class="preset-grid" id="presetGrid">
+      <div class="preset-btn active" data-preset="original" onclick="setPreset('original')"><span class="picon">🎤</span>Original</div>
+      <div class="preset-btn" data-preset="chipmunk" onclick="setPreset('chipmunk')"><span class="picon">🐿️</span>Chipmunk</div>
+      <div class="preset-btn" data-preset="robot" onclick="setPreset('robot')"><span class="picon">🤖</span>Robot</div>
+      <div class="preset-btn" data-preset="deep" onclick="setPreset('deep')"><span class="picon">🎸</span>Deep</div>
+      <div class="preset-btn" data-preset="alien" onclick="setPreset('alien')"><span class="picon">👽</span>Alien</div>
+      <div class="preset-btn" data-preset="echo" onclick="setPreset('echo')"><span class="picon">📻</span>Echo</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Capture Mode</div>
+    <div class="mode-row">
+      <button class="btn active" id="btnSim" onclick="setMode('simulated')">Simulated</button>
+      <button class="btn" id="btnReal" onclick="setMode('real-camera')">Real Camera <span class="badge experimental">Exp.</span></button>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--text-muted);">
+      Real camera mode requires device permission. If permission is unavailable, it falls back to simulated mode.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">App State JSON</div>
+    <div class="json-panel" id="jsonPanel">Loading...</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Event Log</div>
+    <div class="log-panel" id="logPanel">
+      <div class="log-entry info">Initializing...</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  var state = {
+    serverRunning: false,
+    faceCaptureEnabled: false,
+    voiceChangerEnabled: false,
+    voicePreset: 'original',
+    captureMode: 'simulated',
+    subtitleEnabled: false,
+    viewerConnected: false,
+    frameCount: 0,
+    latencyMs: 0,
+    lastCommand: '',
+    lastError: '',
+    updatedAt: 0
+  };
+
+  var eventSource = null;
+  var pollTimer = null;
+  var useSSE = false;
+
+  function $(id) { return document.getElementById(id); }
+
+  function log(msg, level) {
+    level = level || 'info';
+    var panel = $('logPanel');
+    var entry = document.createElement('div');
+    entry.className = 'log-entry ' + level;
+    var now = new Date();
+    var ts = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
+    entry.textContent = '[' + ts + '] ' + msg;
+    panel.appendChild(entry);
+    panel.scrollTop = panel.scrollHeight;
+    // Keep last 50 entries
+    while (panel.children.length > 50) panel.removeChild(panel.firstChild);
+  }
+
+  function showError(msg) {
+    var banner = $('errorBanner');
+    if (msg) {
+      banner.textContent = msg;
+      banner.className = 'error-banner visible';
+    } else {
+      banner.className = 'error-banner';
+    }
+  }
+
+  function updateUI() {
+    // Server status
+    var dot = $('serverDot');
+    var st = $('serverStatus');
+    dot.className = 'status-dot ' + (state.serverRunning ? 'green' : 'gray');
+    st.textContent = state.serverRunning ? 'Running' : 'Stopped';
+
+    // Connection
+    var cDot = $('connDot');
+    var cSt = $('connStatus');
+    if (state.viewerConnected) {
+      cDot.className = 'status-dot green';
+      cSt.textContent = 'Connected';
+    } else {
+      cDot.className = 'status-dot gray';
+      cSt.textContent = 'Disconnected';
+    }
+
+    // Metrics
+    $('frameCount').textContent = state.frameCount;
+    $('latency').textContent = state.latencyMs > 0 ? state.latencyMs + ' ms' : '-- ms';
+    $('lastCommand').textContent = state.lastCommand || '--';
+
+    // Toggles
+    $('faceToggle').className = 'toggle-switch' + (state.faceCaptureEnabled ? ' on' : '');
+    $('voiceToggle').className = 'toggle-switch' + (state.voiceChangerEnabled ? ' on' : '');
+    $('subToggle').className = 'toggle-switch' + (state.subtitleEnabled ? ' on' : '');
+
+    // Presets
+    var btns = document.querySelectorAll('#presetGrid .preset-btn');
+    btns.forEach(function(b) {
+      b.className = 'preset-btn' + (b.dataset.preset === state.voicePreset ? ' active' : '');
+    });
+
+    // Mode
+    $('btnSim').className = 'btn' + (state.captureMode === 'simulated' ? ' active' : '');
+    $('btnReal').className = 'btn' + (state.captureMode === 'real-camera' ? ' active' : '');
+
+    // JSON panel
+    $('jsonPanel').textContent = JSON.stringify(state, null, 2);
+  }
+
+  function applyState(data) {
+    state.serverRunning = !!data.serverRunning;
+    state.faceCaptureEnabled = !!data.faceCaptureEnabled;
+    state.voiceChangerEnabled = !!data.voiceChangerEnabled;
+    state.voicePreset = data.voicePreset || 'original';
+    state.captureMode = data.captureMode || 'simulated';
+    state.subtitleEnabled = !!data.subtitleEnabled;
+    state.viewerConnected = !!data.viewerConnected;
+    state.frameCount = data.frameCount || 0;
+    state.latencyMs = data.latencyMs || 0;
+    state.lastCommand = data.lastCommand || '';
+    state.lastError = data.lastError || '';
+    state.updatedAt = data.updatedAt || 0;
+    updateUI();
+  }
+
+  // ===== API calls =====
+  function fetchStatus() {
+    fetch('/api/status')
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        applyState(data);
+        showError('');
+      })
+      .catch(function(e) {
+        showError('Failed to fetch status: ' + e.message);
+        log('fetchStatus error: ' + e.message, 'error');
+      });
+  }
+
+  function sendControl(type, extra) {
+    var body = { type: type };
+    if (extra) Object.keys(extra).forEach(function(k) { body[k] = extra[k]; });
+
+    // For toggle commands, flip the current state
+    if (type === 'setFaceCapture') body.enabled = !state.faceCaptureEnabled;
+    if (type === 'setVoiceChanger') body.enabled = !state.voiceChangerEnabled;
+    if (type === 'setSubtitle') body.enabled = !state.subtitleEnabled;
+
+    log('Sending control: ' + type + ' ' + JSON.stringify(body), 'remote');
+
+    fetch('/api/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        if (data.ok) {
+          log('Control OK: ' + (data.message || ''), 'success');
+          if (data.state) applyState(data.state);
+          showError('');
+        } else {
+          log('Control failed: ' + (data.message || ''), 'error');
+          showError('Control failed: ' + (data.message || ''));
+        }
+      })
+      .catch(function(e) {
+        showError('Control request failed: ' + e.message);
+        log('Control error: ' + e.message, 'error');
+      });
+  }
+
+  function setPreset(preset) {
+    sendControl('setVoicePreset', { preset: preset });
+  }
+
+  function setMode(mode) {
+    sendControl('setCaptureMode', { mode: mode });
+  }
+
+  // ===== SSE / Polling =====
+  function initSSE() {
+    try {
+      eventSource = new EventSource('/events');
+      eventSource.addEventListener('state', function(e) {
+        try {
+          var data = JSON.parse(e.data);
+          applyState(data);
+          if (!useSSE) {
+            useSSE = true;
+            log('SSE connected, switching from polling', 'success');
+            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+          }
+          showError('');
+        } catch (err) {
+          log('SSE parse error: ' + err.message, 'error');
+        }
+      });
+      eventSource.onerror = function() {
+        log('SSE error, falling back to polling', 'warn');
+        if (eventSource) { try { eventSource.close(); } catch(_){} eventSource = null; }
+        useSSE = false;
+        startPolling();
+      };
+      log('SSE connecting...', 'info');
+    } catch (e) {
+      log('SSE not supported, using polling', 'warn');
+      startPolling();
+    }
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(fetchStatus, 2000);
+    fetchStatus();
+    log('Polling started (2s interval)', 'info');
+  }
+
+  // ===== Init =====
+  window.sendControl = sendControl;
+  window.setPreset = setPreset;
+  window.setMode = setMode;
+
+  log('Control page loaded', 'info');
+  fetchStatus();
+  // Try SSE after initial fetch; if it fails, polling will continue
+  setTimeout(initSSE, 500);
+
+})();
+</script>
+</body>
+</html>

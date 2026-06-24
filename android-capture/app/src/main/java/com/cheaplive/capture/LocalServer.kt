@@ -11,24 +11,46 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.ConcurrentHashMap
 
-class LocalServer(private val appContext: Context, private val session: Session) : CaptureBroadcast {
+class LocalServer(
+    private val appContext: Context,
+    private val session: Session,
+    private val appState: AppState = AppState(),
+) : CaptureBroadcast {
 
     private val serverSocketHolder = java.util.concurrent.atomic.AtomicReference<ServerSocket?>(null)
     private val running = AtomicBoolean(false)
     private val webSocketClients = ConcurrentHashMap.newKeySet<WebSocketPeer>()
+    private val sseClients = ConcurrentHashMap.newKeySet<java.io.OutputStream>()
 
     @Volatile private var acceptThread: Thread? = null
 
     @Synchronized
     fun start(): Int {
         if (running.get()) return session.port
-        val ss = ServerSocket()
-        ss.reuseAddress = true
-        ss.bind(InetSocketAddress("0.0.0.0", session.port), 8)
-        serverSocketHolder.set(ss)
-        running.set(true)
-        acceptThread = Thread({ acceptLoop() }, "CheapLive-http-accept").apply { isDaemon = true; start() }
-        return ss.localPort
+        val basePort = session.port
+        val maxAttempts = 10
+        var lastError: Throwable? = null
+        for (offset in 0 until maxAttempts) {
+            val tryPort = basePort + offset
+            try {
+                val ss = ServerSocket()
+                try {
+                    ss.reuseAddress = true
+                } catch (_: Throwable) {}
+                ss.bind(InetSocketAddress("0.0.0.0", tryPort), 8)
+                serverSocketHolder.set(ss)
+                running.set(true)
+                acceptThread = Thread({ acceptLoop() }, "CheapLive-http-accept").apply {
+                    isDaemon = true
+                    start()
+                }
+                return ss.localPort
+            } catch (t: Throwable) {
+                lastError = t
+                continue
+            }
+        }
+        throw java.net.BindException("无法启动服务器：端口 $basePort 至 ${basePort + maxAttempts - 1} 均被占用（${lastError?.message}）")
     }
 
     @Synchronized
@@ -37,6 +59,26 @@ class LocalServer(private val appContext: Context, private val session: Session)
         try { serverSocketHolder.getAndSet(null)?.close() } catch (_: Throwable) {}
         for (peer in webSocketClients) { try { peer.close() } catch (_: Throwable) {} }
         webSocketClients.clear()
+        for (stream in sseClients) { try { stream.close() } catch (_: Throwable) {} }
+        sseClients.clear()
+    }
+
+    /** 获取 AppState（供 MainActivity 访问） */
+    fun getAppState(): AppState = appState
+
+    /** 推送状态变更到所有 SSE 客户端 */
+    fun broadcastStateChange() {
+        val json = appState.snapshot().toJson()
+        val iter = sseClients.iterator()
+        while (iter.hasNext()) {
+            val stream = iter.next()
+            try {
+                stream.write("event: state\ndata: $json\n\n".toByteArray(StandardCharsets.UTF_8))
+                stream.flush()
+            } catch (_: Throwable) {
+                iter.remove()
+            }
+        }
     }
 
     private fun acceptLoop() {
@@ -118,11 +160,62 @@ class LocalServer(private val appContext: Context, private val session: Session)
                     val body = "{\"ok\":true,\"session\":\"${session.sessionId}\",\"port\":${session.port}}".toByteArray(StandardCharsets.UTF_8)
                     writeHttpResponse(output, 200, "OK", "application/json; charset=utf-8", body)
                 }
+                path == "/api/status" -> {
+                    val body = appState.snapshot().toJson().toByteArray(StandardCharsets.UTF_8)
+                    writeHttpResponse(output, 200, "OK", "application/json; charset=utf-8", body)
+                }
+                path == "/api/control" && method == "POST" -> {
+                    val bodyBytes = readBody(input, header)
+                    val bodyStr = String(bodyBytes, StandardCharsets.UTF_8)
+                    val result = handleControlCommand(bodyStr)
+                    val respBody = result.toByteArray(StandardCharsets.UTF_8)
+                    writeHttpResponse(output, 200, "OK", "application/json; charset=utf-8", respBody)
+                    broadcastStateChange()
+                }
+                path == "/events" -> {
+                    // SSE: Server-Sent Events
+                    val sseHeader = "HTTP/1.1 200 OK\r\n" +
+                        "Content-Type: text/event-stream\r\n" +
+                        "Cache-Control: no-cache\r\n" +
+                        "Connection: keep-alive\r\n" +
+                        "Access-Control-Allow-Origin: *\r\n" +
+                        "\r\n"
+                    output.write(sseHeader.toByteArray(StandardCharsets.UTF_8))
+                    output.flush()
+                    sseClients.add(output)
+                    // 发送初始状态
+                    val initJson = appState.snapshot().toJson()
+                    output.write("event: state\ndata: $initJson\n\n".toByteArray(StandardCharsets.UTF_8))
+                    output.flush()
+                    // 保持连接，直到客户端断开或服务器停止
+                    while (running.get()) {
+                        try {
+                            // 发送心跳注释
+                            output.write(": heartbeat\n\n".toByteArray(StandardCharsets.UTF_8))
+                            output.flush()
+                            Thread.sleep(15000)
+                        } catch (_: Throwable) {
+                            break
+                        }
+                    }
+                    sseClients.remove(output)
+                }
                 path == "/" || path == "/receiver" || path == "/receiver/" ||
                     path.startsWith("/receiver/") && path.endsWith(".html") ||
                     path == "/receiver/index.html" -> {
                     val assetPath = "web/receiver/index.html"
                     serveAsset(output, assetPath, "text/html; charset=utf-8")
+                }
+                path == "/control" || path == "/control/" || path == "/control/index.html" -> {
+                    serveAsset(output, "web/control/index.html", "text/html; charset=utf-8")
+                }
+                path.startsWith("/control/") -> {
+                    val relative = path.removePrefix("/control/")
+                    val mime = guessMime(relative)
+                    serveAsset(output, "web/control/$relative", mime)
+                }
+                path == "/contest" || path == "/contest/" || path == "/contest/index.html" -> {
+                    serveAsset(output, "web/control/index.html", "text/html; charset=utf-8")
                 }
                 path.startsWith("/assets/") -> {
                     val relative = path.removePrefix("/assets/")
@@ -164,6 +257,52 @@ class LocalServer(private val appContext: Context, private val session: Session)
         } catch (_: Throwable) {
             writeHttpResponse(output, 404, "Not Found", "text/plain", "Asset not found: $assetPath".toByteArray())
         }
+    }
+
+    /** 解析 POST /api/control 请求体并执行命令 */
+    private fun handleControlCommand(bodyStr: String): String {
+        return try {
+            val obj = org.json.JSONObject(bodyStr)
+            val type = obj.optString("type", "")
+            val params = mutableMapOf<String, Any?>()
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                if (key != "type") params[key] = obj.get(key)
+            }
+            val result = appState.applyCommand(type, params)
+            org.json.JSONObject().apply {
+                put("ok", result.ok)
+                put("message", result.message)
+                put("state", org.json.JSONObject(appState.snapshot().toJson()))
+            }.toString()
+        } catch (e: Exception) {
+            org.json.JSONObject().apply {
+                put("ok", false)
+                put("message", "parse error: ${e.message}")
+            }.toString()
+        }
+    }
+
+    /** 读取 POST 请求体 */
+    private fun readBody(input: InputStream, header: List<String>): ByteArray {
+        var contentLength = 0
+        for (h in header) {
+            val lower = h.trim().lowercase()
+            if (lower.startsWith("content-length:")) {
+                contentLength = lower.substringAfter(':').trim().toIntOrNull() ?: 0
+                break
+            }
+        }
+        if (contentLength <= 0) return ByteArray(0)
+        val buf = ByteArray(contentLength)
+        var read = 0
+        while (read < contentLength) {
+            val n = input.read(buf, read, contentLength - read)
+            if (n < 0) break
+            read += n
+        }
+        return if (read == contentLength) buf else buf.copyOf(read)
     }
 
     private fun writeHttpResponse(
