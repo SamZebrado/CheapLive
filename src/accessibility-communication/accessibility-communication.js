@@ -18,6 +18,9 @@ class AccessibilityCommunication {
     this.lastCaptionText = '';
     this.captionHistory = [];
 
+    // 暴露实例到 window，供测试使用
+    window._app = this;
+
     this._initDOMRefs();
     this._initSpeech();
     this._initHandwriting();
@@ -108,6 +111,7 @@ class AccessibilityCommunication {
     this.handwriting = new HandwritingBoard({
       inputCanvas: this.handwritingInput,
       outputCanvas: this.handwritingOutput,
+      outputWrap: this.$('handwriting-output-wrap'),
       charIdleMs: 900,
       displayHeight: 96,
       strokeColor: '#ffffff',
@@ -115,7 +119,7 @@ class AccessibilityCommunication {
         // 字提交后不做额外操作
       },
       onStateChange: (state) => {
-        this._updateHandwritingButtons(state);
+        this._onHandwritingStateChange(state);
       }
     });
     this.handwriting.setActive(false);
@@ -147,6 +151,10 @@ class AccessibilityCommunication {
     this.btnNewline.addEventListener('click', () => this._addHandwritingNewline());
     this.btnClearHandwriting.addEventListener('click', () => this.handwriting.clearAll());
     this.btnExportImage.addEventListener('click', () => this._exportImage());
+    this.$('btn-back-to-latest').addEventListener('click', () => {
+      this.handwriting.scrollToBottom();
+      this._updateBackToLatestButton();
+    });
 
     // 手写设置
     this.handwritingSize.addEventListener('change', () => {
@@ -205,17 +213,13 @@ class AccessibilityCommunication {
   }
 
   _addHandwritingSpace() {
-    // 空格：先提交当前字，然后添加一个空占位
     this.handwriting.commitCurrentChar();
-    // 在输出区加空格效果通过提交一个空白"字"
-    this.captionHistory.push(' ');
-    this._renderHistory();
+    this.handwriting.addSpace();
   }
 
   _addHandwritingNewline() {
     this.handwriting.commitCurrentChar();
-    this.captionHistory.push('\n');
-    this._renderHistory();
+    this.handwriting.addNewline();
   }
 
   _updateHandwritingButtons(state) {
@@ -223,6 +227,18 @@ class AccessibilityCommunication {
     this.btnMergePrev.disabled = state.committedCharCount === 0;
     this.btnUndoChar.disabled = state.committedCharCount === 0;
     this.btnCommitChar.disabled = !state.hasUncommittedStrokes;
+  }
+
+  _onHandwritingStateChange(state) {
+    this._updateHandwritingButtons(state);
+    this._updateBackToLatestButton();
+  }
+
+  _updateBackToLatestButton() {
+    const btn = this.$('btn-back-to-latest');
+    if (!btn) return;
+    const show = this.handwriting && this.handwriting.isUserScrolledUp();
+    btn.style.display = show ? '' : 'none';
   }
 
   async _exportImage() {

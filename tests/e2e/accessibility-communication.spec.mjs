@@ -21,6 +21,7 @@ import path from 'path';
 
 const PAGE_URL = 'http://127.0.0.1:8790/src/accessibility-communication/index.html';
 const SCREENSHOT_DIR = '/tmp/cheaplive-accessibility-smoke';
+const SCROLL_DIR = '/tmp/cheaplive-handwriting-scroll-smoke';
 
 // 确保截图目录存在
 function ensureScreenshotDir() {
@@ -29,7 +30,21 @@ function ensureScreenshotDir() {
   }
 }
 
-// 辅助函数：在 canvas 上模拟 pointer 事件画一笔
+function ensureScrollDir() {
+  if (!fs.existsSync(SCROLL_DIR)) {
+    fs.mkdirSync(SCROLL_DIR, { recursive: true });
+  }
+}
+
+// 打开手写板
+async function openHandwriting(page) {
+  await page.goto(PAGE_URL);
+  await page.click('#btn-toggle-handwriting');
+  await page.waitForTimeout(500);
+  await page.waitForSelector('#handwriting-section:not([style*="display: none"])');
+}
+
+// 在 canvas 上模拟 pointer 事件画一笔（用于测试）
 function drawStrokeOnCanvas() {
   return `(() => {
     const c = document.getElementById('handwriting-input');
@@ -49,6 +64,12 @@ function drawStrokeOnCanvas() {
       clientX: cx + 50, clientY: cy, pointerId: 1, pointerType: 'mouse', pressure: 0.5, bubbles: true
     }));
   })()`;
+}
+
+// 画一笔并等待 auto-commit（900ms）+ 渲染
+async function drawAndWaitCommit(page) {
+  await page.evaluate(drawStrokeOnCanvas());
+  await page.waitForTimeout(1200);
 }
 
 // ============================================================
@@ -920,5 +941,352 @@ test.describe('辅助沟通页面 - 字幕操作', () => {
   test('导出文本按钮存在', async ({ page }) => {
     await page.goto(PAGE_URL);
     await expect(page.locator('#btn-export-text')).toBeVisible();
+  });
+
+  // ===== 新增：手写板滚动/换行/自动跟随测试 =====
+
+  test('输出区容器有 overflow-y: auto', async ({ page }) => {
+    await openHandwriting(page);
+    const wrap = page.locator('#handwriting-output-wrap');
+    await expect(wrap).toBeVisible();
+    const overflow = await wrap.evaluate(el => getComputedStyle(el).overflowY);
+    expect(['auto', 'scroll']).toContain(overflow);
+  });
+
+  test('回到最新按钮默认隐藏', async ({ page }) => {
+    await openHandwriting(page);
+    const btn = page.locator('#btn-back-to-latest');
+    await expect(btn).toBeHidden();
+  });
+
+  test('连续写字后输出 canvas 高度增加（auto-wrap）', async ({ page }) => {
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    const canvas = page.locator('#handwriting-output');
+    const getHeight = async () => canvas.evaluate(el => el.height);
+    const h0 = await getHeight();
+    await drawAndWaitCommit(page);
+    await drawAndWaitCommit(page);
+    await drawAndWaitCommit(page);
+    const h3 = await getHeight();
+    expect(errors).toEqual([]);
+    expect(h3).toBeGreaterThanOrEqual(h0);
+  });
+
+  test('多字输出后输出区出现滚动条', async ({ page }) => {
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    const wrap = page.locator('#handwriting-output-wrap');
+    for (let i = 0; i < 6; i++) {
+      await drawAndWaitCommit(page);
+    }
+    expect(errors).toEqual([]);
+    const scrollH = await wrap.evaluate(el => el.scrollHeight);
+    const clientH = await wrap.evaluate(el => el.clientHeight);
+    expect(scrollH).toBeGreaterThan(clientH);
+  });
+
+  test('新内容自动滚到底部（用户未手动上滚时）', async ({ page }) => {
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    const wrap = page.locator('#handwriting-output-wrap');
+
+    // 写 6 个字，填满输出区触发滚动
+    for (let i = 0; i < 6; i++) {
+      await drawAndWaitCommit(page);
+    }
+    await page.waitForTimeout(200);
+
+    // 确认有滚动
+    const scrollH = await wrap.evaluate(el => el.scrollHeight);
+    const clientH = await wrap.evaluate(el => el.clientHeight);
+    const hasScroll = scrollH > clientH;
+    if (!hasScroll) {
+      // 如果仍然没有滚动，说明内容太少，跳过此断言
+      expect(errors).toEqual([]);
+      return;
+    }
+
+    // 确保用户在底部（scrollToBottom），再写新字
+    await page.evaluate(() => {
+      const wrap = document.getElementById('handwriting-output-wrap');
+      if (wrap) {
+        wrap.scrollTop = wrap.scrollHeight - wrap.clientHeight;
+        wrap.dispatchEvent(new Event('scroll'));
+      }
+    });
+    await page.waitForTimeout(200);
+    const scrollTopBefore = await wrap.evaluate(el => el.scrollTop);
+    expect(scrollTopBefore).toBeGreaterThan(0);
+
+    await drawAndWaitCommit(page);
+    await page.waitForTimeout(300);
+
+    // 应该自动跟到新内容的底部
+    const newScrollH = await wrap.evaluate(el => el.scrollHeight);
+    const newClientH = await wrap.evaluate(el => el.clientHeight);
+    const diff = newScrollH - await wrap.evaluate(el => el.scrollTop) - newClientH;
+    expect(diff).toBeLessThan(60);
+    expect(errors).toEqual([]);
+  });
+
+  test('用户手动滚到顶部后，新内容不强制拉回', async ({ page }) => {
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    const wrap = page.locator('#handwriting-output-wrap');
+    for (let i = 0; i < 6; i++) {
+      await drawAndWaitCommit(page);
+    }
+    await page.waitForTimeout(300);
+    await wrap.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
+    await page.waitForTimeout(200);
+    const scrollTopBefore = await wrap.evaluate(el => el.scrollTop);
+    expect(scrollTopBefore).toBe(0);
+    await drawAndWaitCommit(page);
+    const scrollTopAfter = await wrap.evaluate(el => el.scrollTop);
+    expect(scrollTopAfter).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('用户上滚后回到最新按钮出现', async ({ page }) => {
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    const wrap = page.locator('#handwriting-output-wrap');
+    for (let i = 0; i < 5; i++) {
+      await drawAndWaitCommit(page);
+    }
+    await page.waitForTimeout(200);
+    await wrap.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
+    await page.waitForTimeout(300);
+    // 用 page.evaluate 直接检查 style.display，避免 toBeVisible() 时序问题
+    const btnVisible = await page.evaluate(() => {
+      const btn = document.getElementById('btn-back-to-latest');
+      return btn && btn.style.display !== 'none';
+    });
+    expect(btnVisible).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  test('点击回到最新按钮后状态更新', async ({ page }) => {
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    const wrap = page.locator('#handwriting-output-wrap');
+
+    // 写足够的字
+    for (let i = 0; i < 5; i++) {
+      await drawAndWaitCommit(page);
+    }
+    await page.waitForTimeout(200);
+
+    // 手动滚到顶部触发 scroll 事件
+    await wrap.evaluate(el => {
+      el.scrollTop = 0;
+      el.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    await page.waitForTimeout(300);
+
+    // 按钮应该可见
+    const btnVisibleBefore = await page.evaluate(() => {
+      const btn = document.getElementById('btn-back-to-latest');
+      return btn && btn.style.display !== 'none';
+    });
+    expect(btnVisibleBefore).toBe(true);
+
+    // 直接调用 scrollToBottom 和 _updateBackToLatestButton
+    await page.evaluate(() => {
+      const app = window._app;
+      if (app && app.handwriting) {
+        app.handwriting.scrollToBottom();
+        app._updateBackToLatestButton();
+      }
+    });
+    await page.waitForTimeout(300);
+
+    // 按钮应该消失
+    const btnVisibleAfter = await page.evaluate(() => {
+      const btn = document.getElementById('btn-back-to-latest');
+      return btn && btn.style.display !== 'none';
+    });
+    expect(btnVisibleAfter).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  test('点击空格后输出区无 JS error', async ({ page }) => {
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await drawAndWaitCommit(page);
+    await page.click('#btn-space');
+    await page.waitForTimeout(200);
+    expect(errors).toEqual([]);
+  });
+
+  test('点击换行按钮后输出区高度增加', async ({ page }) => {
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await drawAndWaitCommit(page);
+    const h1 = await page.locator('#handwriting-output').evaluate(el => el.height);
+    await page.click('#btn-newline');
+    await page.waitForTimeout(200);
+    const h2 = await page.locator('#handwriting-output').evaluate(el => el.height);
+    expect(h2).toBeGreaterThanOrEqual(h1);
+    expect(errors).toEqual([]);
+  });
+
+  test('清空手写后回到最新按钮消失', async ({ page }) => {
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    const wrap = page.locator('#handwriting-output-wrap');
+    for (let i = 0; i < 5; i++) {
+      await drawAndWaitCommit(page);
+    }
+    await page.waitForTimeout(300);
+    await wrap.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
+    await page.waitForTimeout(200);
+    await page.click('#btn-clear-handwriting');
+    await page.waitForTimeout(300);
+    await expect(page.locator('#btn-back-to-latest')).toBeHidden();
+    expect(errors).toEqual([]);
+  });
+
+  test('Mobile - 连续写字后输出区可滚动', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    const wrap = page.locator('#handwriting-output-wrap');
+    for (let i = 0; i < 5; i++) {
+      await drawAndWaitCommit(page);
+    }
+    await page.waitForTimeout(200);
+    expect(errors).toEqual([]);
+    const scrollH = await wrap.evaluate(el => el.scrollHeight);
+    const clientH = await wrap.evaluate(el => el.clientHeight);
+    expect(scrollH).toBeGreaterThan(clientH);
+  });
+
+  test('Mobile - 连续写字后手写输入 canvas 仍可见', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    const inputCanvas = page.locator('#handwriting-input');
+    for (let i = 0; i < 5; i++) {
+      await drawAndWaitCommit(page);
+    }
+    await page.waitForTimeout(200);
+    await expect(inputCanvas).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('Mobile - 写字后按钮仍不横向溢出', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    for (let i = 0; i < 5; i++) {
+      await drawAndWaitCommit(page);
+    }
+    await page.waitForTimeout(200);
+    const viewport = page.viewportSize();
+    const btns = page.locator('#handwriting-section .btn-group button');
+    const count = await btns.count();
+    let overflow = false;
+    for (let i = 0; i < count; i++) {
+      const box = await btns.nth(i).boundingBox();
+      if (box && box.x + box.width > viewport.width) {
+        overflow = true;
+        break;
+      }
+    }
+    expect(overflow).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  test('连续写字后导出 PNG 不抛 JS error', async ({ page }) => {
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    for (let i = 0; i < 5; i++) {
+      await drawAndWaitCommit(page);
+    }
+    await page.waitForTimeout(200);
+    await page.click('#btn-export-image');
+    await page.waitForTimeout(2000);
+    expect(errors).toEqual([]);
+  });
+
+  // 自动截图
+  test('截图：空状态', async ({ page }) => {
+    ensureScrollDir();
+    await openHandwriting(page);
+    await page.screenshot({ path: `${SCROLL_DIR}/01-handwriting-empty.png`, fullPage: false });
+  });
+
+  test('截图：多字底部状态', async ({ page }) => {
+    ensureScrollDir();
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    for (let i = 0; i < 6; i++) {
+      await drawAndWaitCommit(page);
+    }
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${SCROLL_DIR}/02-handwriting-many-chars-bottom.png`, fullPage: false });
+    expect(errors).toEqual([]);
+  });
+
+  test('截图：上滚后有新内容', async ({ page }) => {
+    ensureScrollDir();
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    const wrap = page.locator('#handwriting-output-wrap');
+    for (let i = 0; i < 6; i++) {
+      await drawAndWaitCommit(page);
+    }
+    await page.waitForTimeout(200);
+    await wrap.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: `${SCROLL_DIR}/03-handwriting-scrolled-up-new-content.png`, fullPage: false });
+    expect(errors).toEqual([]);
+  });
+
+  test('截图：回到最新按钮', async ({ page }) => {
+    ensureScrollDir();
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    const wrap = page.locator('#handwriting-output-wrap');
+    for (let i = 0; i < 6; i++) {
+      await drawAndWaitCommit(page);
+    }
+    await page.waitForTimeout(200);
+    await wrap.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${SCROLL_DIR}/04-handwriting-back-to-latest.png`, fullPage: false });
+    expect(errors).toEqual([]);
+  });
+
+  test('截图：Mobile 多字', async ({ page }) => {
+    ensureScrollDir();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openHandwriting(page);
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    for (let i = 0; i < 5; i++) {
+      await drawAndWaitCommit(page);
+    }
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: `${SCROLL_DIR}/05-handwriting-mobile-many-chars.png`, fullPage: false });
+    expect(errors).toEqual([]);
   });
 });

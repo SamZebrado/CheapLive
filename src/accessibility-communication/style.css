@@ -352,16 +352,43 @@ html, body {
 
 /* 手写输出区 */
 .handwriting-output-wrap {
+  position: relative;
   border-bottom: 1px solid var(--border);
   padding: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
+/* 手写输出 canvas 宽度100%，高度由 JS 动态控制 */
 #handwriting-output {
   width: 100%;
-  height: 160px;
+  min-height: 120px;
   background: var(--bg-input);
   border-radius: var(--radius-sm);
   display: block;
+}
+
+/* 回到最新按钮 */
+.btn-back-to-latest {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: var(--font-family);
+  background: rgba(79, 195, 247, 0.9);
+  color: #000;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  z-index: 10;
+  transition: background 0.2s;
+}
+.btn-back-to-latest:hover {
+  background: rgba(79, 195, 247, 1);
 }
 
 /* 手写输入区 */
@@ -521,6 +548,10 @@ html, body {
 
   #handwriting-input {
     height: 200px;
+  }
+
+  .handwriting-output-wrap {
+    max-height: 160px;
   }
 
   .handwriting-settings {
