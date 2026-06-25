@@ -14,7 +14,7 @@ test('contest demo: 默认中文 + 无 JS error', async ({ page }) => {
   // 默认中文：标题含 "参赛演示 Demo"
   await expect(page.locator('.tag')).toContainText('参赛演示');
   // demo notice 可见
-  await expect(page.locator('#noticeText')).toContainText('CheapLive 参赛演示');
+  await expect(page.locator('#noticeText')).toContainText('本公开 Demo');
   expect(errs.length).toBe(0);
 });
 
@@ -57,6 +57,12 @@ test('contest demo: 表情/动作控制有可见效果', async ({ page }) => {
   page.on('pageerror', e => errs.push(e.message));
   await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
   await page.waitForTimeout(300);
+  // 先打开 Face Capture 和 Pose Capture
+  await page.evaluate(() => {
+    document.getElementById('faceCaptureToggle').click();
+    document.getElementById('poseCaptureToggle').click();
+  });
+  await page.waitForTimeout(200);
   // 点击微笑
   await page.click('.ctrl-btn:has-text("微笑")');
   await page.waitForTimeout(200);
@@ -111,6 +117,11 @@ test('contest demo: Viewer 远程控制同步到 App', async ({ page }) => {
   page.on('pageerror', e => errs.push(e.message));
   await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
   await page.waitForTimeout(300);
+  // 先打开 Face Capture
+  await page.evaluate(() => {
+    document.getElementById('faceCaptureToggle').click();
+  });
+  await page.waitForTimeout(200);
   // Viewer 端远程触发微笑按钮
   const viewerBtn = page.locator('#viewerState button:has-text("微笑")');
   await viewerBtn.click();

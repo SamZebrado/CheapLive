@@ -683,6 +683,7 @@
       stage: 'Avatar 舞台',
       avatarLabel: '形象',
       exprLabel: '表情',
+      poseLabel: '姿态',
       actionLabel: '动作',
       chooseAvatar: '选择 Avatar',
       expression: '表情',
@@ -695,7 +696,7 @@
       aiBadge: '仅真实 App 可用',
       aiModalTitle: 'AI 变声（仅真实 App 可用）',
       close: '知道了',
-      notice: '本页面为 CheapLive 参赛演示 Demo，用于展示 App 端与直播端的交互流程。参赛期间，本扩展功能所必需的 Android APK、Android 源代码和 App 端闭源实现暂不公开。如有需要，请等候至比赛结束后的公开安排。',
+      notice: '本公开 Demo 展示 CheapLive 的 Web 端交互与程序化 Avatar 能力；参赛 Android App（含 APK 与 App 端源码）比赛期间暂不公开。',
       webVoiceDesc: '网页 Demo 可用，复用 CheapLive 主项目 Web Audio 变声模块。需要浏览器麦克风权限。',
       aiVoiceDesc: 'AI 变声仅在真实 Android App 中可用。当前公开网页 Demo 只展示控制入口，不包含 App 端闭源实现、音频模型或 APK。',
       aiModalText: 'AI 变声仅在真实 Android App 中可用。当前公开网页 Demo 只展示控制入口，不包含 App 端闭源实现、音频模型或 APK。',
@@ -790,6 +791,7 @@
       stage: 'Avatar Stage',
       avatarLabel: 'Avatar',
       exprLabel: 'Expression',
+      poseLabel: 'Pose',
       actionLabel: 'Action',
       chooseAvatar: 'Choose Avatar',
       expression: 'Expression',
@@ -802,7 +804,7 @@
       aiBadge: 'Real App Only',
       aiModalTitle: 'AI Voice Changer (Real App Only)',
       close: 'Got it',
-      notice: 'This page is a public demo for the CheapLive contest entry. It demonstrates the interaction flow between the app side and the viewer side. During the contest period, the Android APK, Android source code, and closed-source app-side implementation required by this extended feature will not be released. Please wait for post-contest release arrangements if needed.',
+      notice: 'This public demo showcases CheapLive\'s web-side interaction and procedural Avatar capabilities. The contest Android App (including APK and app source code) will not be released during the contest period.',
       webVoiceDesc: 'Available in the web demo through the main CheapLive Web Audio voice changer module. Browser microphone permission is required.',
       aiVoiceDesc: 'AI voice changing is available only in the real Android app. This public web demo only shows the control entry and does not include the closed-source app-side implementation, voice model, or APK.',
       aiModalText: 'AI voice changing is available only in the real Android app. This public web demo only shows the control entry and does not include the closed-source app-side implementation, voice model, or APK.',
@@ -923,8 +925,8 @@
 
   const state = {
     avatar: 'saca',
-    expression: null,   // current transient expression
-    action: null,       // current transient action
+    face: null,         // current transient face expression
+    pose: 'idle',       // current pose
     webVoicePreset: 'original',
     aiVoiceAvailable: 'real_app_only', // fixed
     captureMode: 'simulated',
@@ -937,11 +939,19 @@
       smile: 0,        // -1..1
       eyeWide: 0,      // 0..1
       nodPhase: 0,     // animation
-      lookDir: 0,      // -1..1
+      lookX: 0,        // -1..1
+      lookY: 0,        // -1..1
+      headTilt: 0,     // -1..1
+      headOffsetX: 0,  // px
       tailWag: 0,      // 0..1
       bounceY: 0,      // px offset
+      bodyLean: 0,     // -1..1
+      bodyCrouch: 0,   // 0..1
+      pawLeft: 0,      // 0..1
+      pawRight: 0,     // 0..1
+      jumpPhase: -1,   // -1 = not jumping, 0..1 = progress
     },
-    animTargets: { eyeOpen: 1, mouthOpen: 0, smile: 0, eyeWide: 0, lookDir: 0, tailWag: 0, bounceY: 0 },
+    animTargets: { eyeOpen: 1, mouthOpen: 0, smile: 0, eyeWide: 0, lookX: 0, lookY: 0, headTilt: 0, headOffsetX: 0, tailWag: 0, bounceY: 0, bodyLean: 0, bodyCrouch: 0, pawLeft: 0, pawRight: 0 },
   };
 
   // ============================================================
@@ -971,101 +981,365 @@
     // ground shadow
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    const shadowScale = 1 - a.bodyCrouch * 0.2 + Math.abs(a.bounceY) * 0.01;
     ctx.beginPath();
-    ctx.ellipse(cx, cy + 110, 80 - Math.abs(a.bounceY) * 0.3, 12, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy + 115 - a.bodyCrouch * 15, 80 * shadowScale, 12 * shadowScale, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
     ctx.save();
-    ctx.translate(cx, cy);
-    // slight head turn
-    ctx.rotate(a.lookDir * 0.12);
+    ctx.translate(cx, cy + a.bodyCrouch * 20);
+    ctx.rotate(a.bodyLean * 0.15);
+
+    // back legs (draw first, behind body)
+    if (cfg.shape !== 'spindle') {
+      drawLegs(cfg, a, 'back');
+    }
 
     drawBody(cfg, a);
     drawTail(cfg, a);
+
+    // front legs (in front of body)
+    if (cfg.shape !== 'spindle') {
+      drawLegs(cfg, a, 'front');
+    }
+
+    // head with tilt and offset
+    ctx.save();
+    ctx.translate(a.headOffsetX, 0);
+    ctx.rotate(a.headTilt * 0.5);
     drawHead(cfg, a);
+    ctx.restore();
+
     ctx.restore();
   }
 
   function drawBody(cfg, a) {
     const shape = cfg.shape;
+    const crouch = a.bodyCrouch;
+    const avatar = state.avatar;
     ctx.fillStyle = cfg.body;
     ctx.strokeStyle = cfg.bodyDark;
     ctx.lineWidth = 2;
 
     if (shape === 'spindle') {
-      // Sacabambaspis: horizontal spindle
+      // Sacabambaspis: horizontal fish body, more tapered
+      // main body (longer, more fish-like)
       ctx.beginPath();
-      ctx.ellipse(0, 30, 95, 48, 0, 0, Math.PI * 2);
+      ctx.ellipse(10, 25, 95, 38, 0, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
       // belly
       ctx.fillStyle = cfg.belly;
       ctx.beginPath();
-      ctx.ellipse(0, 42, 80, 32, 0, 0, Math.PI * 2);
+      ctx.ellipse(10, 35, 75, 22, 0, 0, Math.PI * 2);
       ctx.fill();
-      // head shield (front)
+      // head shield (front, broader, flatter)
       ctx.fillStyle = cfg.body;
       ctx.beginPath();
-      ctx.ellipse(0, -10, 70, 55, 0, 0, Math.PI * 2);
+      ctx.ellipse(-25, 0, 55, 42, 0, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
+      // tapering body toward tail (narrower mid-section)
+      ctx.fillStyle = cfg.body;
+      ctx.beginPath();
+      ctx.ellipse(50, 25, 35, 28, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // dorsal fin
+      ctx.fillStyle = cfg.bodyDark;
+      ctx.beginPath();
+      ctx.moveTo(15, -8);
+      ctx.lineTo(25, -32);
+      ctx.lineTo(40, -8);
+      ctx.closePath();
+      ctx.fill();
+      // pectoral fins (side fins, more fin-like)
+      ctx.fillStyle = cfg.bodyDark;
+      ctx.beginPath();
+      ctx.ellipse(-15, 40, 20, 9, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      // ventral fin
+      ctx.fillStyle = cfg.bodyDark;
+      ctx.beginPath();
+      ctx.moveTo(55, 45);
+      ctx.lineTo(60, 58);
+      ctx.lineTo(68, 45);
+      ctx.closePath();
+      ctx.fill();
     } else if (shape === 'pointy') {
-      // Fox: pointed body
+      // Fox: sleek, elongated body
+      const bodyW = 78 + crouch * 5;
+      const bodyH = 38 - crouch * 12;
       ctx.beginPath();
-      ctx.ellipse(0, 35, 70, 50, 0, 0, Math.PI * 2);
+      ctx.ellipse(8, 38, bodyW, bodyH, 0, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
+      // belly (lighter, narrower)
       ctx.fillStyle = cfg.belly;
       ctx.beginPath();
-      ctx.ellipse(0, 48, 50, 32, 0, 0, Math.PI * 2);
+      ctx.ellipse(8, 48 - crouch * 8, 58, 22 - crouch * 5, 0, 0, Math.PI * 2);
       ctx.fill();
+      // chest tuft (white chest fur)
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.ellipse(-25, 30, 15, 18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // back mane line
+      ctx.fillStyle = cfg.bodyDark;
+      ctx.beginPath();
+      ctx.ellipse(-5, 5, 20, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (avatar === 'dog') {
+      // Dog: longer, lower body, barrel chest
+      const bodyW = 75 + crouch * 5;
+      const bodyH = 42 - crouch * 14;
+      const bodyY = 40 + crouch * 8;
+      ctx.beginPath();
+      ctx.ellipse(5, bodyY, bodyW, bodyH, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // belly
+      ctx.fillStyle = cfg.belly;
+      ctx.beginPath();
+      ctx.ellipse(5, bodyY + 10, 55, 26 - crouch * 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // chest (more prominent)
+      ctx.fillStyle = cfg.body;
+      ctx.beginPath();
+      ctx.ellipse(-30, bodyY - 5, 28, 25, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    } else if (avatar === 'rabbit') {
+      // Rabbit: rounder but compact body, hind legs are bigger
+      const bodyW = 62 + crouch * 8;
+      const bodyH = 45 - crouch * 15;
+      const bodyY = 40 + crouch * 8;
+      ctx.beginPath();
+      ctx.ellipse(5, bodyY, bodyW, bodyH, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // belly
+      ctx.fillStyle = cfg.belly;
+      ctx.beginPath();
+      ctx.ellipse(5, bodyY + 10, 42, 28 - crouch * 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // fluffy tail area (rump)
+      ctx.fillStyle = cfg.body;
+      ctx.beginPath();
+      ctx.arc(45, bodyY - 5, 18, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    } else if (avatar === 'bear') {
+      // Bear: bulky, thick body, shorter legs
+      const bodyW = 70 + crouch * 5;
+      const bodyH = 50 - crouch * 15;
+      const bodyY = 38 + crouch * 10;
+      ctx.beginPath();
+      ctx.ellipse(0, bodyY, bodyW, bodyH, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // belly
+      ctx.fillStyle = cfg.belly;
+      ctx.beginPath();
+      ctx.ellipse(0, bodyY + 12, 50, 32 - crouch * 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // shoulder humps
+      ctx.fillStyle = cfg.bodyDark;
+      ctx.globalAlpha = 0.4;
+      ctx.beginPath();
+      ctx.ellipse(-20, bodyY - 30, 20, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(20, bodyY - 30, 20, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
     } else {
-      // round body (cat/dog/rabbit/bear)
+      // Cat: sleek, compact round-oval body
+      const bodyW = 65 + crouch * 5;
+      const bodyH = 46 - crouch * 15;
+      const bodyY = 40 + crouch * 8;
       ctx.beginPath();
-      ctx.ellipse(0, 38, 68, 52, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, bodyY, bodyW, bodyH, 0, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
+      // belly
       ctx.fillStyle = cfg.belly;
       ctx.beginPath();
-      ctx.ellipse(0, 50, 48, 34, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, bodyY + 10, 45, 28 - crouch * 7, 0, 0, Math.PI * 2);
       ctx.fill();
+    }
+  }
+
+  function drawLegs(cfg, a, layer) {
+    const crouch = a.bodyCrouch;
+    const pawLeft = a.pawLeft;
+    const pawRight = a.pawRight;
+    const avatar = state.avatar;
+    ctx.fillStyle = cfg.body;
+    ctx.strokeStyle = cfg.bodyDark;
+    ctx.lineWidth = 2;
+
+    // species-specific leg scaling
+    let legW = 10;
+    let pawW = 13;
+    let pawH = 7;
+    if (avatar === 'bear') { legW = 14; pawW = 18; pawH = 9; }
+    else if (avatar === 'rabbit') { legW = 9; pawW = 12; pawH = 6; }
+    else if (avatar === 'fox') { legW = 8; pawW = 11; pawH = 6; }
+    else if (avatar === 'dog') { legW = 11; pawW = 14; pawH = 7; }
+
+    if (layer === 'back') {
+      // back legs (further back, slightly wider stance)
+      [-1, 1].forEach(s => {
+        const legX = s * 60;
+        const legTopY = 58 + crouch * 5;
+        const legLen = Math.max(15, 38 * (1 - crouch * 0.4));
+        const pawY = legTopY + legLen;
+        // upper leg
+        ctx.fillStyle = cfg.bodyDark;
+        ctx.beginPath();
+        ctx.ellipse(legX, legTopY + 8, legW + 1, 14, 0, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        // lower leg
+        ctx.fillStyle = cfg.body;
+        ctx.beginPath();
+        const lowerLen = Math.max(8, (legLen - 20) / 2);
+        ctx.ellipse(legX, legTopY + legLen / 2 + 5, legW - 1, lowerLen, 0, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        // paw
+        ctx.fillStyle = cfg.bodyDark;
+        ctx.beginPath();
+        ctx.ellipse(legX, pawY, pawW, pawH, 0, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = cfg.body;
+      });
+    } else {
+      // front legs (more prominent, with paw raise animation)
+      [-1, 1].forEach(s => {
+        const isLeft = s === -1;
+        const pawUp = isLeft ? pawLeft : pawRight;
+        const legX = s * 50;
+        const legTopY = 48 + crouch * 3;
+        const baseLen = 42 * (1 - crouch * 0.4);
+        const legLen = Math.max(10, baseLen - pawUp * 25);
+        const pawY = legTopY + legLen;
+        const tiltAngle = pawUp * s * 0.4;
+        
+        // shoulder/upper arm (darker)
+        ctx.fillStyle = cfg.bodyDark;
+        ctx.beginPath();
+        ctx.ellipse(legX, legTopY + 10, legW + 2, 15, tiltAngle * 0.3, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        
+        // forearm
+        ctx.fillStyle = cfg.body;
+        ctx.beginPath();
+        const frontLowerLen = Math.max(8, (legLen - 22) / 2);
+        ctx.ellipse(legX + pawUp * s * 3, legTopY + legLen / 2 + 6, legW, frontLowerLen, tiltAngle * 0.5, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        
+        // paw
+        ctx.fillStyle = cfg.bodyDark;
+        ctx.beginPath();
+        ctx.ellipse(legX + pawUp * s * 8, pawY, pawW + 1, pawH + 1, 0, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        
+        // paw pads / toes detail
+        ctx.fillStyle = cfg.accent;
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.arc(legX + pawUp * s * 8 - 3, pawY + 1, 2.5, 0, Math.PI * 2);
+        ctx.arc(legX + pawUp * s * 8 + 3, pawY + 1, 2.5, 0, Math.PI * 2);
+        ctx.arc(legX + pawUp * s * 8, pawY - 1, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = cfg.body;
+      });
     }
   }
 
   function drawTail(cfg, a) {
     if (!cfg.hasTail) return;
-    const wag = Math.sin(Date.now() * 0.008) * a.tailWag * 0.6;
+    const wag = Math.sin(Date.now() * 0.008) * a.tailWag * 0.8;
     ctx.save();
-    ctx.translate(-75, 35);
-    ctx.rotate(-0.4 + wag);
 
     if (state.avatar === 'saca') {
-      // tail fin
-      ctx.fillStyle = cfg.bodyDark;
+      ctx.translate(80, 25);
+      ctx.rotate(0.1 + wag * 0.3);
+      // tail fin (caudal fin)
+      ctx.fillStyle = cfg.body;
+      ctx.strokeStyle = cfg.bodyDark;
+      ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(0, 0);
-      ctx.lineTo(-40, -25);
-      ctx.lineTo(-30, 15);
+      ctx.lineTo(45, -32);
+      ctx.lineTo(55, 0);
+      ctx.lineTo(45, 28);
       ctx.closePath();
       ctx.fill(); ctx.stroke();
-    } else if (state.avatar === 'fox') {
-      ctx.fillStyle = cfg.body;
+      // fin ray detail
+      ctx.strokeStyle = cfg.bodyDark;
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.ellipse(-25, 0, 30, 16, 0, 0, Math.PI * 2);
+      ctx.moveTo(15, -8); ctx.lineTo(40, -22);
+      ctx.moveTo(15, 0); ctx.lineTo(48, 0);
+      ctx.moveTo(15, 8); ctx.lineTo(40, 18);
+      ctx.stroke();
+    } else if (state.avatar === 'fox') {
+      ctx.translate(-65, 28);
+      ctx.rotate(-0.3 + wag);
+      // big bushy tail
+      ctx.fillStyle = cfg.body;
+      ctx.strokeStyle = cfg.bodyDark;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(-28, -5, 34, 18, 0, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
       // white tip
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.ellipse(-48, 0, 12, 10, 0, 0, Math.PI * 2);
+      ctx.ellipse(-55, -8, 14, 12, 0, 0, Math.PI * 2);
       ctx.fill();
+      // tail fluff detail
+      ctx.fillStyle = cfg.bodyDark;
+      ctx.globalAlpha = 0.3;
+      ctx.beginPath();
+      ctx.ellipse(-15, 3, 20, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
     } else if (state.avatar === 'rabbit') {
+      ctx.translate(-55, 35);
+      ctx.rotate(-0.2 + wag * 0.2);
       // tiny puff tail
       ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = cfg.bodyDark;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(-15, 0, 10, 0, Math.PI * 2);
+      ctx.arc(0, 0, 11, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    } else if (state.avatar === 'dog') {
+      ctx.translate(-62, 25);
+      ctx.rotate(-0.5 + wag * 0.5);
+      // short stubby tail
+      ctx.fillStyle = cfg.bodyDark;
+      ctx.strokeStyle = cfg.bodyDark;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(-12, 0, 14, 8, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    } else if (state.avatar === 'cat') {
+      ctx.translate(-60, 28);
+      ctx.rotate(-0.4 + wag);
+      // long thin tail
+      ctx.fillStyle = cfg.body;
+      ctx.strokeStyle = cfg.bodyDark;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(-20, -2, 26, 7, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // tail tip
+      ctx.fillStyle = cfg.bodyDark;
+      ctx.beginPath();
+      ctx.arc(-44, -3, 6, 0, Math.PI * 2);
       ctx.fill();
     } else {
       // generic tail
       ctx.fillStyle = cfg.body;
+      ctx.strokeStyle = cfg.bodyDark;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.ellipse(-20, 0, 22, 10, 0, 0, Math.PI * 2);
+      ctx.ellipse(-60, 30, 20, 9, -0.3 + wag, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
     }
     ctx.restore();
@@ -1073,28 +1347,78 @@
 
   function drawHead(cfg, a) {
     const shape = cfg.shape;
-    let headY = -30;
-    let headR = 52;
-    if (shape === 'spindle') headY = -10, headR = 55;
+    let headY = -28;
+    let headR = 50;
+    if (shape === 'spindle') { headY = -8; headR = 48; }
 
-    // ears
-    drawEars(cfg, headY, headR);
+    // ears (draw behind head)
+    drawEars(cfg, headY, headR, a);
 
     // head
     ctx.fillStyle = cfg.body;
     ctx.strokeStyle = cfg.bodyDark;
     ctx.lineWidth = 2;
     if (shape === 'pointy') {
-      // fox: triangular face
+      // fox: triangular face, elongated snout
       ctx.beginPath();
-      ctx.moveTo(0, headY - headR);
-      ctx.quadraticCurveTo(headR, headY, 0, headY + headR * 0.8);
-      ctx.quadraticCurveTo(-headR, headY, 0, headY - headR);
+      ctx.moveTo(0, headY - headR * 0.9);
+      ctx.quadraticCurveTo(headR * 0.9, headY - 5, 0, headY + headR * 0.9);
+      ctx.quadraticCurveTo(-headR * 0.9, headY - 5, 0, headY - headR * 0.9);
       ctx.fill(); ctx.stroke();
+      // snout protrusion
+      ctx.fillStyle = cfg.body;
+      ctx.beginPath();
+      ctx.ellipse(0, headY + headR * 0.5, 20, 16, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = cfg.belly;
+      ctx.beginPath();
+      ctx.ellipse(0, headY + headR * 0.6, 14, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (state.avatar === 'dog') {
+      // dog: longer snout
+      ctx.beginPath();
+      ctx.arc(0, headY - 5, headR * 0.9, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // snout
+      ctx.fillStyle = cfg.body;
+      ctx.beginPath();
+      ctx.ellipse(0, headY + headR * 0.45, 22, 18, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = cfg.belly;
+      ctx.beginPath();
+      ctx.ellipse(0, headY + headR * 0.55, 16, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (state.avatar === 'rabbit') {
+      // rabbit: rounder face, shorter
+      ctx.beginPath();
+      ctx.arc(0, headY + 3, headR * 0.85, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // cheek fluff
+      ctx.fillStyle = cfg.belly;
+      ctx.beginPath();
+      ctx.ellipse(-20, headY + 15, 14, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(20, headY + 15, 14, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
     } else {
       ctx.beginPath();
       ctx.arc(0, headY, headR, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
+    }
+
+    // brow (for brow_raise)
+    if (a.eyeWide > 0.1) {
+      ctx.strokeStyle = cfg.bodyDark;
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      const browY = headY - 18 - a.eyeWide * 6;
+      [-1, 1].forEach(s => {
+        ctx.beginPath();
+        ctx.moveTo(s * 14 - 6, browY + 2);
+        ctx.quadraticCurveTo(s * 14, browY - 3, s * 14 + 6, browY + 2);
+        ctx.stroke();
+      });
     }
 
     // eyes
@@ -1112,88 +1436,110 @@
     }
   }
 
-  function drawEars(cfg, headY, headR) {
+  function drawEars(cfg, headY, headR, a) {
     const ears = cfg.ears;
     if (!ears) return;
     ctx.fillStyle = cfg.body;
     ctx.strokeStyle = cfg.bodyDark;
     ctx.lineWidth = 2;
+    const tilt = a.headTilt;
 
     if (ears === 'triangle') {
       // cat / fox
+      const earH = state.avatar === 'fox' ? 1.3 : 1.1;
       ctx.beginPath();
-      ctx.moveTo(-headR * 0.7, headY - headR * 0.5);
-      ctx.lineTo(-headR * 0.4, headY - headR * 1.4);
-      ctx.lineTo(-headR * 0.1, headY - headR * 0.6);
+      ctx.moveTo(-headR * 0.65, headY - headR * 0.45);
+      ctx.lineTo(-headR * 0.4, headY - headR * earH - tilt * 8);
+      ctx.lineTo(-headR * 0.15, headY - headR * 0.55);
       ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(headR * 0.7, headY - headR * 0.5);
-      ctx.lineTo(headR * 0.4, headY - headR * 1.4);
-      ctx.lineTo(headR * 0.1, headY - headR * 0.6);
+      ctx.moveTo(headR * 0.65, headY - headR * 0.45);
+      ctx.lineTo(headR * 0.4, headY - headR * earH + tilt * 8);
+      ctx.lineTo(headR * 0.15, headY - headR * 0.55);
       ctx.closePath(); ctx.fill(); ctx.stroke();
       // inner ear
       ctx.fillStyle = cfg.accent;
       ctx.beginPath();
-      ctx.moveTo(-headR * 0.55, headY - headR * 0.6);
-      ctx.lineTo(-headR * 0.4, headY - headR * 1.15);
-      ctx.lineTo(-headR * 0.25, headY - headR * 0.65);
+      ctx.moveTo(-headR * 0.5, headY - headR * 0.55);
+      ctx.lineTo(-headR * 0.4, headY - headR * (earH - 0.2) - tilt * 6);
+      ctx.lineTo(-headR * 0.28, headY - headR * 0.6);
       ctx.closePath(); ctx.fill();
       ctx.beginPath();
-      ctx.moveTo(headR * 0.55, headY - headR * 0.6);
-      ctx.lineTo(headR * 0.4, headY - headR * 1.15);
-      ctx.lineTo(headR * 0.25, headY - headR * 0.65);
+      ctx.moveTo(headR * 0.5, headY - headR * 0.55);
+      ctx.lineTo(headR * 0.4, headY - headR * (earH - 0.2) + tilt * 6);
+      ctx.lineTo(headR * 0.28, headY - headR * 0.6);
       ctx.closePath(); ctx.fill();
     } else if (ears === 'floppy') {
-      // dog
+      // dog - big floppy ears
       ctx.fillStyle = cfg.bodyDark;
       ctx.beginPath();
-      ctx.ellipse(-headR * 0.7, headY - headR * 0.2, 18, 30, -0.3, 0, Math.PI * 2);
+      ctx.ellipse(-headR * 0.65, headY - headR * 0.1 + tilt * 3, 20, 36, -0.4 + tilt * 0.2, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(headR * 0.65, headY - headR * 0.1 - tilt * 3, 20, 36, 0.4 + tilt * 0.2, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // ear inner
+      ctx.fillStyle = cfg.accent;
+      ctx.globalAlpha = 0.4;
+      ctx.beginPath();
+      ctx.ellipse(-headR * 0.65, headY - headR * 0.1 + tilt * 3, 10, 22, -0.4 + tilt * 0.2, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.ellipse(headR * 0.7, headY - headR * 0.2, 18, 30, 0.3, 0, Math.PI * 2);
+      ctx.ellipse(headR * 0.65, headY - headR * 0.1 - tilt * 3, 10, 22, 0.4 + tilt * 0.2, 0, Math.PI * 2);
       ctx.fill();
+      ctx.globalAlpha = 1;
     } else if (ears === 'long') {
-      // rabbit
+      // rabbit - very long ears
       ctx.fillStyle = cfg.body;
       ctx.beginPath();
-      ctx.ellipse(-headR * 0.35, headY - headR * 1.1, 12, 38, -0.1, 0, Math.PI * 2);
+      ctx.ellipse(-headR * 0.3 - tilt * 3, headY - headR * 1.15, 13, 44, -0.15 + tilt * 0.1, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
       ctx.beginPath();
-      ctx.ellipse(headR * 0.35, headY - headR * 1.1, 12, 38, 0.1, 0, Math.PI * 2);
+      ctx.ellipse(headR * 0.3 + tilt * 3, headY - headR * 1.15, 13, 44, 0.15 + tilt * 0.1, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
-      // inner
+      // inner ear
       ctx.fillStyle = cfg.accent;
       ctx.beginPath();
-      ctx.ellipse(-headR * 0.35, headY - headR * 1.1, 6, 30, -0.1, 0, Math.PI * 2);
+      ctx.ellipse(-headR * 0.3 - tilt * 3, headY - headR * 1.15, 6, 34, -0.15 + tilt * 0.1, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.ellipse(headR * 0.35, headY - headR * 1.1, 6, 30, 0.1, 0, Math.PI * 2);
+      ctx.ellipse(headR * 0.3 + tilt * 3, headY - headR * 1.15, 6, 34, 0.15 + tilt * 0.1, 0, Math.PI * 2);
+      ctx.fill();
+      // ear tips (darker)
+      ctx.fillStyle = cfg.bodyDark;
+      ctx.beginPath();
+      ctx.ellipse(-headR * 0.3 - tilt * 3, headY - headR * 1.45, 10, 8, -0.15 + tilt * 0.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(headR * 0.3 + tilt * 3, headY - headR * 1.45, 10, 8, 0.15 + tilt * 0.1, 0, Math.PI * 2);
       ctx.fill();
     } else if (ears === 'round') {
-      // bear
+      // bear - round ears
       ctx.beginPath();
-      ctx.arc(-headR * 0.65, headY - headR * 0.75, 18, 0, Math.PI * 2);
+      ctx.arc(-headR * 0.6, headY - headR * 0.7, 17, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
       ctx.beginPath();
-      ctx.arc(headR * 0.65, headY - headR * 0.75, 18, 0, Math.PI * 2);
+      ctx.arc(headR * 0.6, headY - headR * 0.7, 17, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
       ctx.fillStyle = cfg.accent;
       ctx.beginPath();
-      ctx.arc(-headR * 0.65, headY - headR * 0.75, 10, 0, Math.PI * 2);
+      ctx.arc(-headR * 0.6, headY - headR * 0.7, 9, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.arc(headR * 0.65, headY - headR * 0.75, 10, 0, Math.PI * 2);
+      ctx.arc(headR * 0.6, headY - headR * 0.7, 9, 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
   function drawEyes(cfg, headY, headR, a) {
-    const eyeY = headY - 5;
-    const eyeOffsetX = state.avatar === 'saca' ? 22 : 18;
-    const baseR = state.avatar === 'saca' ? 14 : 11;
+    const eyeY = headY - 3;
+    const eyeOffsetX = state.avatar === 'saca' ? 22 : 17;
+    const baseR = state.avatar === 'saca' ? 13 : 10;
     const wide = 1 + a.eyeWide * 0.5;
     const eyeR = baseR * wide;
     const openH = a.eyeOpen;
+    const lookX = a.lookX || 0;
+    const lookY = a.lookY || 0;
 
     if (state.avatar === 'saca') {
       // big circular eyes
@@ -1204,15 +1550,15 @@
         ctx.ellipse(s * eyeOffsetX, eyeY, eyeR, eyeR * openH, 0, 0, Math.PI * 2);
         ctx.fill();
         if (openH > 0.15) {
-          // pupil
+          // pupil with look offset
           ctx.fillStyle = cfg.eye;
           ctx.beginPath();
-          ctx.arc(s * eyeOffsetX, eyeY, eyeR * 0.55, 0, Math.PI * 2);
+          ctx.arc(s * eyeOffsetX + lookX * 8, eyeY + lookY * 6, eyeR * 0.55, 0, Math.PI * 2);
           ctx.fill();
           // highlight
           ctx.fillStyle = '#ffffff';
           ctx.beginPath();
-          ctx.arc(s * eyeOffsetX - 3, eyeY - 3, eyeR * 0.2, 0, Math.PI * 2);
+          ctx.arc(s * eyeOffsetX + lookX * 8 - 3, eyeY + lookY * 6 - 3, eyeR * 0.2, 0, Math.PI * 2);
           ctx.fill();
         }
       });
@@ -1225,12 +1571,15 @@
         ctx.fill();
         if (openH > 0.15) {
           ctx.fillStyle = cfg.eye;
+          // pupil with lookX/lookY offset (clearly visible)
+          const pupilX = s * eyeOffsetX + lookX * 7;
+          const pupilY = eyeY + lookY * 5;
           ctx.beginPath();
-          ctx.arc(s * eyeOffsetX + a.lookDir * 3, eyeY, eyeR * 0.6, 0, Math.PI * 2);
+          ctx.arc(pupilX, pupilY, eyeR * 0.55, 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = '#ffffff';
           ctx.beginPath();
-          ctx.arc(s * eyeOffsetX + a.lookDir * 3 - 2, eyeY - 2, eyeR * 0.22, 0, Math.PI * 2);
+          ctx.arc(pupilX - 2, pupilY - 2, eyeR * 0.22, 0, Math.PI * 2);
           ctx.fill();
         }
         // eyelid line when blinking
@@ -1247,18 +1596,32 @@
   }
 
   function drawNose(cfg, headY, headR) {
-    if (state.avatar === 'saca') return; // no prominent nose
+    if (state.avatar === 'saca') return;
     const noseY = headY + headR * 0.35;
     ctx.fillStyle = cfg.eye;
-    if (state.avatar === 'cat' || state.avatar === 'dog' || state.avatar === 'bear') {
+    if (state.avatar === 'dog') {
+      // bigger dog nose
+      ctx.beginPath();
+      ctx.ellipse(0, noseY + 5, 9, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // nose shine
+      ctx.fillStyle = '#ffffff';
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath();
+      ctx.arc(-2, noseY + 3, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    } else if (state.avatar === 'cat' || state.avatar === 'bear') {
       ctx.beginPath();
       ctx.ellipse(0, noseY, 7, 5, 0, 0, Math.PI * 2);
       ctx.fill();
     } else if (state.avatar === 'fox') {
       ctx.beginPath();
-      ctx.ellipse(0, noseY + 8, 6, 4, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, noseY + 12, 6, 4, 0, 0, Math.PI * 2);
       ctx.fill();
     } else if (state.avatar === 'rabbit') {
+      // tiny pink nose
+      ctx.fillStyle = cfg.accent;
       ctx.beginPath();
       ctx.ellipse(0, noseY, 5, 4, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -1266,35 +1629,42 @@
   }
 
   function drawMouth(cfg, headY, headR, a) {
-    const mouthY = headY + headR * 0.6;
+    const mouthY = headY + headR * 0.62;
     ctx.strokeStyle = cfg.eye;
     ctx.lineWidth = 2.5;
     ctx.lineCap = 'round';
 
     if (a.mouthOpen > 0.1) {
-      // open mouth
+      // open mouth - clearly visible
       ctx.fillStyle = '#3a1a2a';
       ctx.beginPath();
-      ctx.ellipse(0, mouthY, 10, 8 * a.mouthOpen, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, mouthY, 12, 10 * a.mouthOpen, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+      // tongue
+      if (a.mouthOpen > 0.5) {
+        ctx.fillStyle = '#ff6b9d';
+        ctx.beginPath();
+        ctx.ellipse(0, mouthY + 3 * a.mouthOpen, 6, 4 * a.mouthOpen, 0, 0, Math.PI);
+        ctx.fill();
+      }
     } else if (a.smile > 0.1) {
-      // smile
+      // smile - bigger curve
       ctx.beginPath();
-      ctx.moveTo(-14, mouthY - 4);
-      ctx.quadraticCurveTo(0, mouthY + 10 * a.smile, 14, mouthY - 4);
+      ctx.moveTo(-16, mouthY - 2);
+      ctx.quadraticCurveTo(0, mouthY + 12 * a.smile, 16, mouthY - 2);
       ctx.stroke();
     } else if (a.smile < -0.1) {
       // frown
       ctx.beginPath();
-      ctx.moveTo(-14, mouthY + 4);
-      ctx.quadraticCurveTo(0, mouthY - 8, 14, mouthY + 4);
+      ctx.moveTo(-16, mouthY + 4);
+      ctx.quadraticCurveTo(0, mouthY - 8, 16, mouthY + 4);
       ctx.stroke();
     } else {
       // neutral
       ctx.beginPath();
-      ctx.moveTo(-8, mouthY);
-      ctx.lineTo(8, mouthY);
+      ctx.moveTo(-10, mouthY);
+      ctx.lineTo(10, mouthY);
       ctx.stroke();
     }
   }
@@ -1302,17 +1672,16 @@
   function drawWhiskers(cfg, headY, headR) {
     ctx.strokeStyle = cfg.bodyDark;
     ctx.lineWidth = 1;
-    const wy = headY + headR * 0.4;
+    const wy = headY + headR * 0.45;
     [-1, 1].forEach(s => {
-      [-8, 0, 8].forEach(off => {
+      [-6, 0, 6].forEach(off => {
         ctx.beginPath();
-        ctx.moveTo(s * 14, wy + off);
-        ctx.lineTo(s * 38, wy + off + s * 3);
+        ctx.moveTo(s * 16, wy + off);
+        ctx.lineTo(s * 42, wy + off + s * 4);
         ctx.stroke();
       });
     });
   }
-
   // ============================================================
   // Animation loop
   // ============================================================
@@ -1325,30 +1694,26 @@
     a.mouthOpen = lerp(a.mouthOpen, tg.mouthOpen, 0.2);
     a.smile = lerp(a.smile, tg.smile, 0.2);
     a.eyeWide = lerp(a.eyeWide, tg.eyeWide, 0.2);
-    a.lookDir = lerp(a.lookDir, tg.lookDir, 0.15);
+    a.lookX = lerp(a.lookX, tg.lookX, 0.15);
+    a.lookY = lerp(a.lookY, tg.lookY, 0.15);
+    a.headTilt = lerp(a.headTilt, tg.headTilt, 0.12);
+    a.headOffsetX = lerp(a.headOffsetX, tg.headOffsetX, 0.12);
     a.tailWag = lerp(a.tailWag, tg.tailWag, 0.2);
     a.bounceY = lerp(a.bounceY, tg.bounceY, 0.2);
+    a.bodyLean = lerp(a.bodyLean, tg.bodyLean, 0.15);
+    a.bodyCrouch = lerp(a.bodyCrouch, tg.bodyCrouch, 0.2);
+    a.pawLeft = lerp(a.pawLeft, tg.pawLeft, 0.2);
+    a.pawRight = lerp(a.pawRight, tg.pawRight, 0.2);
 
-    // nod animation
-    if (state.action === 'nod') {
-      a.nodPhase += 0.15;
-      tg.bounceY = Math.sin(a.nodPhase) * 8;
-      if (a.nodPhase > Math.PI * 2) {
-        a.nodPhase = 0;
+    // jump animation
+    if (a.jumpPhase >= 0) {
+      a.jumpPhase += 0.06;
+      if (a.jumpPhase >= 1) {
+        a.jumpPhase = -1;
         tg.bounceY = 0;
-        state.action = null;
-        renderStates();
-      }
-    }
-    // look animation
-    if (state.action === 'look') {
-      a.nodPhase += 0.04;
-      tg.lookDir = Math.sin(a.nodPhase * 2) * 1;
-      if (a.nodPhase > Math.PI) {
-        a.nodPhase = 0;
-        tg.lookDir = 0;
-        state.action = null;
-        renderStates();
+      } else {
+        const j = a.jumpPhase;
+        tg.bounceY = -Math.sin(j * Math.PI) * 40;
       }
     }
 
@@ -1381,6 +1746,9 @@
       btn.className = 'ctrl-btn' + (state.face === ex ? ' active' : '');
       btn.innerHTML = `${emojis[ex] || '😊'} ${t('ex_' + ex)}`;
       btn.onclick = () => triggerFace(ex, 'app');
+      btn.disabled = !state.faceCapture;
+      btn.style.opacity = state.faceCapture ? '1' : '0.4';
+      btn.style.cursor = state.faceCapture ? 'pointer' : 'not-allowed';
       grid.appendChild(btn);
     });
   }
@@ -1394,6 +1762,9 @@
       btn.className = 'ctrl-btn' + (state.pose === pose ? ' active' : '');
       btn.innerHTML = `${emojis[pose] || '🐾'} ${t('po_' + pose)}`;
       btn.onclick = () => triggerPose(pose, 'app');
+      btn.disabled = !state.poseCapture && pose !== 'idle';
+      btn.style.opacity = (state.poseCapture || pose === 'idle') ? '1' : '0.4';
+      btn.style.cursor = (state.poseCapture || pose === 'idle') ? 'pointer' : 'not-allowed';
       grid.appendChild(btn);
     });
   }
@@ -1493,21 +1864,25 @@
   }
 
   function triggerFace(ex, src) {
+    if (!state.faceCapture) {
+      log('sys', LANG === 'zh' ? '面捕未开启，表情按钮无效' : 'Face Capture off, expression buttons disabled');
+      return;
+    }
     state.face = ex;
     const tg = state.animTargets;
     tg.eyeOpen = 1; tg.mouthOpen = 0; tg.smile = 0; tg.eyeWide = 0;
-    tg.lookX = 0; tg.lookY = 0; tg.headTilt = 0;
+    tg.lookX = 0; tg.lookY = 0; tg.headTilt = 0; tg.headOffsetX = 0;
     switch (ex) {
       case 'blink': tg.eyeOpen = 0.05; break;
       case 'halfblink': tg.eyeOpen = 0.5; break;
       case 'mouth': tg.mouthOpen = 0.9; break;
       case 'smile': tg.smile = 0.9; break;
-      case 'look_left': tg.lookX = -0.6; break;
-      case 'look_right': tg.lookX = 0.6; break;
-      case 'look_up': tg.lookY = -0.5; break;
+      case 'look_left': tg.lookX = -0.8; break;
+      case 'look_right': tg.lookX = 0.8; break;
+      case 'look_up': tg.lookY = -0.7; break;
       case 'brow_raise': tg.eyeWide = 1; break;
-      case 'head_left': tg.headTilt = -0.4; break;
-      case 'head_right': tg.headTilt = 0.4; break;
+      case 'head_left': tg.headTilt = -0.7; tg.headOffsetX = -18; break;
+      case 'head_right': tg.headTilt = 0.7; tg.headOffsetX = 18; break;
     }
     renderExprGrid();
     renderStates();
@@ -1517,7 +1892,7 @@
       if (state.face === ex) {
         state.face = null;
         tg.eyeOpen = 1; tg.mouthOpen = 0; tg.smile = 0; tg.eyeWide = 0;
-        tg.lookX = 0; tg.lookY = 0; tg.headTilt = 0;
+        tg.lookX = 0; tg.lookY = 0; tg.headTilt = 0; tg.headOffsetX = 0;
         renderExprGrid();
         renderStates();
       }
@@ -1525,6 +1900,10 @@
   }
 
   function triggerPose(pose, src) {
+    if (!state.poseCapture && pose !== 'idle') {
+      log('sys', LANG === 'zh' ? '姿态捕捉未开启，动作按钮无效' : 'Pose Capture off, action buttons disabled');
+      return;
+    }
     state.pose = pose;
     const tg = state.animTargets;
     tg.bodyLean = 0; tg.bodyCrouch = 0; tg.tailWag = 0; tg.bounceY = 0;
@@ -1534,12 +1913,12 @@
       case 'idle': break;
       case 'paw_left': tg.pawLeft = 1; break;
       case 'paw_right': tg.pawRight = 1; break;
-      case 'lean_left': tg.bodyLean = -0.4; break;
-      case 'lean_right': tg.bodyLean = 0.4; break;
-      case 'crouch': tg.bodyCrouch = 0.6; break;
+      case 'lean_left': tg.bodyLean = -0.5; break;
+      case 'lean_right': tg.bodyLean = 0.5; break;
+      case 'crouch': tg.bodyCrouch = 0.8; break;
       case 'jump': state.anim.jumpPhase = 0; break;
       case 'tail_wag': tg.tailWag = 1; break;
-      case 'bounce': tg.bounceY = -20; setTimeout(() => { tg.bounceY = 0; }, 450); break;
+      case 'bounce': tg.bounceY = -25; setTimeout(() => { tg.bounceY = 0; }, 450); break;
     }
     renderActionGrid();
     renderStates();
@@ -1632,6 +2011,7 @@
   function toggleFaceCapture() {
     state.faceCapture = !state.faceCapture;
     document.getElementById('faceCaptureToggle').checked = state.faceCapture;
+    renderExprGrid();
     renderStates();
     log('app', (LANG === 'zh' ? '面捕' : 'Face Capture') + (state.faceCapture ? (LANG === 'zh' ? '已开启' : ' enabled') : (LANG === 'zh' ? '已关闭' : ' disabled')));
     log('sys', t('log_synced'));
@@ -1639,6 +2019,7 @@
   function togglePoseCapture() {
     state.poseCapture = !state.poseCapture;
     document.getElementById('poseCaptureToggle').checked = state.poseCapture;
+    renderActionGrid();
     renderStates();
     log('app', (LANG === 'zh' ? '姿态捕捉' : 'Pose Capture') + (state.poseCapture ? (LANG === 'zh' ? '已开启' : ' enabled') : (LANG === 'zh' ? '已关闭' : ' disabled')));
     log('sys', t('log_synced'));
