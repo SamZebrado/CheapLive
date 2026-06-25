@@ -233,6 +233,38 @@
       color: var(--text-muted);
       text-transform: uppercase; letter-spacing: 0.06em;
       margin-bottom: 8px;
+      display: flex; align-items: center;
+    }
+    /* toggle switch */
+    .toggle-switch {
+      position: relative;
+      width: 34px;
+      height: 18px;
+      display: inline-block;
+      cursor: pointer;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--border-soft);
+      border-radius: 18px;
+      transition: 0.2s;
+    }
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 14px; width: 14px;
+      left: 2px; bottom: 2px;
+      background: white;
+      border-radius: 50%;
+      transition: 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider {
+      background: var(--color-accent);
+    }
+    .toggle-switch input:checked + .toggle-slider:before {
+      transform: translateX(16px);
     }
     .avatar-grid {
       display: grid;
@@ -526,7 +558,7 @@
           <div class="stage-overlay">
             <div class="stage-chip"><span data-i18n="avatarLabel">形象</span>: <span class="val" id="chipAvatar">—</span></div>
             <div class="stage-chip"><span data-i18n="exprLabel">表情</span>: <span class="val" id="chipExpr">—</span></div>
-            <div class="stage-chip"><span data-i18n="actionLabel">动作</span>: <span class="val" id="chipAction">—</span></div>
+            <div class="stage-chip"><span data-i18n="poseLabel">姿态</span>: <span class="val" id="chipAction">—</span></div>
           </div>
           <canvas id="avatarCanvas" width="360" height="340"></canvas>
         </div>
@@ -536,11 +568,23 @@
             <div class="avatar-grid" id="avatarGrid"></div>
           </div>
           <div class="ctrl-section">
-            <div class="ctrl-label" data-i18n="expression">表情</div>
+            <div class="ctrl-label">
+              <span data-i18n="expression">表情</span>
+              <label class="toggle-switch" style="margin-left:auto">
+                <input type="checkbox" id="faceCaptureToggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
             <div class="expr-grid" id="exprGrid"></div>
           </div>
           <div class="ctrl-section">
-            <div class="ctrl-label" data-i18n="action">动作</div>
+            <div class="ctrl-label">
+              <span data-i18n="action">动作</span>
+              <label class="toggle-switch" style="margin-left:auto">
+                <input type="checkbox" id="poseCaptureToggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
             <div class="action-grid" id="actionGrid"></div>
           </div>
         </div>
@@ -665,14 +709,25 @@
       av_bear: '小熊',
       // expressions
       ex_blink: '眨眼',
+      ex_halfblink: '半眯眼',
       ex_mouth: '张嘴',
       ex_smile: '微笑',
-      ex_wide: '惊讶',
-      // actions
-      ac_nod: '点头',
-      ac_look: '左右看',
-      ac_tail: '摇尾巴',
-      ac_bounce: '弹跳',
+      ex_look_left: '向左看',
+      ex_look_right: '向右看',
+      ex_look_up: '向上看',
+      ex_brow_raise: '挑眉',
+      ex_head_left: '头左转',
+      ex_head_right: '头右转',
+      // poses
+      po_idle: '待机',
+      po_paw_left: '抬左爪',
+      po_paw_right: '抬右爪',
+      po_lean_left: '左倾',
+      po_lean_right: '右倾',
+      po_crouch: '蹲下',
+      po_jump: '跳跃',
+      po_tail_wag: '摇尾巴',
+      po_bounce: '弹跳',
       // voice presets
       vp_original: '原声',
       vp_cute: '可爱',
@@ -683,11 +738,13 @@
       st_avatar: '当前 Avatar',
       st_expr: '当前表情',
       st_action: '当前动作',
+      st_pose: '当前姿态',
+      st_faceCapture: '面捕',
+      st_poseCapture: '姿态捕捉',
       st_webVoice: '普通变声',
       st_aiVoice: 'AI 变声',
       st_voicePreset: '变声预设',
       st_captureMode: '采集模式',
-      st_faceCapture: '面捕',
       st_subtitle: '字幕',
       st_on: '开',
       st_off: '关',
@@ -757,13 +814,24 @@
       av_fox: 'Fox',
       av_bear: 'Bear',
       ex_blink: 'Blink',
+      ex_halfblink: 'Half Blink',
       ex_mouth: 'Open Mouth',
       ex_smile: 'Smile',
-      ex_wide: 'Eye Wide',
-      ac_nod: 'Nod',
-      ac_look: 'Look Around',
-      ac_tail: 'Tail Wag',
-      ac_bounce: 'Bounce',
+      ex_look_left: 'Look Left',
+      ex_look_right: 'Look Right',
+      ex_look_up: 'Look Up',
+      ex_brow_raise: 'Brow Raise',
+      ex_head_left: 'Head Left',
+      ex_head_right: 'Head Right',
+      po_idle: 'Idle',
+      po_paw_left: 'Paw Left',
+      po_paw_right: 'Paw Right',
+      po_lean_left: 'Lean Left',
+      po_lean_right: 'Lean Right',
+      po_crouch: 'Crouch',
+      po_jump: 'Jump',
+      po_tail_wag: 'Tail Wag',
+      po_bounce: 'Bounce',
       vp_original: 'Original',
       vp_cute: 'Cute',
       vp_robot: 'Robot',
@@ -772,11 +840,13 @@
       st_avatar: 'Avatar',
       st_expr: 'Expression',
       st_action: 'Action',
+      st_pose: 'Pose',
+      st_faceCapture: 'Face Capture',
+      st_poseCapture: 'Pose Capture',
       st_webVoice: 'Web Voice',
       st_aiVoice: 'AI Voice',
       st_voicePreset: 'Voice Preset',
       st_captureMode: 'Capture Mode',
-      st_faceCapture: 'Face Capture',
       st_subtitle: 'Subtitle',
       st_on: 'ON',
       st_off: 'OFF',
@@ -847,8 +917,8 @@
   // State (single source of truth, mirrors App API semantics)
   // ============================================================
   const AVATARS = ['saca', 'cat', 'dog', 'rabbit', 'fox', 'bear'];
-  const EXPRESSIONS = ['blink', 'mouth', 'smile', 'wide'];
-  const ACTIONS = ['nod', 'look', 'tail', 'bounce'];
+  const FACES = ['blink', 'halfblink', 'mouth', 'smile', 'look_left', 'look_right', 'look_up', 'brow_raise', 'head_left', 'head_right'];
+  const POSES = ['idle', 'paw_left', 'paw_right', 'lean_left', 'lean_right', 'crouch', 'jump', 'tail_wag', 'bounce'];
   const VOICE_PRESETS = ['original', 'cute', 'robot', 'deep', 'radio'];
 
   const state = {
@@ -1305,29 +1375,25 @@
   function renderExprGrid() {
     const grid = document.getElementById('exprGrid');
     grid.innerHTML = '';
-    const emojis = { blink: '😉', mouth: '😮', smile: '😊', wide: '😲' };
-    EXPRESSIONS.forEach(ex => {
+    const emojis = { blink: '😉', halfblink: '😌', mouth: '😮', smile: '😊', look_left: '👈', look_right: '👉', look_up: '👆', brow_raise: '🙂', head_left: '↩️', head_right: '↪️' };
+    FACES.forEach(ex => {
       const btn = document.createElement('button');
-      btn.className = 'ctrl-btn' + (state.expression === ex ? ' active' : '');
-      btn.innerHTML = `${emojis[ex]} ${t('ex_' + ex)}`;
-      btn.onclick = () => triggerExpression(ex, 'app');
+      btn.className = 'ctrl-btn' + (state.face === ex ? ' active' : '');
+      btn.innerHTML = `${emojis[ex] || '😊'} ${t('ex_' + ex)}`;
+      btn.onclick = () => triggerFace(ex, 'app');
       grid.appendChild(btn);
     });
-    // viewer-side trigger buttons
-    const viewerPanel = document.getElementById('viewerState');
-    // handled in renderStates
   }
 
   function renderActionGrid() {
     const grid = document.getElementById('actionGrid');
     grid.innerHTML = '';
-    const emojis = { nod: '点头', look: '👀', tail: '🐾', bounce: '⬆️' };
-    const labels = { nod: '🙆', look: '👀', tail: '🐾', bounce: '⬆️' };
-    ACTIONS.forEach(ac => {
+    const emojis = { idle: '🧍', paw_left: '🐾', paw_right: '🐾', lean_left: '↪️', lean_right: '↩️', crouch: '🧎', jump: '⬆️', tail_wag: '🐕', bounce: '⬆️' };
+    POSES.forEach(pose => {
       const btn = document.createElement('button');
-      btn.className = 'ctrl-btn' + (state.action === ac ? ' active' : '');
-      btn.innerHTML = `${labels[ac]} ${t('ac_' + ac)}`;
-      btn.onclick = () => triggerAction(ac, 'app');
+      btn.className = 'ctrl-btn' + (state.pose === pose ? ' active' : '');
+      btn.innerHTML = `${emojis[pose] || '🐾'} ${t('po_' + pose)}`;
+      btn.onclick = () => triggerPose(pose, 'app');
       grid.appendChild(btn);
     });
   }
@@ -1364,13 +1430,14 @@
     const viewerEl = document.getElementById('viewerState');
     const rows = [
       { k: 'st_avatar', v: t('av_' + state.avatar) },
-      { k: 'st_expr', v: state.expression ? t('ex_' + state.expression) : '—', cls: state.expression ? 'on' : 'off' },
-      { k: 'st_action', v: state.action ? t('ac_' + state.action) : '—', cls: state.action ? 'on' : 'off' },
+      { k: 'st_faceCapture', v: state.faceCapture ? t('st_on') : t('st_off'), cls: state.faceCapture ? 'on' : 'off' },
+      { k: 'st_expr', v: state.face ? t('ex_' + state.face) : '—', cls: state.face ? 'on' : 'off' },
+      { k: 'st_poseCapture', v: state.poseCapture ? t('st_on') : t('st_off'), cls: state.poseCapture ? 'on' : 'off' },
+      { k: 'st_pose', v: t('po_' + state.pose) },
       { k: 'st_webVoice', v: voiceAdapter.isActive ? t('st_on') : t('st_off'), cls: voiceAdapter.isActive ? 'on' : 'off' },
       { k: 'st_voicePreset', v: t('vp_' + voiceAdapter.preset) },
       { k: 'st_aiVoice', v: t('st_realAppOnly'), cls: 'warn' },
       { k: 'st_captureMode', v: t('st_simulated') },
-      { k: 'st_faceCapture', v: state.faceCapture ? t('st_on') : t('st_off'), cls: state.faceCapture ? 'on' : 'off' },
       { k: 'st_subtitle', v: state.subtitle ? t('st_on') : t('st_off'), cls: state.subtitle ? 'on' : 'off' },
     ];
     const html = rows.map(r =>
@@ -1381,8 +1448,8 @@
 
     // chips
     document.getElementById('chipAvatar').textContent = t('av_' + state.avatar);
-    document.getElementById('chipExpr').textContent = state.expression ? t('ex_' + state.expression) : '—';
-    document.getElementById('chipAction').textContent = state.action ? t('ac_' + state.action) : '—';
+    document.getElementById('chipExpr').textContent = state.face ? t('ex_' + state.face) : '—';
+    document.getElementById('chipAction').textContent = t('po_' + state.pose);
 
     // viewer remote trigger buttons
     const viewerBtns = document.createElement('div');
@@ -1391,14 +1458,14 @@
     remoteExprBtn.className = 'ctrl-btn';
     remoteExprBtn.style.cssText = 'flex:1;min-width:80px;';
     remoteExprBtn.textContent = '😊 ' + t('ex_smile');
-    remoteExprBtn.onclick = () => triggerExpression('smile', 'viewer');
-    const remoteActBtn = document.createElement('button');
-    remoteActBtn.className = 'ctrl-btn';
-    remoteActBtn.style.cssText = 'flex:1;min-width:80px;';
-    remoteActBtn.textContent = '🐾 ' + t('ac_tail');
-    remoteActBtn.onclick = () => triggerAction('tail', 'viewer');
+    remoteExprBtn.onclick = () => triggerFace('smile', 'viewer');
+    const remotePoseBtn = document.createElement('button');
+    remotePoseBtn.className = 'ctrl-btn';
+    remotePoseBtn.style.cssText = 'flex:1;min-width:80px;';
+    remotePoseBtn.textContent = '🐾 ' + t('po_tail_wag');
+    remotePoseBtn.onclick = () => triggerPose('tail_wag', 'viewer');
     viewerBtns.appendChild(remoteExprBtn);
-    viewerBtns.appendChild(remoteActBtn);
+    viewerBtns.appendChild(remotePoseBtn);
     viewerEl.appendChild(viewerBtns);
   }
 
@@ -1425,47 +1492,68 @@
     log('sys', t('log_synced'));
   }
 
-  function triggerExpression(ex, src) {
-    state.expression = ex;
+  function triggerFace(ex, src) {
+    state.face = ex;
     const tg = state.animTargets;
-    // reset
     tg.eyeOpen = 1; tg.mouthOpen = 0; tg.smile = 0; tg.eyeWide = 0;
+    tg.lookX = 0; tg.lookY = 0; tg.headTilt = 0;
     switch (ex) {
       case 'blink': tg.eyeOpen = 0.05; break;
+      case 'halfblink': tg.eyeOpen = 0.5; break;
       case 'mouth': tg.mouthOpen = 0.9; break;
       case 'smile': tg.smile = 0.9; break;
-      case 'wide': tg.eyeWide = 1; tg.mouthOpen = 0.4; break;
+      case 'look_left': tg.lookX = -0.6; break;
+      case 'look_right': tg.lookX = 0.6; break;
+      case 'look_up': tg.lookY = -0.5; break;
+      case 'brow_raise': tg.eyeWide = 1; break;
+      case 'head_left': tg.headTilt = -0.4; break;
+      case 'head_right': tg.headTilt = 0.4; break;
     }
     renderExprGrid();
     renderStates();
     log(src, (src === 'viewer' ? t('log_viewerExpr') : t('log_appExpr')) + ': ' + t('ex_' + ex));
     log('sys', t('log_synced'));
-    // auto-reset after 1.2s
     setTimeout(() => {
-      if (state.expression === ex) {
-        state.expression = null;
+      if (state.face === ex) {
+        state.face = null;
         tg.eyeOpen = 1; tg.mouthOpen = 0; tg.smile = 0; tg.eyeWide = 0;
+        tg.lookX = 0; tg.lookY = 0; tg.headTilt = 0;
         renderExprGrid();
         renderStates();
       }
-    }, 1200);
+    }, 1500);
   }
 
-  function triggerAction(ac, src) {
-    state.action = ac;
+  function triggerPose(pose, src) {
+    state.pose = pose;
     const tg = state.animTargets;
-    switch (ac) {
-      case 'nod': state.anim.nodPhase = 0; break;
-      case 'look': state.anim.nodPhase = 0; break;
-      case 'tail': tg.tailWag = 1; break;
-      case 'bounce': tg.bounceY = -18; setTimeout(() => { tg.bounceY = 0; }, 400); break;
+    tg.bodyLean = 0; tg.bodyCrouch = 0; tg.tailWag = 0; tg.bounceY = 0;
+    tg.pawLeft = 0; tg.pawRight = 0;
+    state.anim.jumpPhase = -1;
+    switch (pose) {
+      case 'idle': break;
+      case 'paw_left': tg.pawLeft = 1; break;
+      case 'paw_right': tg.pawRight = 1; break;
+      case 'lean_left': tg.bodyLean = -0.4; break;
+      case 'lean_right': tg.bodyLean = 0.4; break;
+      case 'crouch': tg.bodyCrouch = 0.6; break;
+      case 'jump': state.anim.jumpPhase = 0; break;
+      case 'tail_wag': tg.tailWag = 1; break;
+      case 'bounce': tg.bounceY = -20; setTimeout(() => { tg.bounceY = 0; }, 450); break;
     }
     renderActionGrid();
     renderStates();
-    log(src, (src === 'viewer' ? t('log_viewerAction') : t('log_appAction')) + ': ' + t('ac_' + ac));
+    log(src, (src === 'viewer' ? t('log_viewerAction') : t('log_appAction')) + ': ' + t('po_' + pose));
     log('sys', t('log_synced'));
-    if (ac === 'tail') {
-      setTimeout(() => { tg.tailWag = 0; if (state.action === ac) { state.action = null; renderStates(); } }, 1500);
+    if (pose === 'tail_wag') {
+      setTimeout(() => {
+        tg.tailWag = 0;
+        if (state.pose === pose) { state.pose = 'idle'; renderActionGrid(); renderStates(); }
+      }, 1800);
+    } else if (pose !== 'idle') {
+      setTimeout(() => {
+        if (state.pose === pose) { state.pose = 'idle'; renderActionGrid(); renderStates(); }
+      }, 1500);
     }
   }
 
@@ -1539,6 +1627,24 @@
   }
 
   // ============================================================
+  // Face / Pose Capture toggles
+  // ============================================================
+  function toggleFaceCapture() {
+    state.faceCapture = !state.faceCapture;
+    document.getElementById('faceCaptureToggle').checked = state.faceCapture;
+    renderStates();
+    log('app', (LANG === 'zh' ? '面捕' : 'Face Capture') + (state.faceCapture ? (LANG === 'zh' ? '已开启' : ' enabled') : (LANG === 'zh' ? '已关闭' : ' disabled')));
+    log('sys', t('log_synced'));
+  }
+  function togglePoseCapture() {
+    state.poseCapture = !state.poseCapture;
+    document.getElementById('poseCaptureToggle').checked = state.poseCapture;
+    renderStates();
+    log('app', (LANG === 'zh' ? '姿态捕捉' : 'Pose Capture') + (state.poseCapture ? (LANG === 'zh' ? '已开启' : ' enabled') : (LANG === 'zh' ? '已关闭' : ' disabled')));
+    log('sys', t('log_synced'));
+  }
+
+  // ============================================================
   // AI Voice (info only)
   // ============================================================
   function showAiModal() {
@@ -1580,6 +1686,8 @@
     document.getElementById('aiModalMask').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) closeAiModal();
     });
+    document.getElementById('faceCaptureToggle').addEventListener('change', toggleFaceCapture);
+    document.getElementById('poseCaptureToggle').addEventListener('change', togglePoseCapture);
     log('sys', t('log_init'));
     tick();
   }
