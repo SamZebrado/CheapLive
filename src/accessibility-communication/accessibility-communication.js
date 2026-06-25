@@ -36,7 +36,7 @@ class AccessibilityCommunication {
     // 字幕
     this.captionFinal = this.$('caption-final');
     this.captionInterim = this.$('caption-interim');
-    this.captionHistory = this.$('caption-history');
+    this.captionHistoryEl = this.$('caption-history');
 
     // 按钮
     this.btnStartCaption = this.$('btn-start-caption');
@@ -173,10 +173,10 @@ class AccessibilityCommunication {
   }
 
   _renderHistory() {
-    this.captionHistory.innerHTML = this.captionHistory
+    this.captionHistoryEl.innerHTML = this.captionHistory
       .map((text, i) => `<div class="history-item">${this._escapeHtml(text)}</div>`)
       .join('');
-    this.captionHistory.scrollTop = this.captionHistory.scrollHeight;
+    this.captionHistoryEl.scrollTop = this.captionHistoryEl.scrollHeight;
   }
 
   _adjustFontSize(delta) {
