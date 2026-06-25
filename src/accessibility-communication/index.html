@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>辅助沟通 - 实时字幕与手写留言</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="page-container">
+    <!-- 头部 -->
+    <header class="page-header">
+      <h1>听力沟通辅助</h1>
+      <p class="subtitle">实时字幕与手写留言 · 为听力不便场景准备</p>
+    </header>
+
+    <!-- 状态栏 -->
+    <div class="status-bar" id="status-bar">
+      <div class="status-item">
+        <span class="status-label">麦克风：</span>
+        <span class="status-value status-idle" id="status-mic">未开启</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">字幕引擎：</span>
+        <span class="status-value" id="status-engine">检测中...</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">离线状态：</span>
+        <span class="status-value status-warn" id="status-offline">未保证</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">网络：</span>
+        <span class="status-value status-ok" id="status-network">在线</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">手写：</span>
+        <span class="status-value status-idle" id="status-handwriting">关闭</span>
+      </div>
+      <div class="status-caption-detail" id="status-caption-detail">
+        手写留言完全在本机处理，不会上传。当前字幕使用浏览器语音识别，是否离线取决于浏览器和设备支持。
+      </div>
+      <div class="status-model-info" id="status-model-info">
+        离线模型候选：vosk-model-small-cn-0.22（42MB, Apache-2.0，可再分发）
+      </div>
+    </div>
+
+    <!-- 字幕区 -->
+    <section class="caption-section">
+      <div class="caption-main" id="caption-main">
+        <div class="caption-final" id="caption-final"></div>
+        <div class="caption-interim" id="caption-interim" style="display:none;"></div>
+        <div class="caption-placeholder" id="caption-placeholder">点击"开始字幕"后，语音将转为大字显示</div>
+      </div>
+
+      <!-- 字幕历史 -->
+      <div class="caption-history-section">
+        <h3>历史记录</h3>
+        <div class="caption-history-list" id="caption-history"></div>
+      </div>
+
+      <!-- 字幕工具栏 -->
+      <div class="toolbar">
+        <div class="toolbar-group">
+          <button class="btn btn-primary" id="btn-start-caption">开始字幕</button>
+          <button class="btn" id="btn-stop-caption">停止字幕</button>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-group">
+          <button class="btn btn-small" id="btn-clear-caption">清空字幕</button>
+          <button class="btn btn-small" id="btn-copy-caption">复制文字</button>
+          <button class="btn btn-small" id="btn-export-text">导出文本</button>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-group">
+          <button class="btn btn-small" id="btn-font-size-down">A-</button>
+          <span class="font-size-display" id="font-size-display">64px</span>
+          <button class="btn btn-small" id="btn-font-size-up">A+</button>
+        </div>
+        <div class="toolbar-group">
+          <button class="btn btn-small" id="btn-fullscreen">全屏</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 手写区 -->
+    <div class="handwriting-section" id="handwriting-section">
+      <h3>手写留言板</h3>
+
+      <!-- 手写输出区 -->
+      <div class="handwriting-output-wrap">
+        <canvas id="handwriting-output"></canvas>
+      </div>
+
+      <!-- 手写输入区 -->
+      <div class="handwriting-input-wrap">
+        <canvas id="handwriting-input"></canvas>
+      </div>
+
+      <!-- 手写工具栏 -->
+      <div class="toolbar">
+        <div class="toolbar-group">
+          <button class="btn btn-small" id="btn-undo-stroke" disabled>撤销一笔</button>
+          <button class="btn btn-small" id="btn-undo-char" disabled>撤销一个字</button>
+          <button class="btn btn-small" id="btn-merge-prev" disabled>合并上一字</button>
+          <button class="btn btn-small" id="btn-commit-char" disabled>完成当前字</button>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-group">
+          <button class="btn btn-small" id="btn-space">空格</button>
+          <button class="btn btn-small" id="btn-newline">换行</button>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-group">
+          <button class="btn btn-small btn-danger" id="btn-clear-handwriting">清空手写</button>
+          <button class="btn btn-small btn-accent" id="btn-export-image">导出图片</button>
+        </div>
+      </div>
+
+      <!-- 手写设置 -->
+      <div class="handwriting-settings">
+        <label>
+          字高：
+          <select id="handwriting-size">
+            <option value="72">72px</option>
+            <option value="96" selected>96px</option>
+            <option value="128">128px</option>
+          </select>
+        </label>
+        <label>
+          停笔成字：
+          <select id="char-idle-select">
+            <option value="500">0.5s</option>
+            <option value="900" selected>0.9s</option>
+            <option value="1200">1.2s</option>
+            <option value="1500">1.5s</option>
+          </select>
+        </label>
+        <label>
+          笔画颜色：
+          <select id="stroke-color-select">
+            <option value="#ffffff" selected>白色</option>
+            <option value="#ffd54f">黄色</option>
+            <option value="#4fc3f7">青色</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <!-- 手写开关大按钮 -->
+    <button class="btn-toggle-handwriting" id="btn-toggle-handwriting">开启手写</button>
+  </div>
+
+  <script type="module" src="accessibility-communication.js"></script>
+</body>
+</html>

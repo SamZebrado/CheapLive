@@ -65,6 +65,17 @@ header h1 {
   border-color: var(--accent2);
 }
 
+.accessibility-link {
+  border-color: #4fc3f7;
+  color: #4fc3f7;
+}
+
+.accessibility-link:hover {
+  background: #4fc3f7;
+  color: #000;
+  border-color: #4fc3f7;
+}
+
 .main-layout {
   display: grid;
   grid-template-columns: 1fr 280px 380px;
