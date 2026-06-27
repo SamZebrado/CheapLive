@@ -221,6 +221,30 @@ class LocalServer(
                 path == "/contest" || path == "/contest/" || path == "/contest/index.html" -> {
                     serveAsset(output, "web/control/index.html", "text/html; charset=utf-8")
                 }
+                path == "/capture" || path == "/capture/" || path == "/capture/index.html" -> {
+                    serveAsset(output, "web/capture/index.html", "text/html; charset=utf-8")
+                }
+                path.startsWith("/capture/") -> {
+                    val relative = path.removePrefix("/capture/")
+                    val mime = guessMime(relative)
+                    serveAsset(output, "web/capture/$relative", mime)
+                }
+                path == "/black-screen" || path == "/black-screen/" || path == "/black-screen/index.html" -> {
+                    serveAsset(output, "web/black-screen/index.html", "text/html; charset=utf-8")
+                }
+                path.startsWith("/black-screen/") -> {
+                    val relative = path.removePrefix("/black-screen/")
+                    val mime = guessMime(relative)
+                    serveAsset(output, "web/black-screen/$relative", mime)
+                }
+                path == "/demo" || path == "/demo/" || path == "/demo/demo.html" -> {
+                    serveAsset(output, "web/demo/demo.html", "text/html; charset=utf-8")
+                }
+                path.startsWith("/demo/") -> {
+                    val relative = path.removePrefix("/demo/")
+                    val mime = guessMime(relative)
+                    serveAsset(output, "web/demo/$relative", mime)
+                }
                 path.startsWith("/assets/") -> {
                     val relative = path.removePrefix("/assets/")
                     val mime = guessMime(relative)
