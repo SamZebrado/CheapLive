@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CheapLive 参赛控制面板</title>
+  <style>
+    :root {
+      --bg-primary: #0a0e1a;
+      --bg-card: #1a2236;
+      --border-color: #2a3654;
+      --text-primary: #e8edf5;
+      --text-secondary: #8896b3;
+      --text-muted: #5a6a85;
+      --color-accent: #4fc3f7;
+      --color-accent2: #69db7c;
+      --color-warning: #ffd43b;
+      --color-danger: #ff6b6b;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    .hero {
+      background: linear-gradient(135deg, #0a0e1a 0%, #111827 100%);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+    .hero h1 { font-size: 22px; margin-bottom: 6px; }
+    .hero h1 span { color: var(--color-accent); }
+    .hero-sub { color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+    .demo-notice {
+      background: rgba(255,212,59,0.06);
+      border: 1px solid rgba(255,212,59,0.2);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      margin-top: 12px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+    .demo-notice strong { color: var(--text-primary); }
+    .badge {
+      display: inline-block;
+      font-size: 10px; font-weight: 600;
+      padding: 3px 8px; border-radius: 10px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .badge.simulated { background: rgba(255,212,59,0.12); border: 1px solid rgba(255,212,59,0.3); color: var(--color-warning); }
+    .badge.experimental { background: rgba(79,195,247,0.12); border: 1px solid rgba(79,195,247,0.3); color: var(--color-accent); }
+    .badge.ready { background: rgba(105,219,124,0.12); border: 1px solid rgba(105,219,124,0.3); color: var(--color-accent2); }
+    .badge.danger { background: rgba(255,107,107,0.12); border: 1px solid rgba(255,107,107,0.3); color: var(--color-danger); }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .card-title {
+      font-size: 11px; font-weight: 600;
+      color: var(--text-muted); text-transform: uppercase;
+      letter-spacing: 0.08em; margin-bottom: 10px;
+    }
+    .status-row {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .status-row:last-child { border-bottom: none; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .status-dot.green { background: var(--color-accent2); }
+    .status-dot.red { background: var(--color-danger); }
+    .status-dot.gray { background: var(--text-muted); }
+    .status-dot.yellow { background: var(--color-warning); }
+    .status-label { color: var(--text-secondary); flex: 1; }
+    .status-value { color: var(--text-primary); font-weight: 500; font-family: 'SF Mono', monospace; font-size: 12px; }
+
+    .toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-label { font-size: 13px; color: var(--text-primary); }
+    .toggle-switch {
+      position: relative; width: 44px; height: 24px;
+      background: #3a4560; border-radius: 12px;
+      cursor: pointer; transition: background 0.2s; flex-shrink: 0;
+    }
+    .toggle-switch.on { background: var(--color-accent2); }
+    .toggle-switch::after {
+      content: ''; position: absolute; top: 2px; left: 2px;
+      width: 20px; height: 20px; background: #fff; border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch.on::after { transform: translateX(20px); }
+    .toggle-switch:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .preset-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+    }
+    .preset-btn {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border-color);
+      border-radius: 6px; padding: 8px 4px;
+      text-align: center; font-size: 11px; color: var(--text-secondary);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .preset-btn:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+    .preset-btn.active {
+      background: rgba(79,195,247,0.12);
+      border-color: rgba(79,195,247,0.5);
+      color: var(--color-accent);
+    }
+    .preset-btn .picon { font-size: 15px; display: block; margin-bottom: 2px; }
+
+    .avatar-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+      margin-bottom: 10px;
+    }
+    .expr-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .mode-row { display: flex; gap: 8px; }
+    .btn {
+      font-size: 12px; font-weight: 500;
+      padding: 8px 16px; border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: rgba(255,255,255,0.04);
+      color: var(--text-secondary);
+      cursor: pointer; transition: all 0.15s; flex: 1;
+    }
+    .btn:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+    .btn.active { background: rgba(79,195,247,0.15); border-color: rgba(79,195,247,0.4); color: var(--color-accent); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .log-panel {
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      font-family: 'SF Mono', monospace;
+      font-size: 10px; color: var(--text-muted);
+      max-height: 200px; overflow-y: auto;
+      line-height: 1.6;
+    }
+    .log-entry { padding: 1px 0; }
+    .log-entry.info { color: var(--text-secondary); }
+    .log-entry.success { color: var(--color-accent2); }
+    .log-entry.warn { color: var(--color-warning); }
+    .log-entry.error { color: var(--color-danger); }
+    .log-entry.remote { color: var(--color-accent); }
+
+    .error-banner {
+      background: rgba(255,107,107,0.1);
+      border: 1px solid rgba(255,107,107,0.3);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      font-size: 12px; color: var(--color-danger);
+      margin-bottom: 12px;
+      display: none;
+    }
+    .error-banner.visible { display: block; }
+
+    .json-panel {
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 10px;
+      font-family: 'SF Mono', monospace;
+      font-size: 10px; color: var(--text-secondary);
+      max-height: 200px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="hero">
+    <h1>CheapLive — <span>参赛控制面板</span></h1>
+    <p class="hero-sub">
+      This is a contest control page for the app-web interaction flow.<br>
+      这是参赛版 App-Web 控制页面，用于演示网页端遥控 App 侧状态。
+    </p>
+    <div class="demo-notice">
+      <strong>本页为参赛演示控制端</strong>；参赛 Android App（含 APK 与 App 端源码）比赛期间暂不公开。<br>
+      Real camera and microphone capture require user permission and may be unavailable in this demo environment.
+    </div>
+  </div>
+
+  <div class="error-banner" id="errorBanner"></div>
+
+  <div class="card">
+    <div class="card-title">服务器状态</div>
+    <div class="status-row">
+      <span class="status-dot gray" id="serverDot"></span>
+      <span class="status-label">服务器</span>
+      <span class="status-value" id="serverStatus">连接中...</span>
+    </div>
+    <div class="status-row">
+      <span class="status-dot gray" id="connDot"></span>
+      <span class="status-label">连接状态</span>
+      <span class="status-value" id="connStatus">--</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">帧数</span>
+      <span class="status-value" id="frameCount">0</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">延迟</span>
+      <span class="status-value" id="latency">-- ms</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">最近指令</span>
+      <span class="status-value" id="lastCommand">--</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Avatar</div>
+    <div class="avatar-grid" id="avatarGrid">
+      <div class="preset-btn active" data-avatar="sacabambaspis" onclick="setAvatar('sacabambaspis')"><span class="picon">🐟</span>萨卡班甲鱼</div>
+      <div class="preset-btn" data-avatar="cat" onclick="setAvatar('cat')"><span class="picon">🐱</span>猫</div>
+      <div class="preset-btn" data-avatar="dog" onclick="setAvatar('dog')"><span class="picon">🐶</span>狗</div>
+      <div class="preset-btn" data-avatar="rabbit" onclick="setAvatar('rabbit')"><span class="picon">🐰</span>兔子</div>
+      <div class="preset-btn" data-avatar="fox" onclick="setAvatar('fox')"><span class="picon">🦊</span>狐狸</div>
+      <div class="preset-btn" data-avatar="bear" onclick="setAvatar('bear')"><span class="picon">🐻</span>小熊</div>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Expression</div>
+    <div class="expr-grid" id="exprGrid">
+      <div class="preset-btn" data-expr="blink" onclick="setExpr('blink')"><span class="picon">😉</span>眨眼</div>
+      <div class="preset-btn" data-expr="halfblink" onclick="setExpr('halfblink')"><span class="picon">😌</span>半眯</div>
+      <div class="preset-btn" data-expr="mouth" onclick="setExpr('mouth')"><span class="picon">😮</span>张嘴</div>
+      <div class="preset-btn" data-expr="smile" onclick="setExpr('smile')"><span class="picon">😊</span>微笑</div>
+      <div class="preset-btn" data-expr="look_left" onclick="setExpr('look_left')"><span class="picon">👈</span>左看</div>
+      <div class="preset-btn" data-expr="look_right" onclick="setExpr('look_right')"><span class="picon">👉</span>右看</div>
+      <div class="preset-btn" data-expr="look_up" onclick="setExpr('look_up')"><span class="picon">👆</span>上看</div>
+      <div class="preset-btn" data-expr="brow_raise" onclick="setExpr('brow_raise')"><span class="picon">🙂</span>挑眉</div>
+      <div class="preset-btn" data-expr="head_left" onclick="setExpr('head_left')"><span class="picon">↩️</span>头左转</div>
+      <div class="preset-btn" data-expr="head_right" onclick="setExpr('head_right')"><span class="picon">↪️</span>头右转</div>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Action</div>
+    <div class="expr-grid" id="actionGrid">
+      <div class="preset-btn" data-action="nod" onclick="setAction('nod')"><span class="picon">🙇</span>点头</div>
+      <div class="preset-btn" data-action="look" onclick="setAction('look')"><span class="picon">👀</span>左右看</div>
+      <div class="preset-btn" data-action="tail" onclick="setAction('tail')"><span class="picon">🐾</span>摇尾巴</div>
+      <div class="preset-btn" data-action="bounce" onclick="setAction('bounce')"><span class="picon">⬆️</span>弹跳</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">采集控制</div>
+    <div class="toggle-row">
+      <span class="toggle-label">面捕</span>
+      <div class="toggle-switch" id="faceToggle" onclick="sendControl('setFaceCapture')"></div>
+    </div>
+    <div class="toggle-row">
+      <span class="toggle-label">变声 <span class="badge experimental">实验中</span></span>
+      <div class="toggle-switch" id="voiceToggle" onclick="sendControl('setVoiceChanger')"></div>
+    </div>
+    <div class="toggle-row">
+      <span class="toggle-label">字幕</span>
+      <div class="toggle-switch" id="subToggle" onclick="sendControl('setSubtitle')"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">变声预设</div>
+    <div class="preset-grid" id="presetGrid">
+      <div class="preset-btn active" data-preset="original" onclick="setPreset('original')"><span class="picon">🎤</span>原声</div>
+      <div class="preset-btn" data-preset="cute" onclick="setPreset('cute')"><span class="picon">🎀</span>可爱</div>
+      <div class="preset-btn" data-preset="robot" onclick="setPreset('robot')"><span class="picon">🤖</span>机器人</div>
+      <div class="preset-btn" data-preset="deep" onclick="setPreset('deep')"><span class="picon">🎸</span>低沉</div>
+      <div class="preset-btn" data-preset="radio" onclick="setPreset('radio')"><span class="picon">📻</span>电台</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">采集模式</div>
+    <div class="mode-row">
+      <button class="btn active" id="btnSim" onclick="setMode('simulated')">模拟模式</button>
+      <button class="btn" id="btnReal" onclick="setMode('real-camera')">真实摄像头 <span class="badge experimental">实验</span></button>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--text-muted);">
+      真实摄像头模式需要设备权限。如果权限不可用，将自动回退到模拟模式。
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">姿态捕捉</div>
+    <div class="toggle-row">
+      <span class="toggle-label">姿态捕捉 <span class="badge experimental">实验中</span></span>
+      <div class="toggle-switch" id="poseToggle" onclick="sendControl('setPoseCapture')"></div>
+    </div>
+    <div style="margin-top:10px;">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">模式</div>
+      <div class="mode-row">
+        <button class="btn active" id="btnPoseSim" onclick="setPoseMode('simulated')">模拟姿态</button>
+        <button class="btn" id="btnPoseReal" onclick="setPoseMode('real-camera')">真实摄像头</button>
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">身体姿态</div>
+      <div class="preset-grid" id="poseGrid">
+        <div class="preset-btn" data-pose="idle" onclick="setBodyPose('idle')"><span class="picon">🧍</span>站立</div>
+        <div class="preset-btn" data-pose="lean_left" onclick="setBodyPose('lean_left')"><span class="picon">↔️</span>左倾</div>
+        <div class="preset-btn" data-pose="lean_right" onclick="setBodyPose('lean_right')"><span class="picon">↕️</span>右倾</div>
+        <div class="preset-btn" data-pose="paw_left" onclick="setBodyPose('paw_left')"><span class="picon">🐾</span>左前爪</div>
+        <div class="preset-btn" data-pose="paw_right" onclick="setBodyPose('paw_right')"><span class="picon">🐾</span>右前爪</div>
+        <div class="preset-btn" data-pose="crouch" onclick="setBodyPose('crouch')"><span class="picon">🐱</span>蹲伏</div>
+        <div class="preset-btn" data-pose="jump" onclick="setBodyPose('jump')"><span class="picon">⬆️</span>跳跃</div>
+        <div class="preset-btn" data-pose="tail_wag" onclick="setBodyPose('tail_wag')"><span class="picon">🦊</span>摆尾</div>
+        <div class="preset-btn" data-pose="bounce" onclick="setBodyPose('bounce')"><span class="picon">🎾</span>弹跳</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--text-muted);line-height:1.6;">
+      姿态捕捉实验功能。当前模拟模式可用，真实姿态捕捉待接入。
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">App 状态 JSON</div>
+    <div class="json-panel" id="jsonPanel">加载中...</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">事件日志</div>
+    <div class="log-panel" id="logPanel">
+      <div class="log-entry info">初始化中...</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  var state = {
+    serverRunning: false,
+    faceCaptureEnabled: false,
+    voiceChangerEnabled: false,
+    voicePreset: 'original',
+    captureMode: 'simulated',
+    subtitleEnabled: false,
+    viewerConnected: false,
+    frameCount: 0,
+    latencyMs: 0,
+    lastCommand: '',
+    lastError: '',
+    updatedAt: 0,
+    avatar: 'sacabambaspis',
+    avatarExpression: '',
+    avatarAction: '',
+    aiVoiceStatus: 'real_app_only',
+    webVoiceStatus: 'available',
+    voicePermission: 'not_requested',
+    poseCaptureEnabled: false,
+    poseCaptureStatus: 'off',
+    poseMode: 'simulated',
+    bodyPose: 'idle',
+    poseQuality: 'none',
+    poseLandmarkCount: 0,
+    poseLastUpdatedAt: 0,
+    poseError: ''
+  };
+
+  var eventSource = null;
+  var pollTimer = null;
+  var useSSE = false;
+
+  function $(id) { return document.getElementById(id); }
+
+  function log(msg, level) {
+    level = level || 'info';
+    var panel = $('logPanel');
+    var entry = document.createElement('div');
+    entry.className = 'log-entry ' + level;
+    var now = new Date();
+    var ts = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
+    entry.textContent = '[' + ts + '] ' + msg;
+    panel.appendChild(entry);
+    panel.scrollTop = panel.scrollHeight;
+    while (panel.children.length > 80) panel.removeChild(panel.firstChild);
+  }
+
+  function showError(msg) {
+    var banner = $('errorBanner');
+    if (msg) {
+      banner.textContent = msg;
+      banner.className = 'error-banner visible';
+    } else {
+      banner.className = 'error-banner';
+    }
+  }
+
+  function updateUI() {
+    // Server status
+    var dot = $('serverDot');
+    var st = $('serverStatus');
+    dot.className = 'status-dot ' + (state.serverRunning ? 'green' : 'gray');
+    st.textContent = state.serverRunning ? '运行中' : '已停止';
+
+    // Connection
+    var cDot = $('connDot');
+    var cSt = $('connStatus');
+    if (state.viewerConnected) {
+      cDot.className = 'status-dot green';
+      cSt.textContent = '已连接';
+    } else {
+      cDot.className = 'status-dot gray';
+      cSt.textContent = '未连接';
+    }
+
+    // Metrics
+    $('frameCount').textContent = state.frameCount;
+    $('latency').textContent = state.latencyMs > 0 ? state.latencyMs + ' ms' : '-- ms';
+    $('lastCommand').textContent = state.lastCommand || '--';
+
+    // Toggles
+    $('faceToggle').className = 'toggle-switch' + (state.faceCaptureEnabled ? ' on' : '');
+    $('voiceToggle').className = 'toggle-switch' + (state.voiceChangerEnabled ? ' on' : '');
+    $('subToggle').className = 'toggle-switch' + (state.subtitleEnabled ? ' on' : '');
+
+    // Presets
+    var btns = document.querySelectorAll('#presetGrid .preset-btn');
+    btns.forEach(function(b) {
+      b.className = 'preset-btn' + (b.dataset.preset === state.voicePreset ? ' active' : '');
+    });
+
+    // Avatar
+    var avBtns = document.querySelectorAll('#avatarGrid .preset-btn');
+    avBtns.forEach(function(b) {
+      b.className = 'preset-btn' + (b.dataset.avatar === state.avatar ? ' active' : '');
+    });
+
+    // Expression
+    var exBtns = document.querySelectorAll('#exprGrid .preset-btn');
+    exBtns.forEach(function(b) {
+      b.className = 'preset-btn' + (b.dataset.expr === state.avatarExpression ? ' active' : '');
+    });
+
+    // Action
+    var acBtns = document.querySelectorAll('#actionGrid .preset-btn');
+    acBtns.forEach(function(b) {
+      b.className = 'preset-btn' + (b.dataset.action === state.avatarAction ? ' active' : '');
+    });
+
+    // Mode
+    $('btnSim').className = 'btn' + (state.captureMode === 'simulated' ? ' active' : '');
+    $('btnReal').className = 'btn' + (state.captureMode === 'real-camera' ? ' active' : '');
+
+    // Pose
+    var poseToggleEl = $('poseToggle');
+    if (poseToggleEl) {
+      poseToggleEl.className = 'toggle-switch' + (state.poseCaptureEnabled ? ' on' : '');
+    }
+    var btnPoseSimEl = $('btnPoseSim');
+    if (btnPoseSimEl) {
+      btnPoseSimEl.className = 'btn' + (state.poseMode === 'simulated' ? ' active' : '');
+    }
+    var btnPoseRealEl = $('btnPoseReal');
+    if (btnPoseRealEl) {
+      btnPoseRealEl.className = 'btn' + (state.poseMode === 'real-camera' ? ' active' : '');
+    }
+    var poseBtns = document.querySelectorAll('#poseGrid .preset-btn');
+    if (poseBtns.length > 0) {
+      poseBtns.forEach(function(b) {
+        b.className = 'preset-btn' + (b.dataset.pose === state.bodyPose ? ' active' : '');
+      });
+    }
+
+    // JSON panel
+    $('jsonPanel').textContent = JSON.stringify(state, null, 2);
+  }
+
+  function applyState(data) {
+    if (!data) return;
+    state.serverRunning = !!data.serverRunning;
+    state.faceCaptureEnabled = !!data.faceCaptureEnabled;
+    state.voiceChangerEnabled = !!data.voiceChangerEnabled;
+    state.voicePreset = data.voicePreset || 'original';
+    state.captureMode = data.captureMode || 'simulated';
+    state.subtitleEnabled = !!data.subtitleEnabled;
+    state.viewerConnected = !!data.viewerConnected;
+    state.frameCount = data.frameCount || 0;
+    state.latencyMs = data.latencyMs || 0;
+    state.lastCommand = data.lastCommand || '';
+    state.lastError = data.lastError || '';
+    state.updatedAt = data.updatedAt || 0;
+    state.avatar = data.avatar || 'sacabambaspis';
+    state.avatarExpression = data.avatarExpression || '';
+    state.avatarAction = data.avatarAction || '';
+    state.aiVoiceStatus = data.aiVoiceStatus || 'real_app_only';
+    state.webVoiceStatus = data.webVoiceStatus || 'available';
+    state.voicePermission = data.voicePermission || 'not_requested';
+    state.poseCaptureEnabled = !!data.poseCaptureEnabled;
+    state.poseCaptureStatus = data.poseCaptureStatus || 'off';
+    state.poseMode = data.poseMode || 'simulated';
+    state.bodyPose = data.bodyPose || 'idle';
+    state.poseQuality = data.poseQuality || 'none';
+    state.poseLandmarkCount = data.poseLandmarkCount || 0;
+    state.poseLastUpdatedAt = data.poseLastUpdatedAt || 0;
+    state.poseError = data.poseError || '';
+    updateUI();
+  }
+
+  // ===== API calls =====
+  function fetchStatus() {
+    return fetch('/api/status')
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        applyState(data);
+        showError('');
+        return data;
+      })
+      .catch(function(e) {
+        showError('获取状态失败：' + e.message);
+        log('获取状态失败：' + e.message, 'error');
+        throw e;
+      });
+  }
+
+  function sendControl(type, extra) {
+    var body = { type: type };
+    if (extra) Object.keys(extra).forEach(function(k) { body[k] = extra[k]; });
+
+    // For toggle commands, flip the current state
+    if (type === 'setFaceCapture') body.enabled = !state.faceCaptureEnabled;
+    if (type === 'setVoiceChanger') body.enabled = !state.voiceChangerEnabled;
+    if (type === 'setSubtitle') body.enabled = !state.subtitleEnabled;
+    if (type === 'setPoseCapture') body.enabled = !state.poseCaptureEnabled;
+
+    // 记录点击前的状态
+    var beforeState = {
+      faceCaptureEnabled: state.faceCaptureEnabled,
+      voiceChangerEnabled: state.voiceChangerEnabled,
+      subtitleEnabled: state.subtitleEnabled,
+      voicePreset: state.voicePreset,
+      avatar: state.avatar
+    };
+
+    log('UI 点击: ' + type + ' ' + JSON.stringify(body), 'remote');
+
+    fetch('/api/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        if (data.ok) {
+          log('POST /api/control 响应: ok=true 消息=' + (data.message || ''), 'success');
+          if (data.state) {
+            applyState(data.state);
+            log('状态已从响应刷新: ' + type + ' 已应用', 'success');
+          } else {
+            // 如果响应没有带 state，主动刷新
+            return fetchStatus().then(function() {
+              log('状态已通过 /api/status 刷新', 'success');
+            });
+          }
+          showError('');
+        } else {
+          log('POST 失败: ok=false 消息=' + (data.message || ''), 'error');
+          log('状态未变更: ' + type + ' 被服务器拒绝', 'error');
+          showError('控制失败: ' + (data.message || ''));
+          // 刷新状态确保 UI 一致
+          return fetchStatus();
+        }
+      })
+      .catch(function(e) {
+        log('POST 失败: ' + e.message, 'error');
+        log('状态未变更: 网络错误', 'error');
+        showError('控制请求失败: ' + e.message);
+        // 刷新状态确保 UI 一致
+        return fetchStatus();
+      });
+  }
+
+  function setPreset(preset) {
+    sendControl('setVoicePreset', { preset: preset });
+  }
+
+  function setMode(mode) {
+    sendControl('setCaptureMode', { mode: mode });
+  }
+
+  function setAvatar(avatar) {
+    sendControl('setAvatar', { avatar: avatar });
+  }
+
+  function setExpr(expr) {
+    sendControl('setAvatarExpression', { expression: expr });
+  }
+
+  function setAction(action) {
+    sendControl('setAvatarAction', { action: action });
+  }
+
+  function setPoseMode(mode) {
+    sendControl('setPoseMode', { mode: mode });
+  }
+
+  function setBodyPose(pose) {
+    sendControl('setBodyPose', { pose: pose });
+  }
+
+  // ===== SSE / Polling =====
+  function initSSE() {
+    try {
+      eventSource = new EventSource('/events');
+      eventSource.addEventListener('state', function(e) {
+        try {
+          var data = JSON.parse(e.data);
+          applyState(data);
+          if (!useSSE) {
+            useSSE = true;
+            log('SSE 已连接，从轮询切换', 'success');
+            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+          }
+          log('收到 SSE 更新: ' + (data.lastCommand || '无指令'), 'info');
+          showError('');
+        } catch (err) {
+          log('SSE 解析错误: ' + err.message, 'error');
+        }
+      });
+      eventSource.onerror = function() {
+        log('SSE 错误，回退到轮询', 'warn');
+        if (eventSource) { try { eventSource.close(); } catch(_){} eventSource = null; }
+        useSSE = false;
+        startPolling();
+      };
+      log('SSE 连接中...', 'info');
+    } catch (e) {
+      log('SSE 不支持，使用轮询', 'warn');
+      startPolling();
+    }
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(fetchStatus, 2000);
+    fetchStatus();
+    log('轮询已启动（2秒间隔）', 'info');
+  }
+
+  // ===== Init =====
+  window.sendControl = sendControl;
+  window.setPreset = setPreset;
+  window.setMode = setMode;
+  window.setAvatar = setAvatar;
+  window.setExpr = setExpr;
+  window.setAction = setAction;
+  window.setPoseMode = setPoseMode;
+  window.setBodyPose = setBodyPose;
+
+  log('控制面板已加载', 'info');
+  fetchStatus().then(function() {
+    log('初始状态已加载: avatar=' + state.avatar + ' faceCapture=' + state.faceCaptureEnabled, 'info');
+  }).catch(function(){});
+  // Try SSE after initial fetch; if it fails, polling will continue
+  setTimeout(initSSE, 500);
+
+})();
+</script>
+</body>
+</html>

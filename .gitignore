@@ -18,6 +18,7 @@ rules/prompt-structure.md
 artifacts/**/*.webm
 artifacts/**/page@*.webm
 
-# Android APP 已冻结（2026-06-20），功能由参赛项目独立开发接管
-# 整个 android-capture/ 目录不再纳入主项目版本管理
-android-capture/
+# Android build outputs and local config
+android-capture/app/build/
+android-capture/.gradle/
+android-capture/local.properties

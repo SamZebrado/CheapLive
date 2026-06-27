@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CheapLive Receiver</title>
+<style>
+  :root {
+    --bg-primary: #0a0e1a;
+    --bg-card: #1a2236;
+    --border-color: #2a3654;
+    --text-primary: #e8edf5;
+    --text-secondary: #8896b3;
+    --text-muted: #5a6a85;
+    --color-accent: #4fc3f7;
+    --color-accent2: #69db7c;
+    --color-warning: #ffd43b;
+    --color-danger: #ff6b6b;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+    min-height: 100vh;
+  }
+  .container { max-width: 800px; margin: 0 auto; padding: 16px; }
+
+  .hero {
+    background: linear-gradient(135deg, #0a0e1a 0%, #111827 100%);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+  .hero h1 { font-size: 18px; margin-bottom: 4px; }
+  .hero h1 span { color: var(--color-accent); }
+  .hero-sub { color: var(--text-secondary); font-size: 12px; }
+
+  .stage-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  #stage {
+    display: block;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 600px;
+    height: 320px;
+    background: #11111f;
+    border-radius: var(--radius-sm);
+  }
+  .stage-overlay {
+    text-align: center;
+    padding: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .stage-overlay.simulated { color: var(--color-warning); }
+  .stage-overlay.real { color: var(--color-accent2); }
+
+  .status-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .status-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+  .status-item .label {
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 2px;
+  }
+  .status-item .value {
+    color: var(--text-primary);
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+  }
+  .status-item .value.on { color: var(--color-accent2); }
+  .status-item .value.off { color: var(--text-muted); }
+  .status-item .value.warn { color: var(--color-warning); }
+
+  .badge {
+    display: inline-block;
+    font-size: 9px; font-weight: 600;
+    padding: 2px 6px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .badge.simulated { background: rgba(255,212,59,0.12); border: 1px solid rgba(255,212,59,0.3); color: var(--color-warning); }
+  .badge.real { background: rgba(105,219,124,0.12); border: 1px solid rgba(105,219,124,0.3); color: var(--color-accent2); }
+  .badge.connected { background: rgba(79,195,247,0.12); border: 1px solid rgba(79,195,247,0.3); color: var(--color-accent); }
+  .badge.disconnected { background: rgba(255,107,107,0.12); border: 1px solid rgba(255,107,107,0.3); color: var(--color-danger); }
+
+  .actions {
+    display: flex; gap: 8px; margin-bottom: 12px;
+  }
+  button {
+    padding: 8px 16px; border: 1px solid var(--border-color);
+    background: rgba(255,255,255,0.04); color: var(--text-secondary);
+    border-radius: var(--radius-sm); cursor: pointer; font-size: 12px;
+    flex: 1; transition: all 0.15s;
+  }
+  button:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+  button.primary { background: rgba(79,195,247,0.15); border-color: rgba(79,195,247,0.4); color: var(--color-accent); }
+
+  .log-panel {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    font-family: 'SF Mono', monospace;
+    font-size: 10px; color: var(--text-muted);
+    max-height: 120px; overflow-y: auto;
+    line-height: 1.6;
+  }
+  .log-entry { padding: 1px 0; }
+  .log-entry.info { color: var(--text-secondary); }
+  .log-entry.success { color: var(--color-accent2); }
+  .log-entry.warn { color: var(--color-warning); }
+  .log-entry.error { color: var(--color-danger); }
+  .log-entry.remote { color: var(--color-accent); }
+
+  /* ===== Showcase Mode ===== */
+  body.showcase {
+    background: radial-gradient(ellipse at center top, #0f1628 0%, #070a14 100%);
+  }
+  body.showcase .container {
+    max-width: 100%;
+    padding: 0;
+  }
+  body.showcase .hero {
+    display: none;
+  }
+  body.showcase .stage-card {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    margin-bottom: 0;
+  }
+  body.showcase #stage {
+    max-width: 100%;
+    width: 100vw;
+    height: 82vh;
+    background: transparent;
+    border-radius: 0;
+  }
+  body.showcase .stage-overlay {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  body.showcase .status-grid,
+  body.showcase .actions,
+  body.showcase .log-panel {
+    display: none;
+  }
+  body.showcase .showcase-statusbar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 8px 20px;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: rgba(0,0,0,0.4);
+    border-top: 1px solid rgba(255,255,255,0.06);
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    backdrop-filter: blur(8px);
+  }
+  body.showcase .showcase-statusbar .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  body.showcase .showcase-statusbar .dot.on { background: var(--color-accent2); }
+  body.showcase .showcase-statusbar .dot.off { background: var(--text-muted); }
+  body.showcase .showcase-avatarname {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    opacity: 0.75;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    pointer-events: none;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+  }
+  body:not(.showcase) .showcase-statusbar,
+  body:not(.showcase) .showcase-avatarname {
+    display: none;
+  }
+
+  /* ===== Public/Clean Capture Mode ===== */
+  body.public .showcase-statusbar,
+  body.public .showcase-avatarname,
+  body.public .stage-overlay {
+    display: none !important;
+  }
+  body.public #stage {
+    height: 100vh;
+  }
+</style>
+</head>
+<body>
+<div class="showcase-avatarname" id="showcaseAvatarName">SACABAMBASPIS</div>
+
+<div class="container">
+  <div class="hero">
+    <h1>CheapLive <span>Receiver</span></h1>
+    <p class="hero-sub" id="hostInfo">—</p>
+  </div>
+
+  <div class="stage-card">
+    <canvas id="stage"></canvas>
+    <div class="stage-overlay" id="stageOverlay">初始化中...</div>
+  </div>
+
+  <div class="status-grid">
+    <div class="status-item">
+      <div class="label">Connection</div>
+      <div class="value" id="connStatus">—</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Avatar</div>
+      <div class="value" id="avatarStatus">—</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Expression / Action</div>
+      <div class="value" id="exprStatus">—</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Face Capture</div>
+      <div class="value off" id="faceCapStatus">OFF</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Voice Preset</div>
+      <div class="value" id="voicePresetStatus">original</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Subtitle</div>
+      <div class="value off" id="subtitleStatus">OFF</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Frame Count</div>
+      <div class="value" id="frameCountStatus">0</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Latency</div>
+      <div class="value" id="latencyStatus">— ms</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Last Command</div>
+      <div class="value" id="lastCmdStatus">—</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Capture Mode</div>
+      <div class="value" id="captureModeStatus">simulated</div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="primary" id="reconnect">重连 WebSocket</button>
+    <button id="refreshStatus">刷新状态</button>
+  </div>
+
+  <div class="log-panel" id="logPanel">
+    <div class="log-entry info">Receiver 初始化中...</div>
+  </div>
+</div>
+
+<div class="showcase-statusbar" id="showcaseStatusbar">
+  <span><span class="dot off" id="scConnDot"></span><span id="scConnText">Disconnected</span></span>
+  <span>·</span>
+  <span id="scAvatarText">sacabambaspis</span>
+  <span>·</span>
+  <span><span class="dot off" id="scFaceDot"></span><span id="scFaceText">Face Capture OFF</span></span>
+</div>
+
+<script type="module">
+  import { ProceduralSphereAvatar, ProceduralSpindleWhaleAvatar } from './procedural-mesh-renderer.js';
+  import { ProceduralQuadrupedAvatar } from './quadruped-renderer.js';
+
+  window._ProceduralSphereAvatar = ProceduralSphereAvatar;
+  window._ProceduralSpindleWhaleAvatar = ProceduralSpindleWhaleAvatar;
+  window._ProceduralQuadrupedAvatar = ProceduralQuadrupedAvatar;
+  window._rendererReady = true;
+
+  if (window._onRendererReady) window._onRendererReady();
+</script>
+<script>
+(function() {
+  'use strict';
+
+  // ===== 全局错误捕获 =====
+  window.onerror = function(msg, url, line, col, error) {
+    try {
+      var errMsg = '错误: ' + msg + ' (' + line + ':' + col + ')';
+      if (error && error.stack) errMsg += '\n' + error.stack;
+      var entry = document.createElement('div');
+      entry.className = 'log-entry error';
+      entry.textContent = '[ERR] ' + msg;
+      var panel = document.getElementById('logPanel');
+      if (panel) {
+        panel.appendChild(entry);
+        panel.scrollTop = panel.scrollHeight;
+      }
+      console.error(errMsg);
+    } catch (e) {}
+    return false;
+  };
+
+  // ===== DOM =====
+  var stage = document.getElementById('stage');
+  var ctx = stage ? stage.getContext('2d') : null;
+  var stageOverlay = document.getElementById('stageOverlay');
+  var logPanel = document.getElementById('logPanel');
+
+  // ===== State =====
+  var appState = {
+    serverRunning: false,
+    faceCaptureEnabled: false,
+    voiceChangerEnabled: false,
+    voicePreset: 'original',
+    captureMode: 'simulated',
+    subtitleEnabled: false,
+    viewerConnected: false,
+    frameCount: 0,
+    latencyMs: 0,
+    lastCommand: '',
+    lastError: '',
+    avatar: 'sacabambaspis',
+    avatarExpression: '',
+    avatarAction: '',
+    aiVoiceStatus: 'real_app_only',
+    webVoiceStatus: 'available',
+    voicePermission: 'not_requested',
+    poseCaptureEnabled: false,
+    poseCaptureStatus: 'off',
+    poseMode: 'simulated',
+    bodyPose: 'idle',
+    poseQuality: 'none',
+    poseLandmarkCount: 0,
+    poseLastUpdatedAt: 0,
+    poseError: ''
+  };
+
+  // WebSocket face frame data (from real capture)
+  var faceFrame = null;
+  var lastFrameSeq = -1;
+  var lastFrameTime = 0;
+  var hasRealFrame = false;
+
+  // WebSocket
+  var ws = null;
+  var wsRetryCount = 0;
+  var wsMaxRetries = 20;
+  var wsReconnectMs = 1000;
+
+  // SSE
+  var eventSource = null;
+  var useSSE = false;
+  var pollTimer = null;
+
+  // Animation
+  var animTime = 0;
+
+  // Token & Mode Detection
+  var query = new URLSearchParams(location.search);
+  var token = query.get('token') || '';
+  var publicMode = query.get('public') === '1';
+  var showcaseMode = query.get('showcase') === '1';
+
+  // Public/Clean Capture Mode (also enables showcase layout)
+  if (publicMode) {
+    document.body.classList.add('public');
+    if (!showcaseMode) { document.body.classList.add('showcase'); }
+  }
+
+  // Showcase Mode
+  if (showcaseMode) {
+    document.body.classList.add('showcase');
+  }
+
+  // 3D Procedural Renderer
+  var procRenderer = null;
+  var rendererReady = false;
+
+  // ===== Logging =====
+  function log(msg, level) {
+    level = level || 'info';
+    var entry = document.createElement('div');
+    entry.className = 'log-entry ' + level;
+    var now = new Date();
+    var ts = String(now.getHours()).padStart(2,'0') + ':' +
+             String(now.getMinutes()).padStart(2,'0') + ':' +
+             String(now.getSeconds()).padStart(2,'0');
+    entry.textContent = '[' + ts + '] ' + msg;
+    logPanel.appendChild(entry);
+    logPanel.scrollTop = logPanel.scrollHeight;
+    while (logPanel.children.length > 50) logPanel.removeChild(logPanel.firstChild);
+  }
+
+  // ===== Canvas resize =====
+  function resize() {
+    if (!stage) return;
+    var w = stage.clientWidth || 600;
+    var h = 320;
+    stage.width = Math.min(600, w);
+    stage.height = h;
+    if (ctx && stage.width > 0 && stage.height > 0) {
+      ctx.fillStyle = '#11111f';
+      ctx.fillRect(0, 0, stage.width, stage.height);
+    }
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ===== Avatar rendering =====
+  var AVATAR_COLORS = {
+    sacabambaspis: { body: '#e4e1d3', dark: '#8a8778', accent: '#c4c0b0', spot: '#8b7355' },
+    cat: { body: '#f0d090', dark: '#c0a060', accent: '#e0b070', spot: '#c0a060' },
+    dog: { body: '#c8a070', dark: '#9a7050', accent: '#b89060', spot: '#9a7050' },
+    rabbit: { body: '#f5f5f5', dark: '#c0c0c0', accent: '#e0e0e0', spot: '#d0d0d0' },
+    fox: { body: '#e88040', dark: '#b05020', accent: '#d07030', spot: '#e88040' },
+    bear: { body: '#a07050', dark: '#704830', accent: '#906040', spot: '#704830' }
+  };
+
+  function getAvatarColors(name) {
+    return AVATAR_COLORS[name] || AVATAR_COLORS.sacabambaspis;
+  }
+
+  // 初始化 3D 渲染器
+  var currentRendererAvatar = null;
+  var currentRendererType = null;
+  var QUADRUPED_AVATARS = ['cat', 'dog', 'rabbit', 'fox', 'bear'];
+  function initProcRenderer(avatarName) {
+    var isQuadruped = QUADRUPED_AVATARS.indexOf(avatarName) !== -1;
+    var hasQuadruped = !!window._ProceduralQuadrupedAvatar;
+    var hasSphere = !!window._ProceduralSphereAvatar;
+    var hasWhale = !!window._ProceduralSpindleWhaleAvatar;
+
+    if (isQuadruped && !hasQuadruped) {
+      log('四足动物渲染器类不存在', 'warn');
+      return false;
+    }
+    var isWhale = (avatarName === 'sacabambaspis');
+    if (isWhale && !hasWhale) {
+      log('纺锤体渲染器类不存在', 'warn');
+      return false;
+    }
+    if (!isQuadruped && !isWhale && !hasSphere) {
+      log('球体渲染器类不存在', 'warn');
+      return false;
+    }
+    if (currentRendererAvatar === avatarName && procRenderer) return true;
+
+    try {
+      if (procRenderer) {
+        if (typeof procRenderer.stop === 'function') {
+          try { procRenderer.stop(); } catch (e) {}
+        }
+        if (typeof procRenderer.destroy === 'function') {
+          try { procRenderer.destroy(); } catch (e) {}
+        }
+      }
+      procRenderer = null;
+      rendererReady = false;
+      currentRendererType = null;
+      currentRendererAvatar = null;
+
+      var canvas = document.getElementById('stage');
+      if (canvas) {
+        var ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+
+      if (isQuadruped) {
+        procRenderer = new window._ProceduralQuadrupedAvatar('stage');
+        procRenderer.setAvatar(avatarName);
+        procRenderer.start();
+        currentRendererType = 'quadruped';
+      } else if (isWhale) {
+        procRenderer = new window._ProceduralSpindleWhaleAvatar('stage');
+        currentRendererType = 'whale';
+      } else {
+        procRenderer = new window._ProceduralSphereAvatar('stage');
+        currentRendererType = 'sphere';
+      }
+
+      currentRendererAvatar = avatarName;
+      rendererReady = true;
+      log('3D 渲染器已初始化: ' + avatarName + (isQuadruped ? ' (四足动物)' : isWhale ? ' (纺锤体)' : ' (球体)'), 'success');
+      return true;
+    } catch (e) {
+      log('3D 渲染器初始化失败: ' + e.message, 'error');
+      procRenderer = null;
+      rendererReady = false;
+      currentRendererType = null;
+      currentRendererAvatar = null;
+      return false;
+    }
+  }
+
+  // 当 module script 加载完成后初始化
+  window._onRendererReady = function() {
+    log('3D 渲染模块已加载，初始化中...', 'info');
+    var result = initProcRenderer(appState.avatar || 'sacabambaspis');
+    document.title = 'RDR:' + (result ? 'OK' : 'FAIL') + ':' + appState.avatar;
+  };
+
+  function drawSimulatedAvatar() {
+    if (!ctx || !stage) return;
+    var w = stage.width, h = stage.height;
+    if (w <= 0 || h <= 0) {
+      resize();
+      w = stage.width;
+      h = stage.height;
+      if (w <= 0 || h <= 0) return;
+    }
+
+    // 如果 3D 渲染器就绪，使用它
+    if (rendererReady && procRenderer && currentRendererAvatar === appState.avatar) {
+      try {
+        var eyeLeft = 1, eyeRight = 1;
+        var mouthOpen = 0, mouthSmile = 0;
+        var browLeft = 0, browRight = 0;
+
+        // 头部旋转（角度转换为归一化 0-1）
+        var headYaw = 0.5;
+        var headPitch = 0.5;
+        var headRoll = 0.5;
+
+        // 表情
+        if (appState.avatarExpression === 'blink') {
+          eyeLeft = 0; eyeRight = 0;
+        } else if (appState.avatarExpression === 'halfblink') {
+          eyeLeft = 0.4; eyeRight = 0.4;
+        } else if (appState.avatarExpression === 'mouth') {
+          mouthOpen = 1.0;
+        } else if (appState.avatarExpression === 'smile') {
+          mouthSmile = 1.0;
+          eyeLeft = 0.65; eyeRight = 0.65;
+        } else if (appState.avatarExpression === 'wide') {
+          mouthOpen = 1;
+          eyeLeft = 1; eyeRight = 1;
+        } else if (appState.avatarExpression === 'look_left') {
+          headYaw = 0.5 - 0.55;
+        } else if (appState.avatarExpression === 'look_right') {
+          headYaw = 0.5 + 0.55;
+        } else if (appState.avatarExpression === 'look_up') {
+          headPitch = 0.5 - 0.5;
+        } else if (appState.avatarExpression === 'brow_raise') {
+          browLeft = 1.0; browRight = 1.0;
+        } else if (appState.avatarExpression === 'head_left') {
+          headRoll = 0.5 - 0.35;
+          headYaw = 0.5 - 0.15;
+        } else if (appState.avatarExpression === 'head_right') {
+          headRoll = 0.5 + 0.35;
+          headYaw = 0.5 + 0.15;
+        }
+
+        // 动作
+        if (appState.avatarAction === 'nod') {
+          headPitch = 0.5 + Math.sin(animTime * 0.12) * 15 / 90;
+        } else if (appState.avatarAction === 'look') {
+          headYaw = 0.5 + Math.sin(animTime * 0.08) * 20 / 120;
+        }
+
+        // 默认轻微转动
+        if (!appState.avatarAction) {
+          headYaw = 0.5 + Math.sin(animTime * 0.03) * 5 / 120;
+        }
+
+        // 呼吸效果（通过 headY 微偏移模拟）
+        var headY = 0.5;
+        if (appState.avatarAction === 'bounce') {
+          headY = 0.5 - Math.abs(Math.sin(animTime * 0.15)) * 0.1;
+        } else {
+          headY = 0.5 + Math.sin(animTime * 0.05) * 0.02;
+        }
+
+        // 四足动物额外参数
+        var tailWag = 0;
+        var bodyBounce = 0;
+        if (appState.avatarAction === 'tail') {
+          tailWag = Math.sin(animTime * 0.2) * 1;
+        } else {
+          tailWag = Math.sin(animTime * 0.06) * 0.3;
+        }
+        if (appState.avatarAction === 'bounce') {
+          bodyBounce = Math.abs(Math.sin(animTime * 0.15)) * 1;
+        } else {
+          bodyBounce = Math.sin(animTime * 0.05) * 0.2;
+        }
+
+        // bodyCheck 动作触发
+        if (appState.bodyPose === 'body_check' && procRenderer && typeof procRenderer.triggerBodyCheck === 'function') {
+          if (!window._bodyCheckTriggered) {
+            try { procRenderer.triggerBodyCheck(); } catch(e) {}
+            window._bodyCheckTriggered = true;
+          }
+        } else if (appState.bodyPose !== 'body_check') {
+          window._bodyCheckTriggered = false;
+        }
+
+        if (currentRendererType === 'quadruped') {
+          procRenderer.updateParams({
+            animTime: animTime,
+            eyeLeft: eyeLeft,
+            eyeRight: eyeRight,
+            mouthOpen: mouthOpen,
+            mouthSmile: mouthSmile,
+            browLeft: browLeft,
+            browRight: browRight,
+            headYaw: headYaw,
+            headPitch: headPitch,
+            headRoll: headRoll,
+            headX: 0.5,
+            headY: headY,
+            bodyPose: appState.bodyPose,
+            tailWag: tailWag,
+            bodyBounce: bodyBounce,
+          });
+        } else {
+          procRenderer.updateParams({
+            eyeLeft: eyeLeft,
+            eyeRight: eyeRight,
+            mouthOpen: mouthOpen,
+            mouthSmile: mouthSmile,
+            browLeft: browLeft,
+            browRight: browRight,
+            headYaw: headYaw,
+            headPitch: headPitch,
+            headRoll: headRoll,
+            headX: 0.5,
+            headY: headY,
+          });
+        }
+
+        if (animTime % 60 === 0) document.title = '3D:' + appState.avatar + '|w=' + stage.width + '|h=' + stage.height;
+        return;
+      } catch (e) {
+        log('3D 渲染失败，回退到 2D: ' + e.message, 'warn');
+        rendererReady = false;
+        document.title = '3DFAIL:' + e.message.substring(0, 20);
+      }
+    }
+
+    // Fallback: 2D 渲染
+    ctx.fillStyle = '#11111f';
+    ctx.fillRect(0, 0, w, h);
+
+    var colors = getAvatarColors(appState.avatar);
+    var cx = w / 2;
+    var cy = h / 2;
+
+    // 呼吸/弹跳动画
+    var bounce = 0;
+    if (appState.avatarAction === 'bounce') {
+      bounce = Math.abs(Math.sin(animTime * 0.15)) * 15;
+    } else {
+      bounce = Math.sin(animTime * 0.05) * 3;
+    }
+
+    // 点头动画
+    var nodAngle = 0;
+    if (appState.avatarAction === 'nod') {
+      nodAngle = Math.sin(animTime * 0.12) * 0.15;
+    }
+
+    // 左右看
+    var lookOffset = 0;
+    if (appState.avatarAction === 'look') {
+      lookOffset = Math.sin(animTime * 0.08) * 12;
+    }
+
+    // 摇尾巴
+    var tailWave = 0;
+    if (appState.avatarAction === 'tail') {
+      tailWave = Math.sin(animTime * 0.2) * 25;
+    } else {
+      tailWave = Math.sin(animTime * 0.06) * 8;
+    }
+
+    ctx.save();
+    ctx.translate(cx, cy - bounce);
+    ctx.rotate(nodAngle);
+
+    // 身体（椭圆纺锤）
+    var bodyW = 180;
+    var bodyH = 120;
+    var grad = ctx.createRadialGradient(-30, -20, 10, 0, 0, bodyW / 2);
+    grad.addColorStop(0, colors.body);
+    grad.addColorStop(1, colors.dark);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, bodyW / 2, bodyH / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#2b2a30';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 耳朵（根据 avatar 类型）
+    if (appState.avatar === 'cat' || appState.avatar === 'fox' || appState.avatar === 'bear') {
+      ctx.fillStyle = colors.dark;
+      ctx.beginPath();
+      ctx.moveTo(-50, -45);
+      ctx.lineTo(-35, -75);
+      ctx.lineTo(-20, -45);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(20, -45);
+      ctx.lineTo(35, -75);
+      ctx.lineTo(50, -45);
+      ctx.fill();
+    } else if (appState.avatar === 'rabbit') {
+      ctx.fillStyle = colors.body;
+      ctx.beginPath();
+      ctx.ellipse(-25, -60, 8, 25, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(25, -60, 8, 25, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 眼睛
+    var eyeY = -15;
+    var eyeOffset = lookOffset;
+    var eyeSize = 12;
+    var pupilSize = 5;
+
+    // 眨眼
+    if (appState.avatarExpression === 'blink') {
+      eyeSize = 2;
+      pupilSize = 0;
+    }
+
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.ellipse(-30 + eyeOffset, eyeY, eyeSize, eyeSize * 0.7, 0, 0, Math.PI * 2);
+    ctx.ellipse(30 + eyeOffset, eyeY, eyeSize, eyeSize * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (pupilSize > 0) {
+      ctx.fillStyle = '#111';
+      ctx.beginPath();
+      ctx.arc(-30 + eyeOffset, eyeY, pupilSize, 0, Math.PI * 2);
+      ctx.arc(30 + eyeOffset, eyeY, pupilSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 嘴巴
+    ctx.fillStyle = '#2a1010';
+    ctx.strokeStyle = '#3a3020';
+    ctx.lineWidth = 2;
+    if (appState.avatarExpression === 'mouth') {
+      // 张嘴
+      ctx.beginPath();
+      ctx.ellipse(eyeOffset, 25, 14, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (appState.avatarExpression === 'smile') {
+      // 微笑
+      ctx.beginPath();
+      ctx.moveTo(-15 + eyeOffset, 22);
+      ctx.quadraticCurveTo(eyeOffset, 35, 15 + eyeOffset, 22);
+      ctx.stroke();
+    } else if (appState.avatarExpression === 'wide') {
+      // 惊讶（圆嘴）
+      ctx.beginPath();
+      ctx.arc(eyeOffset, 25, 8, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // 默认闭嘴
+      ctx.beginPath();
+      ctx.moveTo(-10 + eyeOffset, 25);
+      ctx.quadraticCurveTo(eyeOffset, 28, 10 + eyeOffset, 25);
+      ctx.stroke();
+    }
+
+    // 尾巴
+    ctx.beginPath();
+    ctx.moveTo(bodyW / 2, 0);
+    ctx.quadraticCurveTo(bodyW / 2 + 40, -20, bodyW / 2 + 80, tailWave);
+    ctx.quadraticCurveTo(bodyW / 2 + 40, 20, bodyW / 2, 10);
+    ctx.fillStyle = colors.dark;
+    ctx.fill();
+    ctx.strokeStyle = '#333';
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Avatar 名称标签
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'center';
+    var label = appState.avatar;
+    if (appState.avatarExpression) label += ' · ' + appState.avatarExpression;
+    if (appState.avatarAction) label += ' · ' + appState.avatarAction;
+    ctx.fillText(label, w / 2, h - 12);
+
+    if (animTime % 60 === 0) document.title = '2D:' + appState.avatar + '|w=' + w + '|h=' + h;
+  }
+
+  function drawRealFrame() {
+    if (!faceFrame) { drawSimulatedAvatar(); return; }
+    var w = stage.width, h = stage.height;
+    ctx.fillStyle = '#11111f';
+    ctx.fillRect(0, 0, w, h);
+
+    var cx = w / 2 + (faceFrame.positionX || 0) * 120;
+    var cy = h / 2 + (faceFrame.positionY || 0) * 80;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(((faceFrame.headRoll || 0) * Math.PI) / 180);
+
+    var bodyW = 180 * (faceFrame.scale || 1);
+    var bodyH = 120 * (faceFrame.scale || 1);
+    var grad = ctx.createRadialGradient(-30, -20, 10, 0, 0, bodyW / 2);
+    grad.addColorStop(0, '#e4e1d3');
+    grad.addColorStop(1, '#8a8778');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, bodyW / 2, bodyH / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    var eyeOffset = (faceFrame.headYaw || 0) / 90 * 18;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.ellipse(-30 + eyeOffset, -15, 12, 8, 0, 0, Math.PI * 2);
+    ctx.ellipse(30 + eyeOffset, -15, 12, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(-30 + eyeOffset, -15, Math.max(2, 5 * (faceFrame.eyeLeft || 1)), 0, Math.PI * 2);
+    ctx.arc(30 + eyeOffset, -15, Math.max(2, 5 * (faceFrame.eyeRight || 1)), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#2a1010';
+    if ((faceFrame.mouthOpen || 0) > 0.1) {
+      ctx.beginPath();
+      ctx.ellipse(eyeOffset, 25, 14, 4 + (faceFrame.mouthOpen || 0) * 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.strokeStyle = '#3a3020';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-10 + eyeOffset, 25);
+      ctx.quadraticCurveTo(eyeOffset, 25 + (faceFrame.mouthSmile || 0) * 4, 10 + eyeOffset, 25);
+      ctx.stroke();
+    }
+
+    var tailOffset = (faceFrame.tailWave || 0) * 30 + (faceFrame.tailYaw || 0) / 30 * 20;
+    ctx.beginPath();
+    ctx.moveTo(bodyW / 2, 0);
+    ctx.quadraticCurveTo(bodyW / 2 + 40, -20 - (faceFrame.tailPitch || 0) / 30 * 30, bodyW / 2 + 80, tailOffset - (faceFrame.tailPitch || 0));
+    ctx.quadraticCurveTo(bodyW / 2 + 40, 20 + (faceFrame.tailPitch || 0) / 30 * 30, bodyW / 2, 10);
+    ctx.fillStyle = '#888';
+    ctx.fill();
+    ctx.strokeStyle = '#333';
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function render() {
+    if (hasRealFrame && Date.now() - lastFrameTime < 3000) {
+      drawRealFrame();
+      stageOverlay.textContent = '真实面捕帧 · seq=' + lastFrameSeq;
+      stageOverlay.className = 'stage-overlay real';
+    } else {
+      if (hasRealFrame && Date.now() - lastFrameTime >= 3000) {
+        hasRealFrame = false;
+        log('真实帧超时（>3s），切换到模拟预览', 'warn');
+      }
+      drawSimulatedAvatar();
+      if (appState.faceCaptureEnabled) {
+        stageOverlay.textContent = '模拟预览 · 等待真实采集';
+        stageOverlay.className = 'stage-overlay simulated';
+      } else {
+        stageOverlay.textContent = '模拟预览 · 模拟预览 · 等待真实采集';
+        stageOverlay.className = 'stage-overlay simulated';
+      }
+    }
+    animTime++;
+  }
+
+  // ===== UI update =====
+  function updateUI() {
+    document.getElementById('hostInfo').textContent = location.host;
+
+    // Connection
+    var connEl = document.getElementById('connStatus');
+    if (appState.viewerConnected) {
+      connEl.innerHTML = '<span class="badge connected">Connected</span>';
+    } else {
+      connEl.innerHTML = '<span class="badge disconnected">Disconnected</span>';
+    }
+
+    // Avatar
+    document.getElementById('avatarStatus').textContent = appState.avatar || '—';
+
+    // Expression / Action
+    var exprText = '—';
+    if (appState.avatarExpression) exprText = appState.avatarExpression;
+    if (appState.avatarAction) exprText += (exprText === '—' ? '' : ' / ') + appState.avatarAction;
+    document.getElementById('exprStatus').textContent = exprText;
+
+    // Face capture
+    var fcEl = document.getElementById('faceCapStatus');
+    fcEl.textContent = appState.faceCaptureEnabled ? 'ON' : 'OFF';
+    fcEl.className = 'value ' + (appState.faceCaptureEnabled ? 'on' : 'off');
+
+    // Voice preset
+    document.getElementById('voicePresetStatus').textContent = appState.voicePreset || 'original';
+
+    // Subtitle
+    var subEl = document.getElementById('subtitleStatus');
+    subEl.textContent = appState.subtitleEnabled ? 'ON' : 'OFF';
+    subEl.className = 'value ' + (appState.subtitleEnabled ? 'on' : 'off');
+
+    // Frame count / latency
+    document.getElementById('frameCountStatus').textContent = appState.frameCount || 0;
+    document.getElementById('latencyStatus').textContent = (appState.latencyMs > 0 ? appState.latencyMs + ' ms' : '— ms');
+
+    // Last command
+    document.getElementById('lastCmdStatus').textContent = appState.lastCommand || '—';
+
+    // Capture mode
+    document.getElementById('captureModeStatus').textContent = appState.captureMode || 'simulated';
+
+    // Renderer mode
+    var rendererModeEl = document.getElementById('rendererModeStatus');
+    if (rendererModeEl) {
+      rendererModeEl.textContent = currentRendererType || '2d';
+    }
+
+    // Body pose
+    var bodyPoseEl = document.getElementById('bodyPoseStatus');
+    if (bodyPoseEl) {
+      bodyPoseEl.textContent = appState.bodyPose || 'idle';
+    }
+
+    // Showcase UI
+    if (showcaseMode) {
+      var scAvatarName = document.getElementById('showcaseAvatarName');
+      if (scAvatarName) {
+        scAvatarName.textContent = (appState.avatar || 'sacabambaspis').toUpperCase();
+      }
+      var scConnDot = document.getElementById('scConnDot');
+      var scConnText = document.getElementById('scConnText');
+      if (scConnDot && scConnText) {
+        if (appState.viewerConnected) {
+          scConnDot.className = 'dot on';
+          scConnText.textContent = 'Connected';
+        } else {
+          scConnDot.className = 'dot off';
+          scConnText.textContent = 'Disconnected';
+        }
+      }
+      var scAvatarText = document.getElementById('scAvatarText');
+      if (scAvatarText) {
+        var scLabel = appState.avatar || 'sacabambaspis';
+        if (appState.avatarExpression) scLabel += ' · ' + appState.avatarExpression;
+        if (appState.avatarAction) scLabel += ' · ' + appState.avatarAction;
+        scAvatarText.textContent = scLabel;
+      }
+      var scFaceDot = document.getElementById('scFaceDot');
+      var scFaceText = document.getElementById('scFaceText');
+      if (scFaceDot && scFaceText) {
+        if (appState.faceCaptureEnabled) {
+          scFaceDot.className = 'dot on';
+          scFaceText.textContent = 'Face Capture ON';
+        } else {
+          scFaceDot.className = 'dot off';
+          scFaceText.textContent = 'Face Capture OFF';
+        }
+      }
+    }
+  }
+
+  function applyState(data) {
+    if (!data) return;
+    var oldAvatar = appState.avatar;
+    appState.serverRunning = !!data.serverRunning;
+    appState.faceCaptureEnabled = !!data.faceCaptureEnabled;
+    appState.voiceChangerEnabled = !!data.voiceChangerEnabled;
+    appState.voicePreset = data.voicePreset || 'original';
+    appState.captureMode = data.captureMode || 'simulated';
+    appState.subtitleEnabled = !!data.subtitleEnabled;
+    appState.viewerConnected = !!data.viewerConnected;
+    appState.frameCount = data.frameCount || 0;
+    appState.latencyMs = data.latencyMs || 0;
+    appState.lastCommand = data.lastCommand || '';
+    appState.lastError = data.lastError || '';
+    appState.avatar = data.avatar || 'sacabambaspis';
+    appState.avatarExpression = data.avatarExpression || '';
+    appState.avatarAction = data.avatarAction || '';
+    appState.aiVoiceStatus = data.aiVoiceStatus || 'real_app_only';
+    appState.webVoiceStatus = data.webVoiceStatus || 'available';
+    appState.voicePermission = data.voicePermission || 'not_requested';
+    appState.poseCaptureEnabled = !!data.poseCaptureEnabled;
+    appState.poseCaptureStatus = data.poseCaptureStatus || 'off';
+    appState.poseMode = data.poseMode || 'simulated';
+    appState.bodyPose = data.bodyPose || 'idle';
+    appState.poseQuality = data.poseQuality || 'none';
+    appState.poseLandmarkCount = data.poseLandmarkCount || 0;
+    appState.poseLastUpdatedAt = data.poseLastUpdatedAt || 0;
+    appState.poseError = data.poseError || '';
+    // 如果 avatar 变了，重新初始化 3D 渲染器
+    if (oldAvatar !== appState.avatar &&
+        (window._ProceduralSphereAvatar || window._ProceduralQuadrupedAvatar || window._ProceduralSpindleWhaleAvatar)) {
+      setTimeout(function() { initProcRenderer(appState.avatar); }, 0);
+    }
+    updateUI();
+  }
+
+  // ===== API: fetch status =====
+  function fetchStatus() {
+    fetch('/api/status')
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        applyState(data);
+        log('状态已刷新: avatar=' + data.avatar + ' faceCapture=' + data.faceCaptureEnabled, 'info');
+      })
+      .catch(function(e) {
+        log('fetchStatus 错误: ' + e.message, 'error');
+      });
+  }
+
+  // ===== SSE =====
+  function initSSE() {
+    try {
+      eventSource = new EventSource('/events');
+      eventSource.addEventListener('state', function(e) {
+        try {
+          var data = JSON.parse(e.data);
+          applyState(data);
+          if (!useSSE) {
+            useSSE = true;
+            log('SSE 已连接，停止轮询', 'success');
+            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+          }
+        } catch (err) {
+          log('SSE 解析错误: ' + err.message, 'error');
+        }
+      });
+      eventSource.onerror = function() {
+        log('SSE 错误，回退到轮询', 'warn');
+        if (eventSource) { try { eventSource.close(); } catch(_){} eventSource = null; }
+        useSSE = false;
+        startPolling();
+      };
+      log('SSE 连接中...', 'info');
+    } catch (e) {
+      log('SSE 不支持，使用轮询', 'warn');
+      startPolling();
+    }
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(fetchStatus, 2000);
+    fetchStatus();
+    log('轮询已启动（2s 间隔）', 'info');
+  }
+
+  // ===== WebSocket (for real face frames) =====
+  function connectWS() {
+    if (!token) {
+      log('缺少 token，跳过 WebSocket 连接（仅模拟预览）', 'warn');
+      return;
+    }
+    var wsUrl = 'ws://' + location.host + '/ws?token=' + encodeURIComponent(token);
+    log('WebSocket 连接: ' + wsUrl, 'info');
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch (e) {
+      log('WebSocket 不支持: ' + e.message, 'error');
+      return;
+    }
+    ws.onopen = function() {
+      log('WebSocket 已连接，等待面捕帧', 'success');
+      wsReconnectMs = 1000;
+      wsRetryCount = 0;
+    };
+    ws.onmessage = function(ev) {
+      try {
+        var msg = typeof ev.data === 'string' ? JSON.parse(ev.data) : null;
+        if (!msg || msg.type !== 'face-frame' || !msg.params) return;
+        if (msg.seq <= lastFrameSeq) return;
+        lastFrameSeq = msg.seq;
+        lastFrameTime = Date.now();
+        faceFrame = msg.params;
+        hasRealFrame = true;
+      } catch (_) {}
+    };
+    ws.onclose = function() {
+      log('WebSocket 断开', 'warn');
+      if (wsRetryCount < wsMaxRetries) {
+        wsRetryCount++;
+        wsReconnectMs = Math.min(wsReconnectMs * 1.5, 10000);
+        log(wsReconnectMs + 'ms 后第 ' + wsRetryCount + ' 次重连', 'info');
+        setTimeout(connectWS, wsReconnectMs);
+      } else {
+        log('已达最大重连次数，请手动重连', 'error');
+      }
+    };
+    ws.onerror = function() { try { ws.close(); } catch (_) {} };
+  }
+
+  // ===== Animation loop =====
+  function animLoop() {
+    render();
+    requestAnimationFrame(animLoop);
+  }
+
+  // ===== Event handlers =====
+  document.getElementById('reconnect').addEventListener('click', function() {
+    wsRetryCount = 0;
+    try { ws.close(); } catch (_) {}
+    connectWS();
+  });
+
+  document.getElementById('refreshStatus').addEventListener('click', function() {
+    fetchStatus();
+  });
+
+  // ===== Visual Test Hook =====
+  if (new URLSearchParams(location.search).get('test') === '1') {
+    window.__cheapLiveTest = {
+      setFace: function(ex) {
+        appState.avatarExpression = ex || '';
+        updateUI();
+      },
+      setPose: function(pose) {
+        appState.bodyPose = pose || 'idle';
+        updateUI();
+      },
+      setAvatar: function(av) {
+        appState.avatar = av || 'sacabambaspis';
+        if (window._ProceduralSphereAvatar || window._ProceduralQuadrupedAvatar || window._ProceduralSpindleWhaleAvatar) {
+          initProcRenderer(appState.avatar);
+        }
+        updateUI();
+      },
+      resetFace: function() {
+        appState.avatarExpression = '';
+        updateUI();
+      },
+      resetPose: function() {
+        appState.bodyPose = 'idle';
+        updateUI();
+      },
+      getState: function() {
+        return {
+          avatar: appState.avatar,
+          avatarExpression: appState.avatarExpression,
+          bodyPose: appState.bodyPose,
+          currentRendererType: currentRendererType,
+          rendererReady: rendererReady
+        };
+      },
+      getRendererDebug: function() {
+        var debug = {
+          avatar: appState.avatar,
+          bodyPose: appState.bodyPose,
+          avatarAction: appState.avatarAction,
+          rendererReady: rendererReady,
+          currentRendererType: currentRendererType,
+          currentRendererAvatar: currentRendererAvatar,
+          hasProcRenderer: !!procRenderer,
+          hasTriggerBodyCheck: !!(procRenderer && typeof procRenderer.triggerBodyCheck === 'function'),
+          bodyCheckActive: false,
+          bodyCheckPhase: 0,
+          bodyCheckTimer: 0
+        };
+        if (procRenderer) {
+          if (procRenderer._bodyCheckActive !== undefined) {
+            debug.bodyCheckActive = procRenderer._bodyCheckActive;
+          }
+          if (procRenderer._bodyCheckPhase !== undefined) {
+            debug.bodyCheckPhase = procRenderer._bodyCheckPhase;
+          }
+          if (procRenderer._bodyCheckTimer !== undefined) {
+            debug.bodyCheckTimer = procRenderer._bodyCheckTimer;
+          }
+          if (procRenderer.bodyPose !== undefined) {
+            debug.rendererBodyPose = procRenderer.bodyPose;
+          }
+        }
+        return debug;
+      },
+      triggerBodyCheckNow: function() {
+        if (procRenderer && typeof procRenderer.triggerBodyCheck === 'function') {
+          procRenderer.triggerBodyCheck();
+          window._bodyCheckTriggered = true;
+          return true;
+        }
+        return false;
+      }
+    };
+  }
+
+  // ===== Init =====
+  log('Receiver 页面加载', 'info');
+  log('Token: ' + (token ? '已提供' : '缺失'), 'info');
+
+  // 先获取一次状态
+  fetchStatus();
+
+  // 启动 SSE 订阅状态变化
+  setTimeout(initSSE, 300);
+
+  // 启动 WebSocket 获取真实帧（如果有）
+  setTimeout(connectWS, 500);
+
+  // 启动动画循环
+  animLoop();
+})();
+</script>
+</body>
+</html>

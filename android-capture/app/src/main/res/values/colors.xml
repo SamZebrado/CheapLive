@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      CheapLive Capture 设计色板，与 public demo 对齐。
+      demo (dual-device-demo.html) 中的 CSS 变量：
+        bg = #0a0e1a
+        bg-card = #1a2236
+        accent = #4fc3f7
+    -->
+    <color name="cheaplive_bg">#FF0A0E1A</color>
+    <color name="cheaplive_bg_card">#FF1A2236</color>
+    <color name="cheaplive_accent">#FF4FC3F7</color>
+    <color name="cheaplive_text_primary">#FFE6EDF3</color>
+    <color name="cheaplive_text_secondary">#FF8B98A8</color>
+    <color name="cheaplive_badge_contest">#FFFFB300</color>
+    <color name="cheaplive_ok">#FF4CAF50</color>
+    <color name="cheaplive_warn">#FFFF9800</color>
+    <color name="cheaplive_err">#FFEF5350</color>
+</resources>
