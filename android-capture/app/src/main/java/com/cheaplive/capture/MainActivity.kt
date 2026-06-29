@@ -15,7 +15,9 @@ import android.view.Gravity
 import android.view.View
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -1014,6 +1016,41 @@ class MainActivity : AppCompatActivity() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url?.toString() ?: return true
                 return !url.startsWith("file:///android_asset/")
+            }
+
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                super.onReceivedError(view, request, error)
+                if (request.isForMainFrame) {
+                    val failingUrl = request.url?.toString() ?: "unknown"
+                    val errDesc = error.description?.toString() ?: "error code ${error.errorCode}"
+                    android.util.Log.w("CheapLiveWebView", "Main frame error: $failingUrl - $errDesc")
+                    loadBlackScreenFallback(view, "onReceivedError: $errDesc")
+                }
+            }
+
+            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
+                super.onReceivedHttpError(view, request, errorResponse)
+                if (request.isForMainFrame) {
+                    val failingUrl = request.url?.toString() ?: "unknown"
+                    val statusCode = errorResponse.statusCode
+                    android.util.Log.w("CheapLiveWebView", "Main frame HTTP error $statusCode: $failingUrl")
+                    loadBlackScreenFallback(view, "onReceivedHttpError: HTTP $statusCode")
+                }
+            }
+
+            private var isInFallback = false
+            private fun loadBlackScreenFallback(view: WebView, reason: String) {
+                if (isInFallback) return
+                isInFallback = true
+                android.util.Log.i("CheapLiveWebView", "Loading black-screen fallback, reason=$reason")
+                view.post {
+                    try {
+                        view.loadUrl("file:///android_asset/web/black-screen/index.html")
+                    } catch (t: Throwable) {
+                        android.util.Log.e("CheapLiveWebView", "Failed to load fallback: ${t.message}")
+                    }
+                }
+                view.postDelayed({ isInFallback = false }, 3000)
             }
         }
 

@@ -2,8 +2,11 @@ package com.cheaplive.capture
 
 import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -62,7 +65,23 @@ class AvatarDemoActivity : AppCompatActivity() {
         setupWebView()
 
         // 默认加载球形
-        loadAvatarDemo("sphere")
+        // Debug only: 允许通过 intent extra 指定 WebView 初始 URL，用于 fallback 测试
+        val debugUrl = if (BuildConfig.DEBUG) {
+            intent.getStringExtra("debug_webview_url")
+        } else {
+            null
+        }
+        if (!debugUrl.isNullOrEmpty()) {
+            android.util.Log.i("CheapLiveWebView", "Debug WebView URL override: $debugUrl")
+            // Debug 模式下：隐藏其他 UI，让 WebView 占满全屏，便于 fallback 验证
+            tvInfo.visibility = View.GONE
+            btnSphere.visibility = View.GONE
+            btnWhale.visibility = View.GONE
+            root.setPadding(0, 0, 0, 0)
+            webView?.loadUrl(debugUrl)
+        } else {
+            loadAvatarDemo("sphere")
+        }
 
         btnSphere.setOnClickListener { loadAvatarDemo("sphere") }
         btnWhale.setOnClickListener { loadAvatarDemo("whale") }
@@ -97,7 +116,50 @@ class AvatarDemoActivity : AppCompatActivity() {
                 request: WebResourceRequest
             ): Boolean {
                 val url = request.url?.toString() ?: return true
-                return !url.startsWith("file:///android_asset/")
+                // 始终允许 asset URL
+                if (url.startsWith("file:///android_asset/")) {
+                    return false
+                }
+                // Debug only: 允许 127.0.0.1 的 URL，用于 fallback 测试
+                if (BuildConfig.DEBUG && url.startsWith("http://127.0.0.1")) {
+                    return false
+                }
+                return true
+            }
+
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                super.onReceivedError(view, request, error)
+                if (request.isForMainFrame) {
+                    val failingUrl = request.url?.toString() ?: "unknown"
+                    val errDesc = error.description?.toString() ?: "error code ${error.errorCode}"
+                    android.util.Log.w("CheapLiveWebView", "AvatarDemo main frame error: $failingUrl - $errDesc")
+                    loadBlackScreenFallback(view, "onReceivedError: $errDesc")
+                }
+            }
+
+            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
+                super.onReceivedHttpError(view, request, errorResponse)
+                if (request.isForMainFrame) {
+                    val failingUrl = request.url?.toString() ?: "unknown"
+                    val statusCode = errorResponse.statusCode
+                    android.util.Log.w("CheapLiveWebView", "AvatarDemo main frame HTTP error $statusCode: $failingUrl")
+                    loadBlackScreenFallback(view, "onReceivedHttpError: HTTP $statusCode")
+                }
+            }
+
+            private var isInFallback = false
+            private fun loadBlackScreenFallback(view: WebView, reason: String) {
+                if (isInFallback) return
+                isInFallback = true
+                android.util.Log.i("CheapLiveWebView", "AvatarDemo loading black-screen fallback, reason=$reason")
+                view.post {
+                    try {
+                        view.loadUrl("file:///android_asset/web/black-screen/index.html")
+                    } catch (t: Throwable) {
+                        android.util.Log.e("CheapLiveWebView", "AvatarDemo failed to load fallback: ${t.message}")
+                    }
+                }
+                view.postDelayed({ isInFallback = false }, 3000)
             }
         }
 
