@@ -453,5 +453,33 @@
         <div id="helpModalBody"></div>
       </div>
     </div>
+
+    <!-- visual history 入口 -->
+    <a href="../visual-history/index.html" class="visual-history-link" target="_blank" rel="noopener">visual history</a>
+    <style>
+      .visual-history-link {
+        position: fixed;
+        left: 10px;
+        bottom: 8px;
+        font-size: 11px;
+        opacity: 0.35;
+        z-index: 999;
+        color: #888;
+        text-decoration: none;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        transition: opacity 0.3s ease;
+        pointer-events: auto;
+      }
+      .visual-history-link:hover {
+        opacity: 0.8;
+      }
+      @media (max-width: 600px) {
+        .visual-history-link {
+          font-size: 10px;
+          left: 8px;
+          bottom: 6px;
+        }
+      }
+    </style>
   </body>
 </html>
