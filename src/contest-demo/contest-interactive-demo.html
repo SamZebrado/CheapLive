@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CheapLive — 低成本虚拟主播 Contest Demo</title>
+  <link rel="stylesheet" href="contest-interactive-demo.css">
+</head>
+<body>
+
+<!-- ====== Top Bar ====== -->
+<div class="top-bar">
+  <div class="brand">CheapLive <span>Contest Demo</span></div>
+  <div class="links">
+    <a href="https://github.com/SamZebrado/CheapLive" target="_blank">CheapLive GitHub</a>
+    <a href="https://github.com/SamZebrado/TransparentFloatingBrowser" target="_blank">TransparentFloatingBrowser GitHub</a>
+  </div>
+</div>
+
+<!-- ====== Hero ====== -->
+<div class="hero">
+  <h1>手机面捕 + 多动物 + 多设备 + <em>透明悬浮</em></h1>
+  <p>用闲置手机做面部捕捉，浏览器显示虚拟动物主播，透明悬浮浏览器叠加到游戏画面上</p>
+</div>
+
+<!-- ====== Status Tags ====== -->
+<div class="status-row">
+  <span class="status-tag implemented">已实现：多设备协同</span>
+  <span class="status-tag implemented">已实现：透明悬浮浏览器</span>
+  <span class="status-tag demo">演示模拟：面部捕捉</span>
+  <span class="status-tag demo">演示模拟：多动物虚拟主播</span>
+  <span class="status-tag dev">开发中：更多动物</span>
+  <span class="status-tag planned">后续计划：变声 / AI 变声</span>
+</div>
+
+<!-- ====== Main Layout ====== -->
+<div class="main-layout">
+
+  <!-- ====== LEFT: Phone Frame (发送端) ====== -->
+  <div class="phone-frame" id="phoneFrame">
+    <div class="phone-notch"></div>
+    <div class="phone-status-bar">
+      <span>12:30</span>
+      <span>WiFi · Battery 85%</span>
+    </div>
+    <div class="phone-content">
+      <div class="app-card">
+        <h3>发送端 · 面部 / 声音输入</h3>
+        <div style="font-size:9px;color:var(--cl-text-muted);padding:2px 0">
+          采集面部参数和声音输入，发送到 Receiver。
+        </div>
+      </div>
+        <div class="field"><span>LocalServer</span><span class="val" id="serverStatus">运行中</span></div>
+        <div class="field"><span>局域网地址</span><span class="val" id="lanAddr">192.168.1.100</span></div>
+        <div class="field"><span>Token</span><span class="val" id="tokenVal">abc123</span></div>
+      </div>
+      <!-- App Card: Capture -->
+      <div class="app-card">
+        <h3>面部捕捉</h3>
+        <button class="btn btn-sm" id="faceCamBtn" onclick="startFaceTracking()" style="width:100%;margin-bottom:6px;background:var(--cl-blue);color:#fff;border:none;">开启摄像头</button>
+        <div id="faceCamStatus" style="font-size:10px;color:var(--cl-text-muted);text-align:center;margin-bottom:4px;display:none;">加载中...</div>
+        <div class="field"><span>faceDetected</span><span class="val" id="faceDetectedVal">false</span></div>
+        <div class="field"><span>headYaw</span><span class="val" id="headYawVal">0.00</span></div>
+        <div class="field"><span>mouthOpen</span><span class="val" id="mouthOpenVal">0.00</span></div>
+        <div class="field"><span>blink</span><span class="val" id="blinkVal">0.00</span></div>
+        <div class="field"><span>smile</span><span class="val" id="smileVal">0.00</span></div>
+        <div id="faceVideoWrap" style="display:none;width:100%;aspect-ratio:4/3;background:#000;border-radius:4px;overflow:hidden;margin-top:4px;">
+          <video id="faceVideo" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;"></video>
+        </div>
+      </div>
+      <!-- App Card: Microphone -->
+      <div class="app-card">
+        <h3>麦克风输入</h3>
+        <button class="btn btn-sm" id="micBtn" onclick="startMicLevel()" style="width:100%;margin-bottom:6px;background:var(--cl-green);color:#0a0f1a;border:none;font-weight:700;">开启麦克风</button>
+        <div class="field"><span>micLevel</span><span class="val" id="micLevelVal" style="color:var(--cl-text-muted)">—</span></div>
+        <div id="micStatus" style="font-size:10px;color:var(--cl-text-muted);text-align:center;">点击开启麦克风</div>
+      </div>
+      <!-- App Card: QR -->
+      <div class="app-card">
+        <h3>接收端连接</h3>
+        <div class="qr-placeholder" id="qrPlaceholder">
+          模拟扫码流程<br>（QR 占位）
+        </div>
+        <div class="field"><span>Receiver URL</span></div>
+        <div style="font-size:9px;color:var(--cl-blue);word-break:break-all;padding:2px 0" id="receiverUrlDisplay">
+          http://192.168.1.100:8080/receiver?token=abc123
+        </div>
+      </div>
+      <!-- App Card: Voice -->
+      <div class="app-card">
+        <h3>变声（后续适配）</h3>
+        <div class="toggle-row">
+          <label>变声开关</label>
+          <div class="mini-toggle" id="voiceToggle" onclick="toggleVoice()"></div>
+        </div>
+        <div class="field"><span>当前预设</span><span class="val" id="voicePresetDisplay" style="color:var(--cl-text-muted)">原声</span></div>
+        <div style="font-size:9px;color:var(--cl-text-muted);padding-top:4px">
+          麦克风/变声链路为后续适配能力，本 demo 主要展示面捕与悬浮叠加流程。
+        </div>
+      </div>
+    </div>
+    <div class="phone-home-bar"></div>
+  </div>
+
+  <!-- ====== MIDDLE: Receiver (虚拟主播) ====== -->
+  <div class="panel" id="receiverPanel">
+    <div class="panel-header">
+      <span>Receiver · 虚拟主播</span>
+      <span class="label" id="avatarLabel">Sacabambaspis</span>
+    </div>
+    <div class="panel-body" id="avatarPanelBody">
+      <div class="avatar-canvas-wrap">
+        <canvas id="avatarCanvas" width="360" height="360"></canvas>
+        <div class="avatar-watermark">CheapLive Receiver</div>
+      </div>
+    </div>
+    <div class="ctrl-row">
+      <!-- Avatar Selection -->
+      <div class="avatar-grid" id="avatarGrid">
+        <div class="avatar-btn selected" data-avatar="sacabambaspis" onclick="selectAvatar('sacabambaspis',this)" title="Sacabambaspis">
+          <span class="emoji">🐟</span><span class="name">萨卡班</span>
+        </div>
+        <div class="avatar-btn" data-avatar="cat" onclick="selectAvatar('cat',this)" title="Cat">
+          <span class="emoji">🐱</span><span class="name">猫</span>
+        </div>
+        <div class="avatar-btn dev-tag" data-avatar="dog" onclick="selectAvatar('dog',this)" title="Dog">
+          <span class="emoji">🐶</span><span class="name">狗</span>
+        </div>
+        <div class="avatar-btn dev-tag" data-avatar="rabbit" onclick="selectAvatar('rabbit',this)" title="Rabbit">
+          <span class="emoji">🐰</span><span class="name">兔子</span>
+        </div>
+        <div class="avatar-btn dev-tag" data-avatar="fox" onclick="selectAvatar('fox',this)" title="Fox">
+          <span class="emoji">🦊</span><span class="name">狐狸</span>
+        </div>
+        <div class="avatar-btn dev-tag" data-avatar="bear" onclick="selectAvatar('bear',this)" title="Bear">
+          <span class="emoji">🐻</span><span class="name">小熊</span>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="toggleShowcase()">应用模式（透明背景）</button>
+      <button class="btn btn-ghost btn-sm" onclick="openGuide()">真实项目操作流程演示</button>
+      <div class="receiver-note">用透明悬浮浏览器打开，可设置背景透明</div>
+    </div>
+  </div>
+
+  <!-- ====== RIGHT: 直播端 + Floating Window ====== -->
+  <div class="panel" id="gamePanel">
+    <div class="panel-header">
+      <span>直播端 · 游戏 / 手工手机画面</span>
+      <span class="label">透明悬浮小窗叠加</span>
+    </div>
+    <div class="panel-body" id="gamePanelBody">
+      <canvas id="gameCanvas"></canvas>
+
+      <!-- Floating Window (TransparentFloatingBrowser 模拟) -->
+      <div class="floating-window" id="floatingWindow">
+        <div class="fw-top-bar" id="fwTopBar">CheapLive Receiver</div>
+        <div class="fw-content">
+          <canvas id="fwAvatarCanvas" width="180" height="170"></canvas>
+        </div>
+        <div class="fw-resize" id="fwResize"></div>
+      </div>
+
+      <!-- Floating Mode Button (独立于悬浮窗，在左侧) -->
+      <button class="fw-mode-btn" id="fwModeBtn" onclick="toggleFloatingMode()" title="切换编辑/显示模式">编辑</button>
+    </div>
+    <div class="ctrl-row">
+      <button class="btn btn-ghost btn-sm" id="drawModeBtn" onclick="toggleDrawMode()">涂鸦模式（触控穿透演示）</button>
+      <span style="font-size:10px;color:var(--cl-text-muted)" id="fwStatusText">
+        悬浮窗：编辑模式 · 可拖动/缩放/交互
+      </span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ====== Guide Wizard Modal ====== -->
+<div class="guide-overlay" id="guideOverlay">
+  <div class="guide-modal">
+    <button class="btn-close" onclick="closeGuide()">×</button>
+    <h2 id="guideTitle"></h2>
+    <div class="guide-step-indicator" id="guideStepIndicator"></div>
+    <div class="guide-body" id="guideBody"></div>
+    <div class="guide-nav">
+      <button class="btn btn-ghost btn-sm" id="guidePrev" onclick="guideNav(-1)">上一步</button>
+      <div class="step-dots" id="guideDots"></div>
+      <button class="btn btn-primary btn-sm" id="guideNext" onclick="guideNav(1)">下一步</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====== Footer ====== -->
+<div class="footer">
+  <p>透明悬浮能力来自开源项目 <a href="https://github.com/SamZebrado/TransparentFloatingBrowser" target="_blank">TransparentFloatingBrowser</a>，由 TRAE Work 开发。</p>
+  <p>CheapLive: <a href="https://github.com/SamZebrado/CheapLive" target="_blank">GitHub</a> · TransparentFloatingBrowser: <a href="https://github.com/SamZebrado/TransparentFloatingBrowser" target="_blank">GitHub</a></p>
+  <p style="margin-top:6px">当前 demo 展示产品流程和核心交互；真实面捕、透明悬浮、多动物、多设备是主线，音频/AI 变声为后续增强。</p>
+</div>
+
+<script src="contest-interactive-demo.js"></script>
+</body>
+</html>
