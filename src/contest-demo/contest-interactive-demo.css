@@ -284,26 +284,57 @@ body {
   cursor: nwse-resize;
   opacity: 0.8;
 }
-.fw-interact {
-  position: absolute;
-  bottom: 4px; left: 50%;
-  transform: translateX(-50%);
-  width: 28px; height: 6px;
-  background: var(--cl-orange);
-  border-radius: 3px;
-  cursor: pointer;
-  opacity: 0.9;
-  transition: opacity 0.2s;
-}
-.fw-interact:hover { opacity: 1; }
-.fw-interact.off { background: var(--cl-green); }
-.floating-window.passthrough {
-  opacity: 0.55;
+/* Floating window mode states */
+.floating-window.fw-display-mode {
+  opacity: 0.6;
   pointer-events: none;
 }
-.floating-window.passthrough .fw-top-bar,
-.floating-window.passthrough .fw-interact {
+.floating-window.fw-display-mode .fw-top-bar {
+  display: none;
+}
+.floating-window.fw-display-mode .fw-resize {
+  display: none;
+}
+.floating-window.fw-edit-mode {
+  opacity: 1;
   pointer-events: auto;
+}
+.floating-window.fw-edit-mode .fw-top-bar {
+  box-shadow: 0 0 8px rgba(74,144,217,0.4);
+}
+
+/* ====== Floating Mode Button (独立于悬浮窗，在左侧边缘) ====== */
+.fw-mode-btn {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 60;
+  background: var(--cl-orange);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: grab;
+  font-family: var(--font);
+  box-shadow: 0 2px 8px rgba(255,140,66,0.4);
+  transition: background 0.2s, box-shadow 0.2s;
+  user-select: none;
+  touch-action: none;
+}
+.fw-mode-btn:hover {
+  background: #e87a30;
+  box-shadow: 0 2px 12px rgba(255,140,66,0.6);
+}
+.fw-mode-btn.display-mode {
+  background: var(--cl-green);
+  box-shadow: 0 2px 8px rgba(78,205,196,0.4);
+}
+.fw-mode-btn.display-mode:hover {
+  background: #3eb8ad;
+  box-shadow: 0 2px 12px rgba(78,205,196,0.6);
 }
 
 /* ====== Guide Wizard Modal ====== */
@@ -320,50 +351,6 @@ body {
   transition: opacity 0.3s;
 }
 .guide-overlay.open { opacity: 1; pointer-events: auto; }
-.guide-overlay.has-highlight {
-  background: transparent;
-  pointer-events: none;
-}
-.guide-overlay.has-highlight .guide-modal {
-  pointer-events: auto;
-}
-.guide-highlight {
-  position: fixed;
-  border: 2px solid var(--cl-accent);
-  border-radius: 12px;
-  box-shadow: 0 0 0 4000px rgba(0,0,0,0.7), 0 0 20px rgba(255,107,74,0.5);
-  pointer-events: none;
-  z-index: 201;
-  transition: all 0.3s ease;
-  display: none;
-}
-.guide-arrow {
-  position: absolute;
-  width: 0;
-  height: 0;
-  z-index: 202;
-  display: none;
-}
-.guide-arrow.arrow-left {
-  border-top: 10px solid transparent;
-  border-bottom: 10px solid transparent;
-  border-right: 12px solid var(--cl-surface);
-}
-.guide-arrow.arrow-right {
-  border-top: 10px solid transparent;
-  border-bottom: 10px solid transparent;
-  border-left: 12px solid var(--cl-surface);
-}
-.guide-arrow.arrow-top {
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
-  border-bottom: 12px solid var(--cl-surface);
-}
-.guide-arrow.arrow-bottom {
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
-  border-top: 12px solid var(--cl-surface);
-}
 .guide-modal {
   background: var(--cl-surface);
   border: 1px solid var(--cl-border);
@@ -374,7 +361,6 @@ body {
   overflow-y: auto;
   padding: 24px;
   position: relative;
-  z-index: 203;
 }
 .guide-modal h2 { font-size: 18px; color: var(--cl-accent); margin-bottom: 4px; }
 .guide-step-indicator {
@@ -589,6 +575,100 @@ body {
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--cl-border); border-radius: 2px; }
+
+/* ====== Receiver Note ====== */
+.receiver-note {
+  font-size: 10px;
+  color: var(--cl-green);
+  background: rgba(78,205,196,0.08);
+  border: 1px solid rgba(78,205,196,0.2);
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin-top: 4px;
+  width: 100%;
+  text-align: center;
+}
+
+/* ====== Guide Highlights ====== */
+.guide-highlight-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  pointer-events: none;
+}
+.guide-highlight-box {
+  position: absolute;
+  border: 2px solid var(--cl-accent);
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.55), 0 0 20px rgba(255,107,74,0.3);
+  animation: guidePulse 2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes guidePulse {
+  0%, 100% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.55), 0 0 20px rgba(255,107,74,0.3); }
+  50% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.55), 0 0 35px rgba(255,107,74,0.5); }
+}
+.guide-arrow-svg {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+.guide-arrow-path {
+  stroke: var(--cl-accent);
+  stroke-width: 2.5;
+  fill: none;
+  stroke-dasharray: 8 4;
+  animation: guideArrowDash 1s linear infinite;
+}
+@keyframes guideArrowDash {
+  to { stroke-dashoffset: -12; }
+}
+.guide-arrow-head {
+  fill: var(--cl-accent);
+}
+.guide-bubble {
+  position: absolute;
+  background: var(--cl-surface);
+  border: 1px solid var(--cl-accent);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--cl-text);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 152;
+}
+.guide-bubble::after {
+  content: '';
+  position: absolute;
+  width: 0; height: 0;
+}
+.guide-bubble.bubble-right::after {
+  left: -8px; top: 50%; transform: translateY(-50%);
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-right: 8px solid var(--cl-accent);
+}
+.guide-bubble.bubble-left::after {
+  right: -8px; top: 50%; transform: translateY(-50%);
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 8px solid var(--cl-accent);
+}
+.guide-bubble.bubble-top::after {
+  bottom: -8px; left: 50%; transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--cl-accent);
+}
+.guide-bubble.bubble-bottom::after {
+  top: -8px; left: 50%; transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 8px solid var(--cl-accent);
+}
 
 /* ====== Showcase mode (transparent avatar bg) ====== */
 .panel-body.showcase-mode {

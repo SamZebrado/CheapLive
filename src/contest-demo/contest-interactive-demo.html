@@ -56,15 +56,22 @@
         <h3>面部捕捉</h3>
         <div class="toggle-row">
           <label>Capture 开关</label>
-          <div class="mini-toggle on" id="captureToggle" onclick="toggleCapture()"></div>
+          <div class="mini-toggle" id="captureToggle" onclick="toggleCapture()"></div>
         </div>
         <div class="toggle-row">
           <label>摄像头权限</label>
-          <span class="val" id="cameraPerm">已授权</span>
+          <span class="val" id="cameraPerm">未开启</span>
         </div>
         <div class="toggle-row">
           <label>麦克风权限</label>
-          <span class="val" id="micPerm" style="color:var(--cl-text-muted)">后续适配</span>
+          <span class="val" id="micPerm" style="color:var(--cl-text-muted)">未开启</span>
+        </div>
+        <div class="face-params-live" id="faceParamsLive">
+          <span class="fp-item"><span class="fp-label">脸:</span><span class="fp-val" id="fpDetected">—</span></span>
+          <span class="fp-item"><span class="fp-label">张嘴:</span><span class="fp-val" id="fpMouth">0.00</span></span>
+          <span class="fp-item"><span class="fp-label">眨眼:</span><span class="fp-val" id="fpBlink">0.00</span></span>
+          <span class="fp-item"><span class="fp-label">微笑:</span><span class="fp-val" id="fpSmile">0.00</span></span>
+          <span class="fp-item"><span class="fp-label">转头:</span><span class="fp-val" id="fpYaw">0.00</span></span>
         </div>
       </div>
       <!-- App Card: QR -->

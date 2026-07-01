@@ -12,7 +12,7 @@ const state = {
   voiceOn: false,
   voicePreset: 'original',
   guideStep: 0,
-  passthrough: false,
+  floatingMode: 'edit', // 'edit' | 'display'
   // Simulated face params
   faceParams: { mouthOpen: 0, blink: 0, yaw: 0, pitch: 0, smile: 0 },
 };
@@ -37,68 +37,39 @@ const AVATAR_NAMES = {
 // ====== GUIDE STEPS ======
 const GUIDE_STEPS = [
   {
-    title: 'Step 1：打开发送端 App',
-    target: '#phoneFrame',
-    placement: 'right',
-    body: `<p>在闲置手机上打开 CheapLive App，启动本地服务。</p>
-      <div class="info">左栏模拟手机界面：服务端状态、capture 开关、局域网地址/token。</div>`
+    title: 'Step 1：发送端 · 面部 / 声音输入',
+    body: `<p>发送端负责采集面部参数和声音输入。</p>
+      <div class="info">左侧手机界面模拟发送端：开启摄像头/麦克风，采集 headYaw、mouthOpen、blink 等参数，通过局域网发送到 Receiver。</div>
+      <div class="note">当前 demo 使用模拟参数动画驱动；Android 发送端链路正在接入与调试中。</div>`
   },
   {
-    title: 'Step 2：授权摄像头和麦克风',
-    target: '#captureToggle',
-    placement: 'right',
-    body: `<p>摄像头用于面部捕捉；麦克风用于后续变声/直播输出适配。</p>
-      <div class="note">麦克风/变声链路为后续适配能力，本 demo 主要展示面捕与悬浮叠加流程。</div>`
+    title: 'Step 2：Receiver · 虚拟主播',
+    body: `<p>Receiver 接收面部/声音输入，选择虚拟形象，设置背景透明。</p>
+      <div class="info">中间面板显示 Receiver：选择动物形象（萨卡班甲鱼 / 猫 / 更多开发中），点击"应用模式"将背景设为透明，准备作为网页小窗显示。</div>
+      <div class="note">用透明悬浮浏览器打开，可设置背景透明。</div>`
   },
   {
-    title: 'Step 3：接收端扫码连接',
-    target: '#qrPlaceholder',
-    placement: 'right',
-    body: `<p>接收端扫描二维码或输入局域网 URL 连接发送端。</p>
-      <div class="info">当前为模拟扫码流程，不需要真实 QR 码。</div>`
+    title: 'Step 3：透明悬浮浏览器打开 Receiver',
+    body: `<p>TransparentFloatingBrowser 加载 Receiver 页面，设置背景透明后叠加到直播端。</p>
+      <div class="info">右侧直播端中的悬浮小窗 → 打开的是中间 Receiver 的网页。蓝色顶部栏拖动位置，右下角蓝色方块调节大小。透明悬浮能力来自开源项目 TransparentFloatingBrowser。</div>`
   },
   {
-    title: 'Step 4：选择虚拟形象',
-    target: '#avatarGrid',
-    placement: 'top',
-    body: `<p>接收端选择动物形象，这些设置会同步到悬浮窗和多端。</p>
-      <p>Avatar 选择：萨卡班甲鱼 / 猫 / 更多动物开发中。</p>
-      <div class="info">点击不同 avatar 按钮，中间和右侧悬浮窗的形象会同步切换。</div>`
+    title: 'Step 4：编辑模式',
+    body: `<p>左侧橙色按钮显示"编辑"时，小窗可交互。</p>
+      <div class="info">编辑模式下：小窗可拖动、可缩放、内容可点击。触摸落在小窗网页上，不穿透到底层直播端。</div>
+      <div class="note">橙色按钮可沿左侧上下拖动调整位置。</div>`
   },
   {
-    title: 'Step 5：Receiver 虚拟主播',
-    target: '#avatarCanvas',
-    placement: 'bottom',
-    body: `<p>面部参数从发送端输入，接收端根据服务端状态驱动虚拟形象。</p>
-      <p>当前 avatar 为程序化 Canvas 渲染，支持眨眼、嘴型、视线、头部转动等表情。</p>
-      <div class="note">不要声称当前页面在调用真实摄像头——这是模拟参数变化演示。</div>`
+    title: 'Step 5：显示模式',
+    body: `<p>点击橙色按钮切换到"显示"模式。</p>
+      <div class="info">显示模式下：小窗不可交互、不可拖动、不可缩放。触摸穿透小窗落到底层直播端。小窗半透明表示穿透状态。</div>
+      <div class="note">只有左侧橙色按钮仍可点击，用于切回编辑模式。</div>`
   },
   {
-    title: 'Step 6：透明背景 · 应用模式',
-    target: 'button[onclick*="toggleShowcase"]',
-    placement: 'top',
-    body: `<p>点击"应用模式"切换到透明背景，方便叠加到游戏或直播画面上。</p>
-      <p>实际透明悬浮能力来自 TransparentFloatingBrowser 开源项目。</p>
-      <div class="info">Receiver 背景变透明后，配合透明悬浮浏览器就能实现画面叠加。</div>`
-  },
-  {
-    title: 'Step 7：悬浮透明浏览器叠加到游戏',
-    target: '#floatingWindow',
-    placement: 'left',
-    body: `<p>TransparentFloatingBrowser 加载 receiver 页面，将网页背景设为透明后悬浮在游戏上。</p>
-      <p><b>蓝色顶部栏</b>：拖动位置</p>
-      <p><b>右下角蓝色方块</b>：调节大小</p>
-      <p><b>橙色手柄</b>：切换交互 / 触摸穿透</p>
-      <div class="info">橙色手柄点击后窗口半透明，进入触摸穿透状态——这是 Android 悬浮窗的典型视觉提示。</div>`
-  },
-  {
-    title: 'Step 8：涂鸦模式 · 触控穿透演示',
-    target: '#drawModeBtn',
-    placement: 'top',
-    body: `<p>涂鸦模式可以在游戏画面上画线，用来演示触控穿透概念：</p>
-      <p>悬浮窗关闭交互后，触控事件能穿透到下方游戏/应用。</p>
-      <p>这样就能在单设备上所见即所得地直播小游戏、教学页面或其他内容。</p>
-      <div class="info">Snackabambaspis 是自写的小游戏 · 无第三方资源 · 可直接在浏览器里玩。</div>`
+    title: 'Step 6：直播端应用场景',
+    body: `<p>透明悬浮小窗可叠加在直播端画面上。</p>
+      <div class="info">右侧面板代表直播端——打游戏、绘图、做手工、展示内容的那台手机。虚拟主播小窗悬浮在上方，不影响底层触控。</div>
+      <div class="note">开启"涂鸦模式"可在直播端画面上手绘，直观体验显示模式下的触摸穿透效果。</div>`
   },
 ];
 
@@ -566,13 +537,18 @@ function initFloatingWindow() {
   const bar = document.getElementById('fwTopBar');
   const resize = document.getElementById('fwResize');
 
+  // Start in edit mode
+  fw.classList.add('fw-edit-mode');
+
   bar.addEventListener('mousedown', e => {
+    if (state.floatingMode !== 'edit') return; // 显示模式下不允许拖动
     fwDragging = true;
     fwOffX = e.clientX - fw.offsetLeft;
     fwOffY = e.clientY - fw.offsetTop;
     e.preventDefault();
   });
   bar.addEventListener('touchstart', e => {
+    if (state.floatingMode !== 'edit') return; // 显示模式下不允许拖动
     fwDragging = true;
     const t = e.touches[0];
     fwOffX = t.clientX - fw.offsetLeft;
@@ -581,6 +557,7 @@ function initFloatingWindow() {
   }, { passive: false });
 
   resize.addEventListener('mousedown', e => {
+    if (state.floatingMode !== 'edit') return; // 显示模式下不允许缩放
     fwResizing = true;
     fwStartW = fw.offsetWidth;
     fwStartH = fw.offsetHeight;
@@ -593,7 +570,75 @@ function initFloatingWindow() {
   document.addEventListener('touchmove', onFWMoveTouch, { passive: false });
   document.addEventListener('mouseup', onFWEnd);
   document.addEventListener('touchend', onFWEnd);
+
+  // Mode button vertical drag (snaps to left edge)
+  initModeButtonDrag();
 }
+
+// ====== MODE BUTTON DRAG (vertical, snaps left edge) ======
+let modeBtnDragging = false, modeBtnStartY = 0, modeBtnStartTop = 0, modeBtnMoved = false;
+
+function initModeButtonDrag() {
+  const btn = document.getElementById('fwModeBtn');
+  if (!btn) return;
+
+  btn.addEventListener('mousedown', e => {
+    modeBtnDragging = true;
+    modeBtnMoved = false;
+    modeBtnStartY = e.clientY;
+    modeBtnStartTop = btn.offsetTop;
+    btn.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+  btn.addEventListener('touchstart', e => {
+    modeBtnDragging = true;
+    modeBtnMoved = false;
+    modeBtnStartY = e.touches[0].clientY;
+    modeBtnStartTop = btn.offsetTop;
+    e.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener('mousemove', onModeBtnMove);
+  document.addEventListener('touchmove', onModeBtnMoveTouch, { passive: false });
+}
+
+function onModeBtnMove(e) {
+  if (!modeBtnDragging) return;
+  const delta = Math.abs(e.clientY - modeBtnStartY);
+  if (delta > 3) modeBtnMoved = true;
+  if (!modeBtnMoved) return;
+  const btn = document.getElementById('fwModeBtn');
+  const panel = btn.parentElement;
+  const panelRect = panel.getBoundingClientRect();
+  const maxTop = panelRect.height - btn.offsetHeight - 8;
+  const newTop = Math.max(8, Math.min(maxTop, modeBtnStartTop + e.clientY - modeBtnStartY));
+  btn.style.top = newTop + 'px';
+  btn.style.bottom = 'auto';
+}
+
+function onModeBtnMoveTouch(e) {
+  if (!modeBtnDragging) return;
+  const delta = Math.abs(e.touches[0].clientY - modeBtnStartY);
+  if (delta > 3) modeBtnMoved = true;
+  if (!modeBtnMoved) return;
+  e.preventDefault();
+  const btn = document.getElementById('fwModeBtn');
+  const panel = btn.parentElement;
+  const panelRect = panel.getBoundingClientRect();
+  const maxTop = panelRect.height - btn.offsetHeight - 8;
+  const newTop = Math.max(8, Math.min(maxTop, modeBtnStartTop + e.touches[0].clientY - modeBtnStartY));
+  btn.style.top = newTop + 'px';
+  btn.style.bottom = 'auto';
+}
+
+// Extend onFWEnd to also handle mode button
+const _origOnFWEnd = onFWEnd;
+onFWEnd = function() {
+  _origOnFWEnd();
+  modeBtnDragging = false;
+  const btn = document.getElementById('fwModeBtn');
+  if (btn) btn.style.cursor = 'grab';
+};
 
 function onFWMove(e) {
   const fw = document.getElementById('floatingWindow');
@@ -641,11 +686,13 @@ function startSimLoop() {
 function simLoop(ts) {
   simTime = ts * 0.001;
 
-  // Simulate face params
-  state.faceParams.mouthOpen = 0.5 + 0.5 * Math.sin(simTime * 1.2);
-  state.faceParams.blink = Math.max(0, Math.sin(simTime * 3) > 0.95 ? 1 : 0);
-  state.faceParams.yaw = Math.sin(simTime * 0.5);
-  state.faceParams.smile = 0.3 + 0.3 * Math.sin(simTime * 0.8);
+  // Simulate face params (only when real face tracking is NOT running)
+  if (!_faceLandmarker) {
+    state.faceParams.mouthOpen = 0.5 + 0.5 * Math.sin(simTime * 1.2);
+    state.faceParams.blink = Math.max(0, Math.sin(simTime * 3) > 0.95 ? 1 : 0);
+    state.faceParams.yaw = Math.sin(simTime * 0.5);
+    state.faceParams.smile = 0.3 + 0.3 * Math.sin(simTime * 0.8);
+  }
 
   // Draw avatar on main canvas
   const bg = state.showcaseMode ? 'transparent' : '#0d1420';
@@ -668,6 +715,14 @@ function simLoop(ts) {
   if (gb) gb.textContent = state.faceParams.blink.toFixed(2);
   const gy = document.getElementById('guideYaw');
   if (gy) gy.textContent = state.faceParams.yaw.toFixed(2);
+
+  // Update sender panel params
+  const hd = document.getElementById('headYawVal');
+  if (hd) hd.textContent = state.faceParams.yaw.toFixed(2);
+  const mo = document.getElementById('mouthOpenVal');
+  if (mo) mo.textContent = state.faceParams.mouthOpen.toFixed(2);
+  const bl = document.getElementById('blinkVal');
+  if (bl) bl.textContent = state.faceParams.blink.toFixed(2);
 
   requestAnimationFrame(simLoop);
 }
@@ -709,16 +764,32 @@ function toggleDrawMode() {
   if (!state.drawMode) drawPaths = [];
 }
 
-function togglePassthrough() {
-  state.passthrough = !state.passthrough;
+function toggleFloatingMode() {
+  // If user was dragging the button (not clicking), skip toggle
+  if (modeBtnMoved) { modeBtnMoved = false; return; }
+
+  const isEdit = state.floatingMode === 'edit';
+  state.floatingMode = isEdit ? 'display' : 'edit';
+
   const fw = document.getElementById('floatingWindow');
-  const handle = document.getElementById('fwInteract');
+  const btn = document.getElementById('fwModeBtn');
   const status = document.getElementById('fwStatusText');
-  fw.classList.toggle('passthrough', state.passthrough);
-  handle.classList.toggle('off', state.passthrough);
-  status.textContent = state.passthrough
-    ? '悬浮窗：触摸穿透中 · 半透明 · 底层可触控'
-    : '悬浮窗：交互中 · 拖动蓝色顶栏移动';
+
+  // Clear any active drag/resize state
+  fwDragging = false;
+  fwResizing = false;
+
+  fw.classList.toggle('fw-edit-mode', state.floatingMode === 'edit');
+  fw.classList.toggle('fw-display-mode', state.floatingMode === 'display');
+  btn.classList.toggle('display-mode', state.floatingMode === 'display');
+
+  if (state.floatingMode === 'edit') {
+    btn.textContent = '编辑';
+    status.textContent = '悬浮窗：编辑模式 · 可拖动/缩放/交互';
+  } else {
+    btn.textContent = '显示';
+    status.textContent = '悬浮窗：显示模式 · 触摸穿透 · 底层可触控';
+  }
 }
 
 // ====== GUIDE ======
@@ -726,10 +797,12 @@ function openGuide() {
   state.guideStep = 0;
   renderGuide();
   document.getElementById('guideOverlay').classList.add('open');
+  updateGuideHighlights();
 }
 
 function closeGuide() {
   document.getElementById('guideOverlay').classList.remove('open');
+  clearGuideHighlights();
 }
 
 function guideNav(dir) {
@@ -740,6 +813,7 @@ function guideNav(dir) {
   } else {
     document.getElementById('guideNext').textContent = '下一步';
   }
+  updateGuideHighlights();
 }
 
 function renderGuide() {
@@ -758,104 +832,322 @@ function renderGuide() {
   }
 
   document.getElementById('guidePrev').style.visibility = state.guideStep === 0 ? 'hidden' : 'visible';
-
-  // Highlight target element
-  updateGuideHighlight();
 }
 
-function updateGuideHighlight() {
-  const step = GUIDE_STEPS[state.guideStep];
-  const overlay = document.getElementById('guideOverlay');
-  const modal = document.querySelector('.guide-modal');
-  const highlight = document.getElementById('guideHighlight');
-  const arrow = document.getElementById('guideArrow');
+// ====== GUIDE HIGHLIGHTS ======
+const GUIDE_TARGETS = [
+  { el: '#phoneFrame', bubble: '发送端采集', pos: 'right' },
+  { el: '#receiverPanel', bubble: 'Receiver 选择形象', pos: 'left' },
+  { el: '#floatingWindow', from: '#receiverPanel', bubble: '悬浮窗叠加', pos: 'top' },
+  { el: '#fwModeBtn', bubble: '编辑模式：可拖动', pos: 'right' },
+  { el: '#floatingWindow', bubble: '显示模式：穿透', pos: 'top' },
+  { el: '#gamePanel', bubble: '直播端应用场景', pos: 'left' },
+];
 
-  if (!step.target || !highlight) {
-    highlight.style.display = 'none';
-    arrow.style.display = 'none';
-    overlay.classList.remove('has-highlight');
-    modal.style.position = 'relative';
-    modal.style.top = '';
-    modal.style.left = '';
-    modal.style.transform = '';
-    return;
-  }
+function updateGuideHighlights() {
+  clearGuideHighlights();
+  const cfg = GUIDE_TARGETS[state.guideStep];
+  if (!cfg) return;
 
-  overlay.classList.add('has-highlight');
-  const el = document.querySelector(step.target);
-  if (!el) {
-    highlight.style.display = 'none';
-    arrow.style.display = 'none';
-    return;
-  }
+  const target = document.querySelector(cfg.el);
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
 
-  const rect = el.getBoundingClientRect();
-  const pad = 8;
+  // Create highlight box
+  const box = document.createElement('div');
+  box.className = 'guide-highlight-box';
+  box.style.left = (rect.left - 4) + 'px';
+  box.style.top = (rect.top - 4) + 'px';
+  box.style.width = (rect.width + 8) + 'px';
+  box.style.height = (rect.height + 8) + 'px';
+  document.body.appendChild(box);
 
-  highlight.style.display = 'block';
-  highlight.style.left = (rect.left - pad) + 'px';
-  highlight.style.top = (rect.top - pad) + 'px';
-  highlight.style.width = (rect.width + pad * 2) + 'px';
-  highlight.style.height = (rect.height + pad * 2) + 'px';
+  // Create bubble
+  const bubble = document.createElement('div');
+  bubble.className = 'guide-bubble bubble-' + cfg.pos;
+  bubble.textContent = cfg.bubble;
+  document.body.appendChild(bubble);
 
-  const placement = step.placement || 'bottom';
-  const modalW = Math.min(520, window.innerWidth * 0.9);
-  const modalH = 400;
-  let modalLeft, modalTop;
-  let arrowDir = placement;
-
-  switch (placement) {
+  // Position bubble
+  const bRect = bubble.getBoundingClientRect();
+  let bLeft, bTop;
+  switch (cfg.pos) {
     case 'right':
-      modalLeft = rect.right + 24;
-      modalTop = rect.top + rect.height / 2 - modalH / 2;
-      arrowDir = 'left';
+      bLeft = rect.right + 12;
+      bTop = rect.top + rect.height / 2 - bRect.height / 2;
       break;
     case 'left':
-      modalLeft = rect.left - modalW - 24;
-      modalTop = rect.top + rect.height / 2 - modalH / 2;
-      arrowDir = 'right';
+      bLeft = rect.left - bRect.width - 12;
+      bTop = rect.top + rect.height / 2 - bRect.height / 2;
       break;
     case 'top':
-      modalLeft = rect.left + rect.width / 2 - modalW / 2;
-      modalTop = rect.top - modalH - 24;
-      arrowDir = 'bottom';
+      bLeft = rect.left + rect.width / 2 - bRect.width / 2;
+      bTop = rect.top - bRect.height - 12;
       break;
     case 'bottom':
-    default:
-      modalLeft = rect.left + rect.width / 2 - modalW / 2;
-      modalTop = rect.bottom + 24;
-      arrowDir = 'top';
+      bLeft = rect.left + rect.width / 2 - bRect.width / 2;
+      bTop = rect.bottom + 12;
       break;
   }
+  bubble.style.left = Math.max(8, bLeft) + 'px';
+  bubble.style.top = Math.max(8, bTop) + 'px';
 
-  modalLeft = Math.max(16, Math.min(window.innerWidth - modalW - 16, modalLeft));
-  modalTop = Math.max(16, Math.min(window.innerHeight - modalH - 16, modalTop));
-
-  modal.style.position = 'fixed';
-  modal.style.left = modalLeft + 'px';
-  modal.style.top = modalTop + 'px';
-  modal.style.transform = 'none';
-
-  arrow.style.display = 'block';
-  arrow.className = 'guide-arrow arrow-' + arrowDir;
-  const arrowRect = modal.getBoundingClientRect();
-  let arrowLeft = rect.left + rect.width / 2 - modalLeft - 8;
-  let arrowTop = rect.top + rect.height / 2 - modalTop - 8;
-  if (arrowDir === 'left' || arrowDir === 'right') {
-    arrow.style.top = Math.max(20, Math.min(modalH - 36, arrowTop)) + 'px';
-    arrow.style.left = arrowDir === 'left' ? '-12px' : 'auto';
-    arrow.style.right = arrowDir === 'right' ? '-12px' : 'auto';
-    arrow.style.bottom = 'auto';
-  } else {
-    arrow.style.left = Math.max(20, Math.min(modalW - 36, arrowLeft)) + 'px';
-    arrow.style.top = arrowDir === 'top' ? '-12px' : 'auto';
-    arrow.style.bottom = arrowDir === 'bottom' ? '-12px' : 'auto';
-    arrow.style.right = 'auto';
+  // Arrow from receiver to floating window (Step 3)
+  if (cfg.from) {
+    const fromEl = document.querySelector(cfg.from);
+    if (fromEl) {
+      const fromRect = fromEl.getBoundingClientRect();
+      createArrow(fromRect, rect);
+    }
   }
 }
 
-window.addEventListener('resize', () => {
-  if (document.getElementById('guideOverlay').classList.contains('open')) {
-    updateGuideHighlight();
+function createArrow(fromRect, toRect) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.style.position = 'fixed';
+  svg.style.top = '0';
+  svg.style.left = '0';
+  svg.style.width = '100%';
+  svg.style.height = '100%';
+  svg.style.pointerEvents = 'none';
+  svg.style.zIndex = '151';
+
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+  marker.setAttribute('id', 'guideArrowHead');
+  marker.setAttribute('markerWidth', '10');
+  marker.setAttribute('markerHeight', '7');
+  marker.setAttribute('refX', '9');
+  marker.setAttribute('refY', '3.5');
+  marker.setAttribute('orient', 'auto');
+  const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  polygon.setAttribute('points', '0 0, 10 3.5, 0 7');
+  polygon.setAttribute('fill', '#ff6b4a');
+  marker.appendChild(polygon);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  const x1 = fromRect.right;
+  const y1 = fromRect.top + fromRect.height / 2;
+  const x2 = toRect.left;
+  const y2 = toRect.top + toRect.height / 2;
+  const midX = (x1 + x2) / 2;
+  const d = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
+  path.setAttribute('d', d);
+  path.setAttribute('stroke', '#ff6b4a');
+  path.setAttribute('stroke-width', '2.5');
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke-dasharray', '8 4');
+  path.setAttribute('marker-end', 'url(#guideArrowHead)');
+  svg.appendChild(path);
+  document.body.appendChild(svg);
+}
+
+function clearGuideHighlights() {
+  document.querySelectorAll('.guide-highlight-box, .guide-bubble').forEach(el => el.remove());
+  document.querySelectorAll('svg').forEach(el => {
+    if (el.style.zIndex === '151') el.remove();
+  });
+}
+
+// ====== FACE TRACKING (MediaPipe) ======
+let _faceLandmarker = null;
+let _faceVideoStream = null;
+let _faceDetectRAF = null;
+
+async function startFaceTracking() {
+  const btn = document.getElementById('faceCamBtn');
+  const status = document.getElementById('faceCamStatus');
+  const videoWrap = document.getElementById('faceVideoWrap');
+
+  if (_faceLandmarker || _faceVideoStream) {
+    stopFaceTracking();
+    return;
   }
-});
+
+  btn.disabled = true;
+  status.style.display = 'block';
+  status.textContent = '请求摄像头权限...';
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' }
+    });
+    _faceVideoStream = stream;
+    const video = document.getElementById('faceVideo');
+    video.srcObject = stream;
+    await video.play();
+
+    status.textContent = '加载 MediaPipe 模型（约 3MB）...';
+
+    const mp = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/+esm');
+    const { FilesetResolver, FaceLandmarker } = mp;
+
+    const filesetResolver = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/wasm'
+    );
+
+    _faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        delegate: 'GPU'
+      },
+      runningMode: 'VIDEO',
+      numFaces: 1,
+    });
+
+    status.textContent = '面捕运行中';
+    videoWrap.style.display = 'block';
+    btn.textContent = '停止面捕';
+    btn.disabled = false;
+
+    startFaceDetectionLoop(video);
+
+  } catch (err) {
+    console.error('Face tracking error:', err);
+    status.textContent = '错误: ' + (err.message || '无法启动摄像头或加载模型');
+    btn.disabled = false;
+    if (_faceVideoStream) {
+      _faceVideoStream.getTracks().forEach(t => t.stop());
+      _faceVideoStream = null;
+    }
+  }
+}
+
+function startFaceDetectionLoop(video) {
+  let lastTime = -1;
+  function loop() {
+    if (!_faceLandmarker || !_faceVideoStream) return;
+    if (video.currentTime !== lastTime) {
+      lastTime = video.currentTime;
+      try {
+        const results = _faceLandmarker.detectForVideo(video, performance.now());
+        if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
+          updateFaceParamsFromBlendshapes(results.faceBlendshapes[0], results.facialTransformationMatrixes);
+        }
+      } catch (e) { /* ignore per-frame errors */ }
+    }
+    _faceDetectRAF = requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+function updateFaceParamsFromBlendshapes(blendshapes, matrices) {
+  const categories = blendshapes.categories || [];
+  const getVal = (name) => {
+    const cat = categories.find(c => c.categoryName === name);
+    return cat ? cat.score : 0;
+  };
+
+  const mouthOpen = getVal('jawOpen');
+  const blinkLeft = getVal('eyeBlinkLeft');
+  const blinkRight = getVal('eyeBlinkRight');
+  const smileLeft = getVal('mouthSmileLeft');
+  const smileRight = getVal('mouthSmileRight');
+
+  state.faceParams.mouthOpen = mouthOpen;
+  state.faceParams.blink = Math.max(blinkLeft, blinkRight);
+  state.faceParams.smile = (smileLeft + smileRight) / 2;
+  state.faceParams.faceDetected = true;
+
+  // Extract yaw from transformation matrix if available
+  if (matrices && matrices.length > 0) {
+    const m = matrices[0].data;
+    // 4x4 matrix: extract yaw from rotation
+    const yaw = Math.atan2(m[8], m[10]);
+    state.faceParams.yaw = (yaw / Math.PI + 1) / 2; // normalize to 0-1
+  }
+
+  document.getElementById('faceDetectedVal').textContent = 'true';
+  document.getElementById('mouthOpenVal').textContent = mouthOpen.toFixed(2);
+  document.getElementById('blinkVal').textContent = Math.max(blinkLeft, blinkRight).toFixed(2);
+  document.getElementById('smileVal').textContent = state.faceParams.smile.toFixed(2);
+}
+
+function stopFaceTracking() {
+  if (_faceDetectRAF) {
+    cancelAnimationFrame(_faceDetectRAF);
+    _faceDetectRAF = null;
+  }
+  if (_faceVideoStream) {
+    _faceVideoStream.getTracks().forEach(t => t.stop());
+    _faceVideoStream = null;
+  }
+  _faceLandmarker = null;
+  const btn = document.getElementById('faceCamBtn');
+  const status = document.getElementById('faceCamStatus');
+  const videoWrap = document.getElementById('faceVideoWrap');
+  btn.textContent = '开启摄像头';
+  status.style.display = 'none';
+  videoWrap.style.display = 'none';
+  document.getElementById('faceDetectedVal').textContent = 'false';
+}
+
+// ====== MIC LEVEL (Web Audio API) ======
+let _micAudioContext = null;
+let _micAnalyser = null;
+let _micStream = null;
+let _micInterval = null;
+
+async function startMicLevel() {
+  const btn = document.getElementById('micBtn');
+  const status = document.getElementById('micStatus');
+  const valEl = document.getElementById('micLevelVal');
+
+  if (_micAudioContext) {
+    stopMicLevel();
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    _micStream = stream;
+    _micAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = _micAudioContext.createMediaStreamSource(stream);
+    _micAnalyser = _micAudioContext.createAnalyser();
+    _micAnalyser.fftSize = 256;
+    source.connect(_micAnalyser);
+
+    const dataArray = new Uint8Array(_micAnalyser.frequencyBinCount);
+
+    _micInterval = setInterval(() => {
+      _micAnalyser.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+      const avg = sum / dataArray.length;
+      const normalized = Math.min(1, avg / 128);
+      valEl.textContent = normalized.toFixed(2);
+      valEl.style.color = normalized > 0.05 ? 'var(--cl-green)' : 'var(--cl-text-muted)';
+    }, 100);
+
+    btn.textContent = '停止麦克风';
+    status.textContent = '麦克风运行中';
+
+  } catch (err) {
+    status.textContent = '错误: ' + (err.message || '无法访问麦克风');
+    console.error('Mic error:', err);
+  }
+}
+
+function stopMicLevel() {
+  if (_micInterval) {
+    clearInterval(_micInterval);
+    _micInterval = null;
+  }
+  if (_micAudioContext) {
+    _micAudioContext.close();
+    _micAudioContext = null;
+  }
+  if (_micStream) {
+    _micStream.getTracks().forEach(t => t.stop());
+    _micStream = null;
+  }
+  const btn = document.getElementById('micBtn');
+  const status = document.getElementById('micStatus');
+  const valEl = document.getElementById('micLevelVal');
+  btn.textContent = '开启麦克风';
+  status.textContent = '点击开启麦克风';
+  valEl.textContent = '—';
+  valEl.style.color = 'var(--cl-text-muted)';
+}
