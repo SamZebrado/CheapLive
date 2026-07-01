@@ -59,7 +59,7 @@ const GUIDE_STEPS = [
   {
     title: 'Step 2：Receiver · 虚拟主播',
     body: `<p>Receiver 接收面部/声音输入，选择虚拟形象，设置背景透明。</p>
-      <div class="info">中间面板显示 Receiver：选择动物形象（萨卡班甲鱼 / 猫 / 更多开发中），点击"应用模式"将背景设为透明，准备作为网页小窗显示。</div>
+      <div class="info">中间面板显示 Receiver：选择动物形象（3D/2D 萨卡班甲鱼 / 猫 / 更多动物），点击"应用模式"将背景设为透明，准备作为网页小窗显示。</div>
       <div class="note">用透明悬浮浏览器打开，可设置背景透明。</div>`
   },
   {
@@ -578,7 +578,7 @@ function drawPlaceholder(ctx, cx, cy, avatar, s) {
   ctx.fillText(AVATAR_NAMES[avatar] || avatar, cx, cy - 5 * s);
   ctx.font = `${10 * s}px sans-serif`;
   ctx.fillStyle = '#718096';
-  ctx.fillText('开发中', cx, cy + 12 * s);
+  ctx.fillText('（' + (AVATAR_NAMES[avatar] || avatar) + ' 开发中)', cx, cy + 14 * s);
 }
 
 // ====== GAME CANVAS (Snackabambaspis Snake) ======
