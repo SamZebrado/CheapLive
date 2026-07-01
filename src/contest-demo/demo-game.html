@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Snackabambaspis Demo Game</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0f1a;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    .header {
+      position: absolute;
+      top: 12px;
+      left: 16px;
+      font-size: 12px;
+      color: #4a5568;
+      z-index: 10;
+    }
+    .header span {
+      color: #ff6b4a;
+      font-weight: 600;
+    }
+    canvas {
+      border: 2px solid #1a2332;
+      border-radius: 8px;
+      background: #0d1420;
+      box-shadow: 0 0 40px rgba(228, 225, 211, 0.06);
+    }
+    .controls {
+      margin-top: 16px;
+      font-size: 13px;
+      color: #4a5568;
+      text-align: center;
+    }
+    .controls kbd {
+      background: #1a2332;
+      border: 1px solid #2d3748;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: #a0aec0;
+    }
+    .footer-note {
+      margin-top: 8px;
+      font-size: 11px;
+      color: #2d3748;
+      text-align: center;
+    }
+    .score {
+      position: absolute;
+      top: 12px;
+      right: 16px;
+      font-size: 14px;
+      color: #e4e1d3;
+      font-weight: 600;
+      z-index: 10;
+    }
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(10, 15, 26, 0.88);
+      z-index: 20;
+      transition: opacity 0.3s;
+    }
+    .overlay.hidden { opacity: 0; pointer-events: none; }
+    .overlay-content {
+      text-align: center;
+    }
+    .overlay-content h2 {
+      font-size: 26px;
+      color: #e4e1d3;
+      margin-bottom: 4px;
+    }
+    .overlay-content h2 em {
+      font-style: normal;
+      color: #ff6b4a;
+    }
+    .overlay-content .sub {
+      font-size: 14px;
+      color: #718096;
+      margin-bottom: 20px;
+    }
+    .overlay-content p {
+      font-size: 13px;
+      color: #718096;
+      margin-bottom: 16px;
+    }
+    .btn {
+      background: #e4e1d3;
+      color: #0a0f1a;
+      border: none;
+      padding: 10px 28px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #d4d1c3; }
+  </style>
+</head>
+<body>
+  <div class="header"><span>CheapLive</span> Demo Background</div>
+  <div class="score" id="score">Snacks: 0</div>
+
+  <div class="overlay" id="overlay">
+    <div class="overlay-content">
+      <h2><em>Snackabambaspis</em></h2>
+      <div class="sub">萨卡班甲鱼吃点心</div>
+      <p>方向键或 WASD 控制萨卡班甲鱼吃零食</p>
+      <button class="btn" onclick="startGame()">开始游戏</button>
+    </div>
+  </div>
+
+  <canvas id="game" width="640" height="480"></canvas>
+  <div class="controls">
+    <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或 <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 控制方向
+  </div>
+  <div class="footer-note">仅作为 CheapLive 直播背景演示 · 自写素材 · 无第三方资源</div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const overlay = document.getElementById('overlay');
+
+    const GRID = 20;
+    const COLS = canvas.width / GRID;
+    const ROWS = canvas.height / GRID;
+
+    // ---- Snack types (all procedurally drawn, no external assets) ----
+    const SNACK_TYPES = [
+      { name: 'chocolate-cake',  color: '#5c3a1e', accent: '#8b5e3c', glow: '#7a4e2d' },
+      { name: 'strawberry-cake',  color: '#e8788a', accent: '#f2a0aa', glow: '#e8788a' },
+      { name: 'cookie',           color: '#c8944a', accent: '#e0b878', glow: '#c8944a' },
+      { name: 'pudding',          color: '#e8c840', accent: '#f0d868', glow: '#d8b830' },
+    ];
+
+    let snake = [];
+    let food = {};
+    let foodType = null;
+    let dir = { x: 1, y: 0 };
+    let nextDir = { x: 1, y: 0 };
+    let score = 0;
+    let gameLoop = null;
+    let speed = 120;
+    let running = false;
+
+    // ---- Sacabambaspis color palette ----
+    const SACA = {
+      body:   '#e4e1d3',
+      dark:   '#8a8778',
+      accent: '#c4c0b0',
+      spot:   '#8b7355',
+      eye:    '#1a1a2e',
+      fin:    '#c8c4b4',
+      mouth:  '#b0aaa0',
+    };
+
+    function resetGame() {
+      snake = [
+        { x: 6, y: ROWS / 2 | 0 },
+        { x: 5, y: ROWS / 2 | 0 },
+        { x: 4, y: ROWS / 2 | 0 },
+        { x: 3, y: ROWS / 2 | 0 },
+      ];
+      dir = { x: 1, y: 0 };
+      nextDir = { x: 1, y: 0 };
+      score = 0;
+      speed = 120;
+      scoreEl.textContent = 'Snacks: 0';
+      placeFood();
+    }
+
+    function placeFood() {
+      do {
+        food = {
+          x: (Math.random() * COLS) | 0,
+          y: (Math.random() * ROWS) | 0,
+        };
+      } while (snake.some(s => s.x === food.x && s.y === food.y));
+      foodType = SNACK_TYPES[(Math.random() * SNACK_TYPES.length) | 0];
+    }
+
+    // ---- Draw Sacabambaspis head (cartoon style) ----
+    function drawSacaHead(cx, cy, direction) {
+      const G = GRID;
+      ctx.save();
+      ctx.translate(cx, cy);
+
+      // Spindle body (wider middle)
+      ctx.fillStyle = SACA.body;
+      ctx.beginPath();
+      // Nose (direction side)
+      const noseX = direction.x * 8;
+      const noseY = direction.y * 8;
+      const tailX = -direction.x * 10;
+      const tailY = -direction.y * 10;
+      const perpX = -direction.y;
+      const perpY = direction.x;
+
+      // Body shape: elongated oval
+      ctx.ellipse(
+        direction.x * 1, direction.y * 1,
+        9, 6,
+        Math.atan2(direction.y, direction.x),
+        0, Math.PI * 2
+      );
+      ctx.fill();
+
+      // Darker back shading
+      ctx.fillStyle = SACA.dark;
+      ctx.globalAlpha = 0.3;
+      ctx.beginPath();
+      ctx.ellipse(
+        -direction.x * 2, -direction.y * 2,
+        7, 4,
+        Math.atan2(direction.y, direction.x),
+        0, Math.PI * 2
+      );
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+
+      // Spot
+      ctx.fillStyle = SACA.spot;
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      ctx.ellipse(-direction.x * 3, -direction.y * 3, 3, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+
+      // Dorsal fin
+      ctx.fillStyle = SACA.fin;
+      ctx.beginPath();
+      const finBaseX = -direction.x * 2;
+      const finBaseY = -direction.y * 2;
+      ctx.moveTo(finBaseX + perpX * 2, finBaseY + perpY * 2);
+      ctx.lineTo(finBaseX - direction.x * 5 + perpX * 1, finBaseY - direction.y * 5 + perpY * 1);
+      ctx.lineTo(finBaseX - direction.x * 2 + perpX * 0, finBaseY - direction.y * 2 + perpY * 0);
+      ctx.closePath();
+      ctx.fill();
+
+      // Eye
+      const eyeOffX = direction.x * 5 + perpX * 3;
+      const eyeOffY = direction.y * 5 + perpY * 3;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(eyeOffX, eyeOffY, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = SACA.eye;
+      ctx.beginPath();
+      ctx.arc(eyeOffX + direction.x * 0.5, eyeOffY + direction.y * 0.5, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Mouth (small happy arc)
+      const mouthX = direction.x * 7;
+      const mouthY = direction.y * 7;
+      ctx.strokeStyle = SACA.mouth;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(mouthX, mouthY + (direction.x === 0 ? 0 : 1), 2, 0, Math.PI);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    // ---- Draw Sacabambaspis body segment ----
+    function drawSacaBody(cx, cy, index, total) {
+      const G = GRID;
+      ctx.save();
+      ctx.translate(cx, cy);
+
+      // Body ellipse (smaller for tail segments)
+      const size = Math.max(3, 7 - index * 0.5);
+      const alpha = Math.max(0.4, 1 - index * 0.08);
+
+      ctx.fillStyle = SACA.body;
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, size, size * 0.7, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Subtle dark shading on each segment
+      if (index % 2 === 0) {
+        ctx.fillStyle = SACA.dark;
+        ctx.globalAlpha = alpha * 0.2;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, size * 0.7, size * 0.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.globalAlpha = 1.0;
+      ctx.restore();
+    }
+
+    // ---- Draw snack items ----
+    function drawSnack(x, y, type) {
+      const cx = x * GRID + GRID / 2;
+      const cy = y * GRID + GRID / 2;
+      const r = GRID / 2 - 3;
+
+      ctx.save();
+
+      // Glow
+      ctx.shadowColor = type.glow;
+      ctx.shadowBlur = 10;
+
+      switch (type.name) {
+        case 'chocolate-cake':
+          // Brown rectangle with frosting layers
+          ctx.fillStyle = type.color;
+          ctx.beginPath();
+          ctx.roundRect(cx - 6, cy - 4, 12, 10, 2);
+          ctx.fill();
+          // Frosting top
+          ctx.fillStyle = type.accent;
+          ctx.beginPath();
+          ctx.roundRect(cx - 7, cy - 6, 14, 4, 2);
+          ctx.fill();
+          // Cherry on top
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = '#e84060';
+          ctx.beginPath();
+          ctx.arc(cx, cy - 7, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+
+        case 'strawberry-cake':
+          // Pink cake with white cream dots
+          ctx.fillStyle = '#f0c0c8';
+          ctx.beginPath();
+          ctx.roundRect(cx - 6, cy - 4, 12, 10, 2);
+          ctx.fill();
+          ctx.fillStyle = type.color;
+          ctx.beginPath();
+          ctx.roundRect(cx - 7, cy - 6, 14, 4, 2);
+          ctx.fill();
+          // Dots
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = '#fff';
+          for (let i = -1; i <= 1; i++) {
+            ctx.beginPath();
+            ctx.arc(cx + i * 4, cy - 5, 1.2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          // Strawberry on top
+          ctx.fillStyle = '#d03050';
+          ctx.beginPath();
+          ctx.ellipse(cx, cy - 7.5, 3, 2.5, 0, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+
+        case 'cookie':
+          // Round cookie with chocolate chips
+          ctx.fillStyle = type.color;
+          ctx.beginPath();
+          ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+          ctx.fill();
+          // Edge darker
+          ctx.shadowBlur = 0;
+          ctx.strokeStyle = '#a07030';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          // Chips
+          ctx.fillStyle = '#4a2810';
+          const chips = [[-3,-2],[2,-3],[-1,3],[3,1]];
+          chips.forEach(([dx, dy]) => {
+            ctx.beginPath();
+            ctx.arc(cx + dx, cy + dy, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+          });
+          break;
+
+        case 'pudding':
+          // Pudding cup shape
+          ctx.fillStyle = type.color;
+          ctx.beginPath();
+          ctx.moveTo(cx - 7, cy - 3);
+          ctx.lineTo(cx - 5, cy + 7);
+          ctx.quadraticCurveTo(cx, cy + 8, cx + 5, cy + 7);
+          ctx.lineTo(cx + 7, cy - 3);
+          ctx.quadraticCurveTo(cx, cy - 6, cx - 7, cy - 3);
+          ctx.fill();
+          // Caramel top
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = type.accent;
+          ctx.beginPath();
+          ctx.ellipse(cx, cy - 3, 7, 3, 0, Math.PI, 0);
+          ctx.fill();
+          // Cream dot
+          ctx.fillStyle = '#fff';
+          ctx.beginPath();
+          ctx.arc(cx, cy - 4, 2, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+      }
+
+      ctx.restore();
+    }
+
+    function draw() {
+      // Background
+      ctx.fillStyle = '#0d1420';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Subtle grid
+      ctx.strokeStyle = '#111927';
+      ctx.lineWidth = 0.5;
+      for (let x = 0; x <= canvas.width; x += GRID) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y <= canvas.height; y += GRID) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+
+      // Food (snack)
+      if (foodType) {
+        drawSnack(food.x, food.y, foodType);
+      }
+
+      // Snake (Sacabambaspis trail)
+      // Draw tail-to-head so head is on top
+      for (let i = snake.length - 1; i >= 1; i--) {
+        const seg = snake[i];
+        const cx = seg.x * GRID + GRID / 2;
+        const cy = seg.y * GRID + GRID / 2;
+        drawSacaBody(cx, cy, i, snake.length);
+      }
+
+      // Head
+      if (snake.length > 0) {
+        const head = snake[0];
+        const hx = head.x * GRID + GRID / 2;
+        const hy = head.y * GRID + GRID / 2;
+        // Head glow
+        ctx.shadowColor = '#e4e1d3';
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = 'transparent';
+        ctx.fillRect(hx, hy, 0, 0);
+        ctx.shadowBlur = 0;
+        drawSacaHead(hx, hy, dir);
+      }
+    }
+
+    function update() {
+      dir = { ...nextDir };
+      const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+
+      // Wall wrap
+      if (head.x < 0) head.x = COLS - 1;
+      if (head.x >= COLS) head.x = 0;
+      if (head.y < 0) head.y = ROWS - 1;
+      if (head.y >= ROWS) head.y = 0;
+
+      // Self collision
+      if (snake.some(s => s.x === head.x && s.y === head.y)) {
+        gameOver();
+        return;
+      }
+
+      snake.unshift(head);
+
+      if (head.x === food.x && head.y === food.y) {
+        score += 10;
+        scoreEl.textContent = 'Snacks: ' + score;
+        speed = Math.max(60, speed - 2);
+        placeFood();
+      } else {
+        snake.pop();
+      }
+    }
+
+    function tick() {
+      if (!running) return;
+      update();
+      draw();
+      gameLoop = setTimeout(tick, speed);
+    }
+
+    function startGame() {
+      overlay.classList.add('hidden');
+      resetGame();
+      running = true;
+      tick();
+    }
+
+    function gameOver() {
+      running = false;
+      clearTimeout(gameLoop);
+      overlay.querySelector('h2').innerHTML = '<em>Snackabambaspis</em>';
+      overlay.querySelector('.sub').textContent = '吃得真多！共 ' + score + ' 分';
+      overlay.querySelector('p').textContent = '按按钮再来一局';
+      overlay.querySelector('.btn').textContent = '再来一局';
+      overlay.classList.remove('hidden');
+    }
+
+    document.addEventListener('keydown', e => {
+      if (!running) {
+        if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d','W','A','S','D'].includes(e.key)) {
+          startGame();
+        }
+        return;
+      }
+      switch (e.key) {
+        case 'ArrowUp': case 'w': case 'W':
+          if (dir.y === 0) nextDir = { x: 0, y: -1 };
+          break;
+        case 'ArrowDown': case 's': case 'S':
+          if (dir.y === 0) nextDir = { x: 0, y: 1 };
+          break;
+        case 'ArrowLeft': case 'a': case 'A':
+          if (dir.x === 0) nextDir = { x: -1, y: 0 };
+          break;
+        case 'ArrowRight': case 'd': case 'D':
+          if (dir.x === 0) nextDir = { x: 1, y: 0 };
+          break;
+      }
+    });
+
+    // Initial draw
+    resetGame();
+    draw();
+  </script>
+</body>
+</html>

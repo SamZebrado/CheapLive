@@ -17,11 +17,11 @@
 | 多设备信令服务器 | 扩展玩法/待开发 | 局域网内多设备协作，需手动搭建 Node.js 服务 |
 | 网页旧多端模式 | 实验性 | 当前部署和真实跨设备连接仍有限制 |
 | CheapLive Capture Android App | ⏸️ 暂停开发 | 功能已移交参赛项目独立开发，比赛结束后酌情恢复 |
-| 参赛演示 Demo | 公开演示 | [双端模拟多设备交互 Demo](src/contest-demo/dual-device-demo.html)；Android APK/源码比赛期间不公开 |
+| 参赛演示 Demo | 公开演示 | [新版互动参赛 Demo](src/contest-demo/contest-interactive-demo.html)（推荐） · [旧版双端模拟 Demo](src/contest-demo/dual-device-demo.html)；Android APK/源码比赛期间不公开 |
 | Live2D Cubism | 规划中 | Demo 阶段冻结，当前不能实际渲染 Live2D 模型 |
 | 透明悬浮浏览器 | 规划中 | 当前尚未实现 |
 
-**可体验入口**：[单机面捕 Demo](src/face-tracking/index.html) | [🏆 CheapLive 参赛 Demo / 多端互动演示](src/contest-demo/dual-device-demo.html)
+**可体验入口**：[单机面捕 Demo](src/face-tracking/index.html) | [🏆 新版互动参赛 Demo](src/contest-demo/contest-interactive-demo.html)（推荐） | [旧版双端模拟 Demo](src/contest-demo/dual-device-demo.html)
 
 ---
 
