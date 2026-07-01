@@ -673,160 +673,44 @@
       }
     }
 
-    // Fallback: 2D 渲染
-    ctx.fillStyle = '#11111f';
+    // Fallback: 3D 渲染器未就绪 → 显示覆盖提示，不画错误 2D
+    ctx.fillStyle = '#0a0a10';
     ctx.fillRect(0, 0, w, h);
 
-    var colors = getAvatarColors(appState.avatar);
-    var cx = w / 2;
-    var cy = h / 2;
-
-    // 呼吸/弹跳动画
-    var bounce = 0;
-    if (appState.avatarAction === 'bounce') {
-      bounce = Math.abs(Math.sin(animTime * 0.15)) * 15;
-    } else {
-      bounce = Math.sin(animTime * 0.05) * 3;
-    }
-
-    // 点头动画
-    var nodAngle = 0;
-    if (appState.avatarAction === 'nod') {
-      nodAngle = Math.sin(animTime * 0.12) * 0.15;
-    }
-
-    // 左右看
-    var lookOffset = 0;
-    if (appState.avatarAction === 'look') {
-      lookOffset = Math.sin(animTime * 0.08) * 12;
-    }
-
-    // 摇尾巴
-    var tailWave = 0;
-    if (appState.avatarAction === 'tail') {
-      tailWave = Math.sin(animTime * 0.2) * 25;
-    } else {
-      tailWave = Math.sin(animTime * 0.06) * 8;
-    }
-
-    ctx.save();
-    ctx.translate(cx, cy - bounce);
-    ctx.rotate(nodAngle);
-
-    // 身体（椭圆纺锤）
-    var bodyW = 180;
-    var bodyH = 120;
-    var grad = ctx.createRadialGradient(-30, -20, 10, 0, 0, bodyW / 2);
-    grad.addColorStop(0, colors.body);
-    grad.addColorStop(1, colors.dark);
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, bodyW / 2, bodyH / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#2b2a30';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // 耳朵（根据 avatar 类型）
-    if (appState.avatar === 'cat' || appState.avatar === 'fox' || appState.avatar === 'bear') {
-      ctx.fillStyle = colors.dark;
-      ctx.beginPath();
-      ctx.moveTo(-50, -45);
-      ctx.lineTo(-35, -75);
-      ctx.lineTo(-20, -45);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(20, -45);
-      ctx.lineTo(35, -75);
-      ctx.lineTo(50, -45);
-      ctx.fill();
-    } else if (appState.avatar === 'rabbit') {
-      ctx.fillStyle = colors.body;
-      ctx.beginPath();
-      ctx.ellipse(-25, -60, 8, 25, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(25, -60, 8, 25, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // 眼睛
-    var eyeY = -15;
-    var eyeOffset = lookOffset;
-    var eyeSize = 12;
-    var pupilSize = 5;
-
-    // 眨眼
-    if (appState.avatarExpression === 'blink') {
-      eyeSize = 2;
-      pupilSize = 0;
-    }
-
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.ellipse(-30 + eyeOffset, eyeY, eyeSize, eyeSize * 0.7, 0, 0, Math.PI * 2);
-    ctx.ellipse(30 + eyeOffset, eyeY, eyeSize, eyeSize * 0.7, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    if (pupilSize > 0) {
-      ctx.fillStyle = '#111';
-      ctx.beginPath();
-      ctx.arc(-30 + eyeOffset, eyeY, pupilSize, 0, Math.PI * 2);
-      ctx.arc(30 + eyeOffset, eyeY, pupilSize, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // 嘴巴
-    ctx.fillStyle = '#2a1010';
-    ctx.strokeStyle = '#3a3020';
-    ctx.lineWidth = 2;
-    if (appState.avatarExpression === 'mouth') {
-      // 张嘴
-      ctx.beginPath();
-      ctx.ellipse(eyeOffset, 25, 14, 16, 0, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (appState.avatarExpression === 'smile') {
-      // 微笑
-      ctx.beginPath();
-      ctx.moveTo(-15 + eyeOffset, 22);
-      ctx.quadraticCurveTo(eyeOffset, 35, 15 + eyeOffset, 22);
-      ctx.stroke();
-    } else if (appState.avatarExpression === 'wide') {
-      // 惊讶（圆嘴）
-      ctx.beginPath();
-      ctx.arc(eyeOffset, 25, 8, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      // 默认闭嘴
-      ctx.beginPath();
-      ctx.moveTo(-10 + eyeOffset, 25);
-      ctx.quadraticCurveTo(eyeOffset, 28, 10 + eyeOffset, 25);
-      ctx.stroke();
-    }
-
-    // 尾巴
-    ctx.beginPath();
-    ctx.moveTo(bodyW / 2, 0);
-    ctx.quadraticCurveTo(bodyW / 2 + 40, -20, bodyW / 2 + 80, tailWave);
-    ctx.quadraticCurveTo(bodyW / 2 + 40, 20, bodyW / 2, 10);
-    ctx.fillStyle = colors.dark;
-    ctx.fill();
-    ctx.strokeStyle = '#333';
-    ctx.stroke();
-
-    ctx.restore();
-
-    // Avatar 名称标签
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.font = '12px system-ui';
+    var errMsg = '3D 渲染器尚未加载。请检查网络，或点击下方「重试 3D 渲染器」。';
+    ctx.fillStyle = '#e0e0e0';
+    ctx.font = 'bold 14px system-ui';
     ctx.textAlign = 'center';
-    var label = appState.avatar;
-    if (appState.avatarExpression) label += ' · ' + appState.avatarExpression;
-    if (appState.avatarAction) label += ' · ' + appState.avatarAction;
-    ctx.fillText(label, w / 2, h - 12);
+    ctx.fillText('3D 渲染器不可用', w / 2, h / 2 - 24);
+    ctx.font = '11px system-ui';
+    ctx.fillStyle = '#8896b3';
+    var lines = errMsg.split('。');
+    for (var li = 0; li < lines.length; li++) {
+      if (lines[li]) ctx.fillText(lines[li], w / 2, h / 2 + 4 + li * 18);
+    }
 
-    if (animTime % 60 === 0) document.title = '2D:' + appState.avatar + '|w=' + w + '|h=' + h;
+    if (animTime % 60 === 0) document.title = 'NO3D:' + appState.avatar;
+
+    var overlay = document.getElementById('stageOverlay');
+    if (overlay) {
+      overlay.className = 'stage-overlay simulated';
+      overlay.innerHTML = '3D 渲染器未就绪 <button onclick="retryRenderer()" style="margin-left:8px;padding:2px 10px;font-size:11px;background:rgba(79,195,247,0.2);border:1px solid rgba(79,195,247,0.5);color:#4fc3f7;border-radius:4px;cursor:pointer;">重试 3D 渲染器</button>';
+    }
+
+    return;
   }
+
+  function retryRenderer() {
+    log('手动重试 3D 渲染器...', 'info');
+    var result = initProcRenderer(appState.avatar || 'sacabambaspis');
+    document.title = 'RDR:' + (result ? 'OK' : 'FAIL') + ':' + appState.avatar;
+    if (result) {
+      log('3D 渲染器重新初始化成功', 'success');
+    } else {
+      log('3D 渲染器重试失败', 'error');
+    }
+  }
+  window.retryRenderer = retryRenderer;
 
   function drawRealFrame() {
     if (!faceFrame) { drawSimulatedAvatar(); return; }
