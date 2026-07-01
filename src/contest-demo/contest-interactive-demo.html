@@ -95,6 +95,11 @@
         </div>
         <div class="field"><span>当前预设</span><span class="val" id="voicePresetDisplay" style="color:var(--cl-text-muted)">原声</span></div>
         <div class="field"><span>麦克风音量</span><span class="val" id="micLevelVal" style="color:var(--cl-text-muted)">—</span></div>
+        <div class="toggle-row">
+          <label>本地监听</label>
+          <button class="btn btn-ghost btn-sm" id="monitorBtn" onclick="toggleMicMonitor()" style="font-size:10px;padding:3px 8px;">监听麦克风</button>
+          <span class="val" id="monitorStatus" style="font-size:9px;color:var(--cl-text-muted)">监听已关闭</span>
+        </div>
         <div style="font-size:9px;color:var(--cl-text-dim);padding-top:4px">
           麦克风输入用于音量检测和后续变声扩展；完整直播音频路由是未来方向。
         </div>
@@ -138,7 +143,7 @@
         </div>
       </div>
       <button class="btn btn-ghost btn-sm" onclick="toggleShowcase()">应用模式（透明背景）</button>
-      <button class="btn btn-ghost btn-sm" onclick="openGuide()">体验多端面部捕捉</button>
+      <button class="btn btn-ghost btn-sm" onclick="openGuide()">多端面部捕捉演示</button>
     </div>
   </div>
 
@@ -154,7 +159,7 @@
       <!-- Floating Window (TransparentFloatingBrowser 模拟) -->
       <div class="floating-window fw-edit-mode" id="floatingWindow">
         <div class="fw-top-bar" id="fwTopBar">CheapLive Receiver</div>
-        <div class="fw-content">
+        <div class="fw-content" id="fwContent">
           <canvas id="fwAvatarCanvas" width="180" height="170"></canvas>
         </div>
         <div class="fw-resize" id="fwResize"></div>

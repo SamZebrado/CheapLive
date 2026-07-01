@@ -286,7 +286,6 @@ body {
 }
 /* Floating window mode states */
 .floating-window.fw-display-mode {
-  opacity: 0.6;
   pointer-events: none;
 }
 .floating-window.fw-display-mode .fw-top-bar {
@@ -295,9 +294,14 @@ body {
 .floating-window.fw-display-mode .fw-resize {
   display: none;
 }
+.floating-window.fw-display-mode .fw-content {
+  opacity: 0.7;
+}
 .floating-window.fw-edit-mode {
-  opacity: 1;
   pointer-events: auto;
+}
+.floating-window.fw-edit-mode .fw-content {
+  opacity: 1;
 }
 .floating-window.fw-edit-mode .fw-top-bar {
   box-shadow: 0 0 8px rgba(74,144,217,0.4);
@@ -670,6 +674,7 @@ body {
   border-bottom: 8px solid var(--cl-accent);
 }
 
+/* ====== Showcase mode (transparent avatar bg) ====== */
 /* ====== Showcase mode (transparent avatar bg) ====== */
 .panel-body.showcase-mode {
   background: transparent !important;

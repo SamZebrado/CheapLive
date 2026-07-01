@@ -12,9 +12,21 @@ const state = {
   voiceOn: false,
   voicePreset: 'original',
   guideStep: 0,
+  appMode: false,
+  faceScale: 1.0,
+  mouthSensitivity: 1.0, 
+  blinkSensitivity: 1.0,
+  smileSensitivity: 1.0,
+  keyColor: '#00ff00',
   floatingMode: 'edit', // 'edit' | 'display'
   // Simulated face params
-  faceParams: { mouthOpen: 0, blink: 0, yaw: 0, pitch: 0, smile: 0 },
+  // Unified face state (updated by real tracker or simulated)
+  faceParams: {
+    mouthOpen: 0, blink: 0, yaw: 0.5, pitch: 0.5, smile: 0,
+    eyeLeft: 1, eyeRight: 1, faceDetected: false,
+  },
+  micLevel: 0,
+  micMonitorOn: false,
 };
 
 const VOICE_PRESETS = [
@@ -108,32 +120,43 @@ function drawAvatar(ctx, w, h, avatar, params, scale) {
 }
 
 function drawSacabambaspis(ctx, cx, cy, p, s) {
-  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
-  const blink = Math.max(0, Math.min(1, p.blink));
-  const yaw = p.yaw * 30 * s;
-  const mouthH = mouth * 12 * s;
-  const eyeH = (1 - blink) * 5 * s;
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen || 0));
+  const blinkR = Math.max(0, Math.min(1, 1 - (p.eyeRight !== undefined ? p.eyeRight : (1 - (p.blink || 0)))));
+  const yawOffset = ((p.yaw || 0.5) - 0.5) * 40 * s;
+  const pitchOffset = ((p.pitch || 0.5) - 0.5) * 15 * s;
+  const smile = Math.max(0, Math.min(1, p.smile || 0));
+  const mouthH = (mouth + smile * 0.3) * 12 * s;
+  const eyeH = Math.max(1, (1 - blinkR) * 6 * s);
 
   ctx.save();
-  ctx.translate(cx + yaw * 0.3, cy);
+  ctx.translate(cx + yawOffset * 0.4, cy + pitchOffset);
 
-  // Body
+  // Body (ellipse)
   ctx.fillStyle = '#e4e1d3';
   ctx.beginPath();
   ctx.ellipse(0, 0, 70 * s, 35 * s, 0, 0, Math.PI * 2);
   ctx.fill();
 
+  // Body outline
+  ctx.strokeStyle = 'rgba(120,115,100,0.3)';
+  ctx.lineWidth = 1.5 * s;
+  ctx.stroke();
+
   // Back shading
-  ctx.fillStyle = 'rgba(138,135,120,0.3)';
+  ctx.fillStyle = 'rgba(138,135,120,0.25)';
   ctx.beginPath();
   ctx.ellipse(-10 * s, 0, 55 * s, 25 * s, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Spot
-  ctx.fillStyle = 'rgba(139,115,85,0.35)';
-  ctx.beginPath();
-  ctx.ellipse(-25 * s, -5 * s, 15 * s, 8 * s, 0.3, 0, Math.PI * 2);
-  ctx.fill();
+  // Armor plates (decorative)
+  ctx.strokeStyle = 'rgba(160,155,135,0.2)';
+  ctx.lineWidth = 1 * s;
+  for (let i = -1; i <= 1; i++) {
+    ctx.beginPath();
+    ctx.moveTo(-30 * s, i * 18 * s);
+    ctx.quadraticCurveTo(-5 * s, i * 22 * s, 30 * s, i * 18 * s);
+    ctx.stroke();
+  }
 
   // Dorsal fin
   ctx.fillStyle = '#c8c4b4';
@@ -144,29 +167,43 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
   ctx.closePath();
   ctx.fill();
 
-  // Mouth
-  if (mouthH > 1) {
-    ctx.fillStyle = '#8a7355';
+  // Mouth (triangular wedge style)
+  const mouthOpen = mouth + smile * 0.5;
+  if (mouthOpen > 0.02) {
+    const tipY = 12 * s * mouthOpen;
+    const hw = 10 * s;
+    ctx.fillStyle = '#2a1810';
     ctx.beginPath();
-    ctx.ellipse(55 * s, 5 * s, 8 * s, mouthH, 0, 0, Math.PI * 2);
+    ctx.moveTo(55 * s - hw, 5 * s);
+    ctx.quadraticCurveTo(55 * s, 5 * s - tipY * 0.4, 55 * s + hw, 5 * s);
+    ctx.lineTo(55 * s, 5 * s + tipY);
+    ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#1a0f08';
+    ctx.lineWidth = Math.max(1, 1.5 * s);
+    ctx.stroke();
   }
 
-  // Eye
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.ellipse(30 * s, -12 * s, 8 * s, Math.max(1, eyeH), 0, 0, Math.PI * 2);
-  ctx.fill();
-  if (eyeH > 2) {
-    ctx.fillStyle = '#1a1a2e';
-    ctx.beginPath();
-    ctx.arc(32 * s, -12 * s, 4 * s, 0, Math.PI * 2);
-    ctx.fill();
+  // Eyes (two separate eyes for independent blink)
+  const drawEye = (ex, ey) => {
+    const eh = Math.max(1, (1 - (1 - (p.eyeRight || 1))) * 6 * s);
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(33 * s, -13 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.ellipse(ex * s, -12 * s, 7 * s, eh, 0, 0, Math.PI * 2);
     ctx.fill();
-  }
+    if (eh > 2) {
+      ctx.fillStyle = '#1a1a2e';
+      ctx.beginPath();
+      ctx.arc(ex * s + 2 * s, -12 * s, 3.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(ex * s + 3 * s, -13 * s, 1.3 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  };
+  drawEye(25, p.eyeLeft !== undefined ? p.eyeLeft : 1);
+  drawEye(40, p.eyeRight !== undefined ? p.eyeRight : 1);
 
   // Tail fin
   ctx.fillStyle = '#c8c4b4';
@@ -182,14 +219,16 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
 }
 
 function drawCat(ctx, cx, cy, p, s) {
-  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
-  const blink = Math.max(0, Math.min(1, p.blink));
-  const yaw = p.yaw * 25 * s;
-  const eyeH = (1 - blink) * 6 * s;
-  const mouthOpen = mouth * 5 * s;
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen || 0));
+  const blinkR = Math.max(0, Math.min(1, 1 - (p.eyeRight !== undefined ? p.eyeRight : (1 - (p.blink || 0)))));
+  const yawOffset = ((p.yaw || 0.5) - 0.5) * 30 * s;
+  const pitchOffset = ((p.pitch || 0.5) - 0.5) * 12 * s;
+  const smile = Math.max(0, Math.min(1, p.smile || 0));
+  const eyeH = Math.max(1, (1 - blinkR) * 7 * s);
+  const mouthOpen = (mouth + smile * 0.4) * 6 * s;
 
   ctx.save();
-  ctx.translate(cx + yaw * 0.3, cy);
+  ctx.translate(cx + yawOffset * 0.35, cy + pitchOffset);
 
   // Head
   ctx.fillStyle = '#ffb347';
@@ -692,8 +731,17 @@ function simLoop(ts) {
   if (!_faceLandmarker) {
     state.faceParams.mouthOpen = 0.5 + 0.5 * Math.sin(simTime * 1.2);
     state.faceParams.blink = Math.max(0, Math.sin(simTime * 3) > 0.95 ? 1 : 0);
-    state.faceParams.yaw = Math.sin(simTime * 0.5);
+    state.faceParams.yaw = 0.5 + 0.5 * Math.sin(simTime * 0.5);
+    state.faceParams.pitch = 0.5 + 0.3 * Math.sin(simTime * 0.7);
     state.faceParams.smile = 0.3 + 0.3 * Math.sin(simTime * 0.8);
+    state.faceParams.eyeLeft = 1 - state.faceParams.blink * 0.8;
+    state.faceParams.eyeRight = 1 - state.faceParams.blink * 0.8;
+  }
+
+  // MicLevel-assisted mouthOpen fallback when no face detected
+  if (_faceLandmarker && !state.faceParams.faceDetected && state.micLevel > 0.02) {
+    const micMouth = Math.min(1, state.micLevel * 2.5);
+    state.faceParams.mouthOpen = Math.max(state.faceParams.mouthOpen || 0, micMouth * 0.6);
   }
 
   // Draw avatar on main canvas
@@ -708,7 +756,20 @@ function simLoop(ts) {
 
   // Draw avatar on floating window
   const fc = document.getElementById('fwAvatarCanvas');
-  drawAvatar(fwCtx, fc.width, fc.height, state.currentAvatar, state.faceParams, fc.width / 360);
+  const fwContent = document.getElementById('fwContent');
+  if (fwContent && state.showcaseMode) {
+    fwContent.style.background = state.keyColor;
+  }
+  if (fwCtx && fc) {
+    if (state.showcaseMode) {
+      fwCtx.fillStyle = state.keyColor;
+      fwCtx.fillRect(0, 0, fc.width, fc.height);
+    } else {
+      fwCtx.fillStyle = '#0d1420';
+      fwCtx.fillRect(0, 0, fc.width, fc.height);
+    }
+    drawAvatar(fwCtx, fc.width, fc.height, state.currentAvatar, state.faceParams, fc.width / 360);
+  }
 
   // Update guide params if open
   const gm = document.getElementById('guideMouth');
@@ -768,7 +829,18 @@ function selectAvatar(avatar, el) {
 function toggleShowcase() {
   state.showcaseMode = !state.showcaseMode;
   const body = document.getElementById('avatarPanelBody');
+  const btn = document.body.querySelector('button[onclick*="toggleShowcase"]');
   body.classList.toggle('showcase-mode', state.showcaseMode);
+  if (btn) btn.textContent = state.showcaseMode ? '返回设置模式' : '应用模式（透明背景）';
+  // In app mode on floating window: use key color background
+  const fwContent = document.getElementById('fwContent');
+  if (fwContent) {
+    fwContent.style.background = state.showcaseMode ? state.keyColor : '';
+  }
+  // Also update main receiver canvas bg
+  if (avatarCtx) {
+    // redraw will happen in simLoop
+  }
 }
 
 function toggleDrawMode() {
@@ -806,6 +878,9 @@ function toggleFloatingMode() {
     btn.textContent = '显示';
     status.textContent = '悬浮窗：显示模式 · 触摸穿透 · 底层可触控';
   }
+  if (document.getElementById('guideOverlay').classList.contains('open')) {
+    updateGuideHighlights();
+  }
 }
 
 // ====== GUIDE ======
@@ -814,14 +889,51 @@ function openGuide() {
   renderGuide();
   document.getElementById('guideOverlay').classList.add('open');
   updateGuideHighlights();
+  _startGuideDynamicListeners();
+}
+
+function _startGuideDynamicListeners() {
+  window.addEventListener('resize', _onGuideDynamicChange);
+  window.addEventListener('scroll', _onGuideDynamicChange, { passive: true });
+  // Observe floating window for size changes
+  const fw = document.getElementById('floatingWindow');
+  if (fw && !_guideResizeObserver) {
+    _guideResizeObserver = new ResizeObserver(() => {
+      if (document.getElementById('guideOverlay').classList.contains('open')) {
+        updateGuideHighlights();
+      }
+    });
+    _guideResizeObserver.observe(fw);
+  }
+  // Observe mode button
+  const mb = document.getElementById('fwModeBtn');
+  if (mb && _guideResizeObserver) {
+    _guideResizeObserver.observe(mb);
+  }
+}
+
+function _onGuideDynamicChange() {
+  if (document.getElementById('guideOverlay').classList.contains('open')) {
+    updateGuideHighlights();
+  }
+}
+
+function _stopGuideDynamicListeners() {
+  window.removeEventListener('resize', _onGuideDynamicChange);
+  window.removeEventListener('scroll', _onGuideDynamicChange);
 }
 
 function closeGuide() {
   document.getElementById('guideOverlay').classList.remove('open');
   clearGuideHighlights();
+  _stopGuideDynamicListeners();
 }
 
 function guideNav(dir) {
+  if (state.guideStep === GUIDE_STEPS.length - 1 && dir === 1) {
+    closeGuide();
+    return;
+  }
   state.guideStep = Math.max(0, Math.min(GUIDE_STEPS.length - 1, state.guideStep + dir));
   renderGuide();
   if (state.guideStep === GUIDE_STEPS.length - 1) {
@@ -860,7 +972,17 @@ const GUIDE_TARGETS = [
   { el: '#gamePanel', bubble: '直播端应用场景', pos: 'left' },
 ];
 
+let _guideResizeRAF = null, _guideResizeObserver = null;
+
 function updateGuideHighlights() {
+  // Use rAF to ensure layout is settled
+  if (_guideResizeRAF) cancelAnimationFrame(_guideResizeRAF);
+  _guideResizeRAF = requestAnimationFrame(() => {
+    _updateGuideHighlightsNow();
+  });
+}
+
+function _updateGuideHighlightsNow() {
   clearGuideHighlights();
   const cfg = GUIDE_TARGETS[state.guideStep];
   if (!cfg) return;
@@ -1074,12 +1196,22 @@ function updateFaceParamsFromBlendshapes(blendshapes, matrices) {
   state.faceParams.mouthOpen = mouthOpen;
   state.faceParams.blink = Math.max(blinkLeft, blinkRight);
   state.faceParams.smile = (smileLeft + smileRight) / 2;
+  state.faceParams.eyeLeft = 1 - blinkLeft;
+  state.faceParams.eyeRight = 1 - blinkRight;
+  state.faceParams.faceDetected = true;
 
   if (matrices && matrices.length > 0) {
     const m = matrices[0].data;
+    const sy = Math.sqrt(m[0] * m[0] + m[4] * m[4]);
     const yaw = Math.atan2(m[8], m[10]);
     state.faceParams.yaw = (yaw / Math.PI + 1) / 2;
+    if (sy > 0.001) {
+      const pitch = Math.atan2(-m[9], sy);
+      state.faceParams.pitch = 1 - ((pitch / (Math.PI / 2) + 1) / 2);
+    }
   }
+
+  applyFaceParamsToAvatars(state.faceParams);
 
   document.getElementById('cameraPerm').textContent = '已授权 · 面捕运行中';
   document.getElementById('cameraPerm').style.color = 'var(--cl-green)';
@@ -1102,11 +1234,83 @@ function stopFaceTracking() {
   perm.style.color = 'var(--cl-text-muted)';
 }
 
+// ====== APPLY FACE PARAMS TO AVATARS ======
+function applyFaceParamsToAvatars(fp) {
+  state.faceParams.faceDetected = fp.faceDetected;
+  // Both avatars share the same faceParams object, drawn in simLoop
+  // This function also handles micLevel-assisted mouthOpen fallback
+}
+
+function applyFaceParamsToState(fp) {
+  // Called by face tracker with raw params — normalizes and stores
+  state.faceParams.mouthOpen = fp.mouthOpen || 0;
+  state.faceParams.blink = fp.blink || 0;
+  state.faceParams.yaw = fp.yaw !== undefined ? fp.yaw : 0.5;
+  state.faceParams.pitch = fp.pitch !== undefined ? fp.pitch : 0.5;
+  state.faceParams.smile = fp.smile || 0;
+  state.faceParams.eyeLeft = fp.eyeLeft !== undefined ? fp.eyeLeft : 1;
+  state.faceParams.eyeRight = fp.eyeRight !== undefined ? fp.eyeRight : 1;
+  state.faceParams.faceDetected = fp.faceDetected || false;
+}
+
 // ====== MIC LEVEL (Web Audio API) ======
 let _micAudioContext = null;
 let _micAnalyser = null;
 let _micStream = null;
 let _micInterval = null;
+let _micSource = null;
+let _micGain = null;
+let _micDestinationConnected = false;
+
+function toggleMicMonitor() {
+  if (!_micAudioContext || !_micAnalyser) {
+    alert('请先开启麦克风');
+    return;
+  }
+  if (_micDestinationConnected) {
+    stopMicMonitor();
+    return;
+  }
+  startMicMonitor();
+}
+
+function startMicMonitor() {
+  if (_micDestinationConnected) return;
+  try {
+    if (_micAudioContext.state === 'suspended') {
+      _micAudioContext.resume();
+    }
+    if (!_micGain) {
+      _micGain = _micAudioContext.createGain();
+      _micGain.gain.value = 0.8;
+    }
+    _micSource.connect(_micGain);
+    _micGain.connect(_micAudioContext.destination);
+    _micDestinationConnected = true;
+    state.micMonitorOn = true;
+    document.getElementById('monitorBtn').textContent = '关闭监听';
+    document.getElementById('monitorStatus').textContent = '监听中';
+    document.getElementById('monitorStatus').style.color = 'var(--cl-green)';
+  } catch(e) {
+    console.error('Monitor error:', e);
+    document.getElementById('monitorStatus').textContent = '启动失败: ' + (e.message || '');
+  }
+}
+
+function stopMicMonitor() {
+  if (!_micDestinationConnected) return;
+  try {
+    if (_micGain) {
+      _micGain.disconnect();
+      _micSource.disconnect();
+    }
+    _micDestinationConnected = false;
+    state.micMonitorOn = false;
+    document.getElementById('monitorBtn').textContent = '监听麦克风';
+    document.getElementById('monitorStatus').textContent = '监听已关闭';
+    document.getElementById('monitorStatus').style.color = 'var(--cl-text-muted)';
+  } catch(e) {}
+}
 
 async function startMicLevel() {
   if (_micAudioContext) {
@@ -1124,10 +1328,12 @@ async function startMicLevel() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     _micStream = stream;
     _micAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const source = _micAudioContext.createMediaStreamSource(stream);
+    _micSource = _micAudioContext.createMediaStreamSource(stream);
     _micAnalyser = _micAudioContext.createAnalyser();
     _micAnalyser.fftSize = 256;
-    source.connect(_micAnalyser);
+    _micSource.connect(_micAnalyser);
+    // NOTE: source is NOT connected to destination by default
+    // User must click "监听麦克风" to hear audio output
 
     const dataArray = new Uint8Array(_micAnalyser.frequencyBinCount);
 
@@ -1137,6 +1343,7 @@ async function startMicLevel() {
       for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
       const avg = sum / dataArray.length;
       const normalized = Math.min(1, avg / 128);
+      state.micLevel = normalized;
       const valEl = document.getElementById('micLevelVal');
       if (valEl) valEl.textContent = normalized.toFixed(2);
       perm.textContent = '已授权 · 音量: ' + (normalized * 100).toFixed(0) + '%';
@@ -1169,6 +1376,14 @@ function stopMicLevel() {
     _micStream.getTracks().forEach(t => t.stop());
     _micStream = null;
   }
+  if (_micGain) {
+    try { _micGain.disconnect(); } catch(e) {}
+    _micGain = null;
+  }
+  _micSource = null;
+  _micDestinationConnected = false;
+  state.micMonitorOn = false;
+  state.micLevel = 0;
   const toggle = document.getElementById('voiceToggle');
   const perm = document.getElementById('micPerm');
   const valEl = document.getElementById('micLevelVal');
