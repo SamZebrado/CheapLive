@@ -60,6 +60,7 @@ class HomeActivity : AppCompatActivity() {
         buildTopBar(root)
         buildAvatarEntryCard(root)
         buildCaptureEntryCard(root)
+        buildAudioEntryCard(root)
         buildInfoCard(root)
 
         setContentView(scroll)
@@ -188,6 +189,47 @@ class HomeActivity : AppCompatActivity() {
         root.addView(card)
     }
 
+    private fun buildAudioEntryCard(root: LinearLayout) {
+        val card = makeCard()
+        addCardTitle(card, "🎧 声音输入与变声", "测试")
+
+        val desc = TextView(this).apply {
+            text = "麦克风音量检测、局域网 receiver、简单非 AI 变声原型。支持多设备通过 LAN URL 查看音量和变声效果。"
+            textSize = 12f
+            setTextColor(cTextSec)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        card.addView(desc)
+
+        val featureList = TextView(this).apply {
+            text = buildString {
+                append("✓ 麦克风音量采集与实时监控\n")
+                append("✓ 简单变声效果（off / robot / low-pass / monster）\n")
+                append("✓ 局域网 LAN URL + QR 二维码\n")
+                append("✓ WebSocket 接收端双表显示\n")
+                append("○ 完整直播音频路由未完成")
+            }
+            textSize = 11f
+            setTextColor(cTextMuted)
+            setPadding(20, 12, 20, 12)
+            setBackgroundColor(cBgSecondary)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        card.addView(featureList)
+
+        val btn = makeSecondaryButton("开始声音输入测试")
+        btn.setOnClickListener {
+            startActivity(Intent(this, MainActivity::class.java).putExtra("MODE", "MIN_AUDIO_TEST"))
+        }
+        card.addView(btn)
+
+        root.addView(card)
+    }
+
     private fun buildInfoCard(root: LinearLayout) {
         val card = makeCard()
         addCardTitle(card, "ℹ️ 关于", "版本信息")
@@ -282,6 +324,21 @@ class HomeActivity : AppCompatActivity() {
             layoutParams = lp
             setPadding(0, 28, 0, 28)
             background = createRoundedDrawable(cAccent, radiusXs)
+        }
+    }
+
+    private fun makeSecondaryButton(text: String): Button {
+        return Button(this).apply {
+            this.text = text
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cBg)
+            setBackgroundColor(cAccent2)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = 8
+            layoutParams = lp
+            setPadding(0, 28, 0, 28)
+            background = createRoundedDrawable(cAccent2, radiusXs)
         }
     }
 
