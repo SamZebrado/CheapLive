@@ -614,6 +614,7 @@ function onModeBtnMove(e) {
   const newTop = Math.max(8, Math.min(maxTop, modeBtnStartTop + e.clientY - modeBtnStartY));
   btn.style.top = newTop + 'px';
   btn.style.bottom = 'auto';
+  btn.style.transform = 'none';
 }
 
 function onModeBtnMoveTouch(e) {
@@ -629,6 +630,7 @@ function onModeBtnMoveTouch(e) {
   const newTop = Math.max(8, Math.min(maxTop, modeBtnStartTop + e.touches[0].clientY - modeBtnStartY));
   btn.style.top = newTop + 'px';
   btn.style.bottom = 'auto';
+  btn.style.transform = 'none';
 }
 
 // Extend onFWEnd to also handle mode button

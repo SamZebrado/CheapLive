@@ -150,14 +150,14 @@
       <canvas id="gameCanvas"></canvas>
 
       <!-- Floating Window (TransparentFloatingBrowser 模拟) -->
-      <div class="floating-window" id="floatingWindow">
+      <div class="floating-window fw-edit-mode" id="floatingWindow">
         <div class="fw-top-bar" id="fwTopBar">CheapLive Receiver</div>
         <div class="fw-content">
           <canvas id="fwAvatarCanvas" width="180" height="170"></canvas>
         </div>
         <div class="fw-resize" id="fwResize"></div>
-        <div class="fw-interact" id="fwInteract" onclick="togglePassthrough()" title="点击切换交互/穿透"></div>
       </div>
+      <button id="fwModeBtn" class="fw-mode-btn" onclick="toggleFloatingMode()">编辑</button>
     </div>
     <div class="ctrl-row">
       <button class="btn btn-ghost btn-sm" id="drawModeBtn" onclick="toggleDrawMode()">涂鸦模式（触控穿透演示）</button>
