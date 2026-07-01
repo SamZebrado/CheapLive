@@ -270,7 +270,7 @@ body {
 }
 .fw-content {
   flex: 1;
-  background: var(--cl-bg2);
+  background: transparent;
   position: relative;
   overflow: hidden;
 }
@@ -294,13 +294,13 @@ body {
 .floating-window.fw-display-mode .fw-resize {
   display: none;
 }
-.floating-window.fw-display-mode .fw-content {
-  opacity: 0.7;
+.floating-window.fw-display-mode .fw-content canvas {
+  opacity: 0.75;
 }
 .floating-window.fw-edit-mode {
   pointer-events: auto;
 }
-.floating-window.fw-edit-mode .fw-content {
+.floating-window.fw-edit-mode .fw-content canvas {
   opacity: 1;
 }
 .floating-window.fw-edit-mode .fw-top-bar {

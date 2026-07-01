@@ -5,7 +5,7 @@
 
 // ====== STATE ======
 const state = {
-  currentAvatar: 'sacabambaspis',
+  currentAvatar: 'sacabambaspis3d',
   showcaseMode: false,
   drawMode: false,
   captureOn: true,
@@ -27,18 +27,20 @@ const state = {
   },
   micLevel: 0,
   micMonitorOn: false,
+  effectMode: 'off',
+  processedLevel: 0,
 };
 
 const VOICE_PRESETS = [
-  { id: 'original', name: '原声' },
-  { id: 'cute', name: '可爱' },
+  { id: 'off', name: '原声' },
   { id: 'robot', name: '机器人' },
-  { id: 'deep', name: '低沉' },
-  { id: 'radio', name: '电台' },
+  { id: 'lowpass', name: '低通' },
+  { id: 'monster', name: '怪兽' },
 ];
 
 const AVATAR_NAMES = {
-  sacabambaspis: 'Sacabambaspis',
+  sacabambaspis3d: '3D Sacabambaspis',
+  sacabambaspis: '2D 萨卡班',
   cat: '猫 Cat',
   dog: '狗 Dog',
   rabbit: '兔子 Rabbit',
@@ -106,15 +108,46 @@ function initAvatarCanvas() {
 
 function drawAvatar(ctx, w, h, avatar, params, scale) {
   scale = scale || 1;
-  ctx.clearRect(0, 0, w, h);
   const cx = w / 2;
   const cy = h / 2;
+  const isShowcase = state.showcaseMode;
 
-  if (avatar === 'sacabambaspis') {
+  if (avatar === 'sacabambaspis3d') {
+    if (isShowcase) {
+      // Transparent bg + draw 3D avatar
+      ctx.clearRect(0, 0, w, h);
+    } else {
+      ctx.fillStyle = '#0d1420';
+      ctx.fillRect(0, 0, w, h);
+    }
+    // Insert 3D draw function inline
+    drawSacabambaspis3D(ctx, cx, cy, params, scale);
+  } else if (avatar === 'sacabambaspis') {
+    if (isShowcase) {
+      ctx.clearRect(0, 0, w, h);
+    } else {
+      ctx.fillStyle = '#0d1420';
+      ctx.fillRect(0, 0, w, h);
+    }
+    ctx.clearRect(0, 0, w, h);
+    if (!isShowcase) {
+      ctx.fillStyle = '#0d1420';
+      ctx.fillRect(0, 0, w, h);
+    }
     drawSacabambaspis(ctx, cx, cy, params, scale);
   } else if (avatar === 'cat') {
+    ctx.clearRect(0, 0, w, h);
+    if (!isShowcase) {
+      ctx.fillStyle = '#0d1420';
+      ctx.fillRect(0, 0, w, h);
+    }
     drawCat(ctx, cx, cy, params, scale);
   } else {
+    ctx.clearRect(0, 0, w, h);
+    if (!isShowcase) {
+      ctx.fillStyle = '#0d1420';
+      ctx.fillRect(0, 0, w, h);
+    }
     drawPlaceholder(ctx, cx, cy, avatar, scale);
   }
 }
@@ -214,6 +247,202 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
   ctx.lineTo(-85 * s, 20 * s);
   ctx.closePath();
   ctx.fill();
+
+  ctx.restore();
+}
+
+function drawSacabambaspis3D(ctx, cx, cy, p, s) {
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen || 0));
+  const blinkL = 1 - Math.max(0, Math.min(1, 1 - (p.eyeLeft !== undefined ? p.eyeLeft : 1)));
+  const blinkR = 1 - Math.max(0, Math.min(1, 1 - (p.eyeRight !== undefined ? p.eyeRight : 1)));
+  const yawNorm = (p.yaw || 0.5) - 0.5;
+  const pitchNorm = (p.pitch || 0.5) - 0.5;
+  const smile = Math.max(0, Math.min(1, p.smile || 0));
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // ===== 3D Body: shadow -> base -> highlight layers =====
+  // Shadow drop
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.beginPath();
+  ctx.ellipse(4 * s, 6 * s, 68 * s, 34 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Main body gradient (top-bottom for 3D volume)
+  const bodyGrad = ctx.createLinearGradient(0, -35 * s, 0, 35 * s);
+  bodyGrad.addColorStop(0, '#dad5c4');
+  bodyGrad.addColorStop(0.35, '#e8e4d8');
+  bodyGrad.addColorStop(0.55, '#f2efe5');
+  bodyGrad.addColorStop(0.8, '#d4cfbc');
+  bodyGrad.addColorStop(1, '#b8b29a');
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 70 * s, 35 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body outline
+  ctx.strokeStyle = 'rgba(100,95,80,0.35)';
+  ctx.lineWidth = 1.8 * s;
+  ctx.stroke();
+
+  // ===== Armor plates (3D perspective lines) =====
+  ctx.strokeStyle = 'rgba(140,130,105,0.3)';
+  ctx.lineWidth = 1.8 * s;
+  // Horizontal bands
+  for (let i = -1; i <= 1; i++) {
+    ctx.beginPath();
+    ctx.moveTo(-50 * s, i * 20 * s);
+    ctx.quadraticCurveTo(5 * s, i * 24 * s, 50 * s, i * 18 * s);
+    ctx.stroke();
+  }
+  // Vertical center line (dorsal ridge)
+  ctx.strokeStyle = 'rgba(160,150,120,0.25)';
+  ctx.lineWidth = 2 * s;
+  ctx.beginPath();
+  ctx.moveTo(0, -30 * s);
+  ctx.quadraticCurveTo(8 * s, 0, 0, 32 * s);
+  ctx.stroke();
+  // Side armor lines
+  ctx.strokeStyle = 'rgba(130,120,95,0.18)';
+  ctx.lineWidth = 1.2 * s;
+  for (let side = -1; side <= 1; side += 2) {
+    ctx.beginPath();
+    ctx.moveTo(side * 20 * s, -22 * s);
+    ctx.quadraticCurveTo(side * 25 * s, 5 * s, side * 15 * s, 28 * s);
+    ctx.stroke();
+  }
+
+  // ===== 3D rotation effect via yaw/pitch shading =====
+  if (Math.abs(yawNorm) > 0.02) {
+    const shadeAlpha = Math.min(0.35, Math.abs(yawNorm) * 0.5);
+    const shadeDir = yawNorm > 0 ? -1 : 1;
+    const shadeGrad = ctx.createLinearGradient(shadeDir * 60 * s, 0, shadeDir * -40 * s, 0);
+    shadeGrad.addColorStop(0, 'rgba(80,70,50,' + shadeAlpha + ')');
+    shadeGrad.addColorStop(0.5, 'rgba(80,70,50,0)');
+    shadeGrad.addColorStop(1, 'rgba(255,255,240,' + (shadeAlpha * 0.6) + ')');
+    ctx.fillStyle = shadeGrad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 70 * s, 35 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // ===== Dorsal fin (3D) =====
+  ctx.fillStyle = '#c0baa8';
+  ctx.beginPath();
+  ctx.moveTo(-18 * s, -28 * s);
+  ctx.lineTo(-35 * s, -58 * s);
+  ctx.lineTo(-5 * s, -52 * s);
+  ctx.lineTo(5 * s, -28 * s);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(100,95,80,0.3)';
+  ctx.lineWidth = 1 * s;
+  ctx.stroke();
+  // Fin highlight
+  ctx.fillStyle = 'rgba(220,215,200,0.4)';
+  ctx.beginPath();
+  ctx.moveTo(-15 * s, -30 * s);
+  ctx.lineTo(-30 * s, -52 * s);
+  ctx.lineTo(-10 * s, -46 * s);
+  ctx.lineTo(2 * s, -30 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // ===== Mouth (triangular wedge, 3D depth) =====
+  const mouthOpen = mouth + smile * 0.5;
+  if (mouthOpen > 0.02) {
+    const tipY = 14 * s * mouthOpen;
+    const hw = 12 * s;
+    // Mouth cavity shadow
+    ctx.fillStyle = '#1a0f08';
+    ctx.beginPath();
+    ctx.moveTo(55 * s - hw, 3 * s);
+    ctx.quadraticCurveTo(55 * s, 3 * s - tipY * 0.3, 55 * s + hw, 3 * s);
+    ctx.lineTo(55 * s, 3 * s + tipY);
+    ctx.closePath();
+    ctx.fill();
+    // Mouth inner highlight
+    if (mouthOpen > 0.1) {
+      ctx.fillStyle = 'rgba(60,25,10,0.6)';
+      ctx.beginPath();
+      ctx.ellipse(55 * s, 3 * s + tipY * 0.5, 5 * s, tipY * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.strokeStyle = '#0f0805';
+    ctx.lineWidth = Math.max(1.2, 2 * s);
+    ctx.stroke();
+  }
+
+  // ===== Eyes (two independent eyes with 3D sockets) =====
+  const drawEye3D = (ex, eyeOpen) => {
+    const eOpen = Math.max(0.05, eyeOpen);
+    const eh = eOpen * 6 * s;
+    // Eye socket shadow
+    ctx.fillStyle = 'rgba(60,50,40,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(ex * s, -11 * s, 9 * s, eh + 1.5 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Sclera (white)
+    ctx.fillStyle = '#fafaf7';
+    ctx.beginPath();
+    ctx.ellipse(ex * s, -11 * s, 7.5 * s, eh, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (eh > 1.5) {
+      // Iris
+      ctx.fillStyle = '#2a1a0e';
+      ctx.beginPath();
+      ctx.arc(ex * s + 1 * s, -11 * s, 3.8 * s, 0, Math.PI * 2);
+      ctx.fill();
+      // Pupil
+      ctx.fillStyle = '#0a0808';
+      ctx.beginPath();
+      ctx.arc(ex * s + 1.5 * s, -11 * s, 2.2 * s, 0, Math.PI * 2);
+      ctx.fill();
+      // Highlight
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(ex * s + 2.5 * s, -12.5 * s, 1.4 * s, 0, Math.PI * 2);
+      ctx.fill();
+      // Small secondary highlight
+      ctx.beginPath();
+      ctx.arc(ex * s - 0.5 * s, -10 * s, 0.6 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  };
+  drawEye3D(26, p.eyeLeft !== undefined ? p.eyeLeft : 1);
+  drawEye3D(42, p.eyeRight !== undefined ? p.eyeRight : 1);
+
+  // ===== Tail fin (3D layered) =====
+  const tailSway = Math.sin(Date.now() * 0.002) * 3 * s;
+  ctx.fillStyle = '#b8b298';
+  ctx.beginPath();
+  ctx.moveTo(-62 * s, -2 * s);
+  ctx.quadraticCurveTo(-78 * s, -24 * s + tailSway, -88 * s, -10 * s + tailSway);
+  ctx.quadraticCurveTo(-78 * s, 0, -62 * s, 4 * s);
+  ctx.quadraticCurveTo(-78 * s, 4 * s + tailSway, -88 * s, 16 * s + tailSway);
+  ctx.quadraticCurveTo(-78 * s, 24 * s + tailSway, -62 * s, 2 * s);
+  ctx.closePath();
+  ctx.fill();
+  // Tail highlight
+  ctx.fillStyle = 'rgba(210,200,180,0.5)';
+  ctx.beginPath();
+  ctx.moveTo(-62 * s, -1 * s);
+  ctx.quadraticCurveTo(-76 * s, -16 * s + tailSway, -82 * s, -6 * s + tailSway);
+  ctx.quadraticCurveTo(-76 * s, 0, -62 * s, 3 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // ===== Pectoral fins (side) =====
+  for (let side = -1; side <= 1; side += 2) {
+    ctx.fillStyle = 'rgba(180,175,155,0.7)';
+    ctx.beginPath();
+    ctx.moveTo(side * 30 * s, 20 * s);
+    ctx.quadraticCurveTo(side * 50 * s, 30 * s, side * 40 * s, 22 * s);
+    ctx.quadraticCurveTo(side * 35 * s, 15 * s, side * 28 * s, 18 * s);
+    ctx.closePath();
+    ctx.fill();
+  }
 
   ctx.restore();
 }
@@ -757,17 +986,11 @@ function simLoop(ts) {
   // Draw avatar on floating window
   const fc = document.getElementById('fwAvatarCanvas');
   const fwContent = document.getElementById('fwContent');
-  if (fwContent && state.showcaseMode) {
-    fwContent.style.background = state.keyColor;
+  // Always use keyColor when showcaseMode is on (both edit and display)
+  if (fwContent) {
+    fwContent.style.background = state.showcaseMode ? state.keyColor : '';
   }
   if (fwCtx && fc) {
-    if (state.showcaseMode) {
-      fwCtx.fillStyle = state.keyColor;
-      fwCtx.fillRect(0, 0, fc.width, fc.height);
-    } else {
-      fwCtx.fillStyle = '#0d1420';
-      fwCtx.fillRect(0, 0, fc.width, fc.height);
-    }
     drawAvatar(fwCtx, fc.width, fc.height, state.currentAvatar, state.faceParams, fc.width / 360);
   }
 
@@ -1262,6 +1485,115 @@ let _micSource = null;
 let _micGain = null;
 let _micDestinationConnected = false;
 
+
+// ====== VOICE EFFECT CHAIN ======
+let _voiceEffectNodes = null;
+let _micProcessedAnalyser = null;
+
+function buildEffectChain() {
+  const ctx = _micAudioContext;
+  // Create nodes
+  const input = ctx.createGain();
+  input.gain.value = 1.0;
+
+  // Low-pass filter (shared, used by lowpass/monster)
+  const lowpass = ctx.createBiquadFilter();
+  lowpass.type = 'lowpass';
+  lowpass.frequency.value = 2000;
+  lowpass.Q.value = 1;
+
+  // High-pass for robot
+  const highpass = ctx.createBiquadFilter();
+  highpass.type = 'highpass';
+  highpass.frequency.value = 800;
+  highpass.Q.value = 0.7;
+
+  // Distortion for monster/robot
+  const distortion = ctx.createWaveShaper();
+  distortion.curve = makeDistortionCurve(50);
+  distortion.oversample = '2x';
+
+  const output = ctx.createGain();
+  output.gain.value = 1.0;
+
+  // Connect: input → [effect chain depending on mode] → output
+  // For 'off': input → output
+  // For 'robot': input → highpass → distortion → output
+  // For 'lowpass': input → lowpass → output
+  // For 'monster': input → lowpass → distortion → output
+  input.connect(output); // default dry path
+
+  return { input, lowpass, highpass, distortion, output };
+}
+
+function makeDistortionCurve(amount) {
+  const samples = 256;
+  const curve = new Float32Array(samples);
+  for (let i = 0; i < samples; i++) {
+    const x = (i * 2) / samples - 1;
+    curve[i] = ((Math.PI + amount) * x) / (Math.PI + amount * Math.abs(x));
+  }
+  return curve;
+}
+
+function applyEffectMode(mode) {
+  if (!_voiceEffectNodes) return;
+  const n = _voiceEffectNodes;
+  const ctx = _micAudioContext;
+
+  // Disconnect all
+  try { n.input.disconnect(); } catch(e) {}
+  try { n.lowpass.disconnect(); } catch(e) {}
+  try { n.highpass.disconnect(); } catch(e) {}
+  try { n.distortion.disconnect(); } catch(e) {}
+
+  switch (mode) {
+    case 'off':
+      n.input.connect(n.output);
+      break;
+    case 'lowpass':
+      n.lowpass.frequency.value = 1200;
+      n.input.connect(n.lowpass);
+      n.lowpass.connect(n.output);
+      break;
+    case 'monster':
+      n.lowpass.frequency.value = 800;
+      n.input.connect(n.lowpass);
+      n.lowpass.connect(n.distortion);
+      n.distortion.connect(n.output);
+      n.output.gain.value = 0.7;
+      break;
+    case 'robot':
+      n.highpass.frequency.value = 900;
+      n.input.connect(n.highpass);
+      n.highpass.connect(n.distortion);
+      n.distortion.connect(n.output);
+      n.output.gain.value = 0.6;
+      break;
+    default:
+      n.input.connect(n.output);
+      break;
+  }
+  state.effectMode = mode;
+}
+
+function setVoiceEffect(mode) {
+  if (!_voiceEffectNodes) {
+    document.getElementById('effectStatus').textContent = '请先开启麦克风';
+    return;
+  }
+  applyEffectMode(mode);
+  const preset = VOICE_PRESETS.find(v => v.id === mode);
+  document.getElementById('voicePresetDisplay').textContent = preset ? preset.name : mode;
+  document.getElementById('effectStatus').textContent = mode === 'off' ? '无效果' : '效果: ' + (preset ? preset.name : mode);
+  document.getElementById('effectStatus').style.color = mode === 'off' ? 'var(--cl-text-muted)' : 'var(--cl-accent)';
+  // Rebuild monitor connection with new effect chain if monitor is on
+  if (_micDestinationConnected) {
+    stopMicMonitor();
+    startMicMonitor();
+  }
+}
+
 function toggleMicMonitor() {
   if (!_micAudioContext || !_micAnalyser) {
     alert('请先开启麦克风');
@@ -1284,13 +1616,16 @@ function startMicMonitor() {
       _micGain = _micAudioContext.createGain();
       _micGain.gain.value = 0.8;
     }
-    _micSource.connect(_micGain);
-    _micGain.connect(_micAudioContext.destination);
-    _micDestinationConnected = true;
-    state.micMonitorOn = true;
-    document.getElementById('monitorBtn').textContent = '关闭监听';
-    document.getElementById('monitorStatus').textContent = '监听中';
-    document.getElementById('monitorStatus').style.color = 'var(--cl-green)';
+    // Connect effect chain output → micGain → destination
+    if (_voiceEffectNodes) {
+      _voiceEffectNodes.output.connect(_micGain);
+      _micGain.connect(_micAudioContext.destination);
+      _micDestinationConnected = true;
+      state.micMonitorOn = true;
+      document.getElementById('monitorBtn').textContent = '关闭监听';
+      document.getElementById('monitorStatus').textContent = '监听中';
+      document.getElementById('monitorStatus').style.color = 'var(--cl-green)';
+    }
   } catch(e) {
     console.error('Monitor error:', e);
     document.getElementById('monitorStatus').textContent = '启动失败: ' + (e.message || '');
@@ -1302,11 +1637,13 @@ function stopMicMonitor() {
   try {
     if (_micGain) {
       _micGain.disconnect();
-      _micSource.disconnect();
+    }
+    if (_voiceEffectNodes) {
+      try { _voiceEffectNodes.output.disconnect(); } catch(e) {}
     }
     _micDestinationConnected = false;
     state.micMonitorOn = false;
-    document.getElementById('monitorBtn').textContent = '监听麦克风';
+    document.getElementById('monitorBtn').textContent = '监听变声';
     document.getElementById('monitorStatus').textContent = '监听已关闭';
     document.getElementById('monitorStatus').style.color = 'var(--cl-text-muted)';
   } catch(e) {}
@@ -1329,28 +1666,46 @@ async function startMicLevel() {
     _micStream = stream;
     _micAudioContext = new (window.AudioContext || window.webkitAudioContext)();
     _micSource = _micAudioContext.createMediaStreamSource(stream);
+    // Raw analyser (before effects)
     _micAnalyser = _micAudioContext.createAnalyser();
     _micAnalyser.fftSize = 256;
     _micSource.connect(_micAnalyser);
     // NOTE: source is NOT connected to destination by default
-    // User must click "监听麦克风" to hear audio output
+    // User must click "监听变声" to hear processed audio output
+
+    // ===== Effect chain =====
+    _voiceEffectNodes = buildEffectChain();
+    // Wire: source → effect chain → processed analyser → (monitor later connects to destination)
+    _micProcessedAnalyser = _micAudioContext.createAnalyser();
+    _micProcessedAnalyser.fftSize = 256;
+    _micSource.connect(_voiceEffectNodes.input);
+    _voiceEffectNodes.output.connect(_micProcessedAnalyser);
 
     const dataArray = new Uint8Array(_micAnalyser.frequencyBinCount);
+    const processedArray = new Uint8Array(_micProcessedAnalyser.frequencyBinCount);
 
     _micInterval = setInterval(() => {
       _micAnalyser.getByteFrequencyData(dataArray);
       let sum = 0;
       for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-      const avg = sum / dataArray.length;
-      const normalized = Math.min(1, avg / 128);
+      const normalized = Math.min(1, sum / dataArray.length / 128);
       state.micLevel = normalized;
+
+      _micProcessedAnalyser.getByteFrequencyData(processedArray);
+      let psum = 0;
+      for (let i = 0; i < processedArray.length; i++) psum += processedArray[i];
+      state.processedLevel = Math.min(1, psum / processedArray.length / 128);
+
       const valEl = document.getElementById('micLevelVal');
       if (valEl) valEl.textContent = normalized.toFixed(2);
+      const pValEl = document.getElementById('processedLevelVal');
+      if (pValEl) pValEl.textContent = state.processedLevel.toFixed(2);
       perm.textContent = '已授权 · 音量: ' + (normalized * 100).toFixed(0) + '%';
       perm.style.color = normalized > 0.05 ? 'var(--cl-green)' : 'var(--cl-text-muted)';
     }, 100);
 
-    document.getElementById('voicePresetDisplay').textContent = '麦克风运行中';
+    document.getElementById('voicePresetDisplay').textContent = '原声（可切换效果）';
+  document.getElementById('effectStatus').textContent = '无效果';
 
   } catch (err) {
     const msg = err.name === 'NotAllowedError' ? '权限被拒绝' :
@@ -1381,9 +1736,13 @@ function stopMicLevel() {
     _micGain = null;
   }
   _micSource = null;
+  _voiceEffectNodes = null;
+  _micProcessedAnalyser = null;
   _micDestinationConnected = false;
   state.micMonitorOn = false;
   state.micLevel = 0;
+  state.processedLevel = 0;
+  state.effectMode = 'off';
   const toggle = document.getElementById('voiceToggle');
   const perm = document.getElementById('micPerm');
   const valEl = document.getElementById('micLevelVal');

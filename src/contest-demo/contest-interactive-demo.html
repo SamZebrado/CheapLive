@@ -88,7 +88,7 @@
       </div>
       <!-- App Card: Voice -->
       <div class="app-card">
-        <h3>变声（后续适配）</h3>
+        <h3>变声（简单非AI原型）</h3>
         <div class="toggle-row">
           <label>变声开关</label>
           <div class="mini-toggle" id="voiceToggle" onclick="toggleVoice()"></div>
@@ -97,11 +97,22 @@
         <div class="field"><span>麦克风音量</span><span class="val" id="micLevelVal" style="color:var(--cl-text-muted)">—</span></div>
         <div class="toggle-row">
           <label>本地监听</label>
-          <button class="btn btn-ghost btn-sm" id="monitorBtn" onclick="toggleMicMonitor()" style="font-size:10px;padding:3px 8px;">监听麦克风</button>
+          <button class="btn btn-ghost btn-sm" id="monitorBtn" onclick="toggleMicMonitor()" style="font-size:10px;padding:3px 8px;">监听变声</button>
           <span class="val" id="monitorStatus" style="font-size:9px;color:var(--cl-text-muted)">监听已关闭</span>
         </div>
+        <div class="toggle-row" style="margin-top:4px">
+          <label>效果</label>
+          <select id="effectSelect" onchange="setVoiceEffect(this.value)" style="font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid var(--cl-border);background:var(--cl-bg2);color:var(--cl-text)">
+            <option value="off">原声</option>
+            <option value="robot">机器人</option>
+            <option value="lowpass">低通</option>
+            <option value="monster">怪兽</option>
+          </select>
+          <span class="val" id="effectStatus" style="font-size:9px;color:var(--cl-text-muted)">无效果</span>
+        </div>
+        <div class="field"><span>处理后音量</span><span class="val" id="processedLevelVal" style="color:var(--cl-text-muted)">—</span></div>
         <div style="font-size:9px;color:var(--cl-text-dim);padding-top:4px">
-          麦克风输入用于音量检测和后续变声扩展；完整直播音频路由是未来方向。
+          简单非 AI 变声原型。不支持 AI 变声，不接完整直播音频路由。
         </div>
       </div>
     </div>
@@ -112,7 +123,7 @@
   <div class="panel" id="receiverPanel">
     <div class="panel-header">
       <span>Receiver · 虚拟主播</span>
-      <span class="label" id="avatarLabel">Sacabambaspis</span>
+      <span class="label" id="avatarLabel">3D Sacabambaspis</span>
     </div>
     <div class="panel-body" id="avatarPanelBody">
       <div class="avatar-canvas-wrap">
@@ -123,8 +134,11 @@
     <div class="ctrl-row">
       <!-- Avatar Selection -->
       <div class="avatar-grid" id="avatarGrid">
-        <div class="avatar-btn selected" data-avatar="sacabambaspis" onclick="selectAvatar('sacabambaspis',this)" title="Sacabambaspis">
-          <span class="emoji">🐟</span><span class="name">萨卡班</span>
+        <div class="avatar-btn selected" data-avatar="sacabambaspis3d" onclick="selectAvatar('sacabambaspis3d',this)" title="3D Sacabambaspis">
+          <span class="emoji">🐟</span><span class="name">3D 鱼</span>
+        </div>
+        <div class="avatar-btn" data-avatar="sacabambaspis" onclick="selectAvatar('sacabambaspis',this)" title="2D Sacabambaspis">
+          <span class="emoji">🐡</span><span class="name">2D 鱼</span>
         </div>
         <div class="avatar-btn" data-avatar="cat" onclick="selectAvatar('cat',this)" title="Cat">
           <span class="emoji">🐱</span><span class="name">猫</span>
