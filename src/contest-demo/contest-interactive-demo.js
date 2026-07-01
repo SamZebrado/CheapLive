@@ -38,62 +38,67 @@ const AVATAR_NAMES = {
 const GUIDE_STEPS = [
   {
     title: 'Step 1：打开发送端 App',
+    target: '#phoneFrame',
+    placement: 'right',
     body: `<p>在闲置手机上打开 CheapLive App，启动本地服务。</p>
       <div class="info">左栏模拟手机界面：服务端状态、capture 开关、局域网地址/token。</div>`
   },
   {
     title: 'Step 2：授权摄像头和麦克风',
+    target: '#captureToggle',
+    placement: 'right',
     body: `<p>摄像头用于面部捕捉；麦克风用于后续变声/直播输出适配。</p>
       <div class="note">麦克风/变声链路为后续适配能力，本 demo 主要展示面捕与悬浮叠加流程。</div>`
   },
   {
     title: 'Step 3：接收端扫码连接',
+    target: '#qrPlaceholder',
+    placement: 'right',
     body: `<p>接收端扫描二维码或输入局域网 URL 连接发送端。</p>
       <div class="info">当前为模拟扫码流程，不需要真实 QR 码。</div>`
   },
   {
-    title: 'Step 4：设置形象和变声效果',
-    body: `<p>接收端选择动物形象、表情风格和变声预设；这些设置会存储在服务端状态中，便于多端同步。</p>
-      <p>Avatar 选择：猫 / 萨卡班甲鱼 / 更多动物开发中。</p>
-      <p>变声预设：原声 / 可爱 / 机器人 / 低沉 / 电台。</p>
-      <div class="note">变声效果如果未真实接通，标注为"设置流程演示 / 后续适配直播输出"。</div>`
+    title: 'Step 4：选择虚拟形象',
+    target: '#avatarGrid',
+    placement: 'top',
+    body: `<p>接收端选择动物形象，这些设置会同步到悬浮窗和多端。</p>
+      <p>Avatar 选择：萨卡班甲鱼 / 猫 / 更多动物开发中。</p>
+      <div class="info">点击不同 avatar 按钮，中间和右侧悬浮窗的形象会同步切换。</div>`
   },
   {
-    title: 'Step 5：演示面部捕捉和变声效果',
+    title: 'Step 5：Receiver 虚拟主播',
+    target: '#avatarCanvas',
+    placement: 'bottom',
     body: `<p>面部参数从发送端输入，接收端根据服务端状态驱动虚拟形象。</p>
-      <div class="data-flow">
-        <span class="node active">发送端</span>
-        <span class="arrow">→</span>
-        <span class="node active">服务端</span>
-        <span class="arrow">→</span>
-        <span class="node active">接收端</span>
-      </div>
-      <div class="param-row">
-        <span class="param-item"><span class="label">mouth:</span> <span class="val" id="guideMouth">0.00</span></span>
-        <span class="param-item"><span class="label">blink:</span> <span class="val" id="guideBlink">0.00</span></span>
-        <span class="param-item"><span class="label">yaw:</span> <span class="val" id="guideYaw">0.00</span></span>
-      </div>
+      <p>当前 avatar 为程序化 Canvas 渲染，支持眨眼、嘴型、视线、头部转动等表情。</p>
       <div class="note">不要声称当前页面在调用真实摄像头——这是模拟参数变化演示。</div>`
   },
   {
-    title: 'Step 6：点击"应用模式"',
-    body: `<p>应用模式会隐藏大部分 UI，并将虚拟主播背景切换为透明，方便叠加到游戏画面。</p>
-      <p>点击后 receiver 面板中虚拟主播背景变透明。</p>
-      <div class="info">实际透明悬浮能力来自 TransparentFloatingBrowser。</div>`
+    title: 'Step 6：透明背景 · 应用模式',
+    target: 'button[onclick*="toggleShowcase"]',
+    placement: 'top',
+    body: `<p>点击"应用模式"切换到透明背景，方便叠加到游戏或直播画面上。</p>
+      <p>实际透明悬浮能力来自 TransparentFloatingBrowser 开源项目。</p>
+      <div class="info">Receiver 背景变透明后，配合透明悬浮浏览器就能实现画面叠加。</div>`
   },
   {
     title: 'Step 7：悬浮透明浏览器叠加到游戏',
-    body: `<p>TransparentFloatingBrowser 会加载 receiver 页面，并将网页背景设置为透明。</p>
+    target: '#floatingWindow',
+    placement: 'left',
+    body: `<p>TransparentFloatingBrowser 加载 receiver 页面，将网页背景设为透明后悬浮在游戏上。</p>
       <p><b>蓝色顶部栏</b>：拖动位置</p>
       <p><b>右下角蓝色方块</b>：调节大小</p>
-      <p><b>橙色手柄</b>：关闭交互 / 启用触摸穿透</p>
-      <div class="info">蓝色顶部栏和右下角方块参考 TransparentFloatingBrowser 的交互设计；橙色手柄用于关闭悬浮网页交互。关闭后窗口会变得更透明，这是 Android 悬浮窗触摸穿透状态下的视觉提示。</div>`
+      <p><b>橙色手柄</b>：切换交互 / 触摸穿透</p>
+      <div class="info">橙色手柄点击后窗口半透明，进入触摸穿透状态——这是 Android 悬浮窗的典型视觉提示。</div>`
   },
   {
-    title: 'Step 8：进入直播/游戏场景',
-    body: `<p>关闭交互后，虚拟主播悬浮在 Snackabambaspis 游戏画面上，不影响底层游戏触控。</p>
-      <p>这样可以在单设备上所见即所得地直播小游戏、教学页面或其他内容。</p>
-      <div class="info">Snackabambaspis 游戏可见 · 涂鸦模式可演示触控穿透概念 · 虚拟主播窗口半透明悬浮在右下角。</div>`
+    title: 'Step 8：涂鸦模式 · 触控穿透演示',
+    target: '#drawModeBtn',
+    placement: 'top',
+    body: `<p>涂鸦模式可以在游戏画面上画线，用来演示触控穿透概念：</p>
+      <p>悬浮窗关闭交互后，触控事件能穿透到下方游戏/应用。</p>
+      <p>这样就能在单设备上所见即所得地直播小游戏、教学页面或其他内容。</p>
+      <div class="info">Snackabambaspis 是自写的小游戏 · 无第三方资源 · 可直接在浏览器里玩。</div>`
   },
 ];
 
@@ -753,4 +758,104 @@ function renderGuide() {
   }
 
   document.getElementById('guidePrev').style.visibility = state.guideStep === 0 ? 'hidden' : 'visible';
+
+  // Highlight target element
+  updateGuideHighlight();
 }
+
+function updateGuideHighlight() {
+  const step = GUIDE_STEPS[state.guideStep];
+  const overlay = document.getElementById('guideOverlay');
+  const modal = document.querySelector('.guide-modal');
+  const highlight = document.getElementById('guideHighlight');
+  const arrow = document.getElementById('guideArrow');
+
+  if (!step.target || !highlight) {
+    highlight.style.display = 'none';
+    arrow.style.display = 'none';
+    overlay.classList.remove('has-highlight');
+    modal.style.position = 'relative';
+    modal.style.top = '';
+    modal.style.left = '';
+    modal.style.transform = '';
+    return;
+  }
+
+  overlay.classList.add('has-highlight');
+  const el = document.querySelector(step.target);
+  if (!el) {
+    highlight.style.display = 'none';
+    arrow.style.display = 'none';
+    return;
+  }
+
+  const rect = el.getBoundingClientRect();
+  const pad = 8;
+
+  highlight.style.display = 'block';
+  highlight.style.left = (rect.left - pad) + 'px';
+  highlight.style.top = (rect.top - pad) + 'px';
+  highlight.style.width = (rect.width + pad * 2) + 'px';
+  highlight.style.height = (rect.height + pad * 2) + 'px';
+
+  const placement = step.placement || 'bottom';
+  const modalW = Math.min(520, window.innerWidth * 0.9);
+  const modalH = 400;
+  let modalLeft, modalTop;
+  let arrowDir = placement;
+
+  switch (placement) {
+    case 'right':
+      modalLeft = rect.right + 24;
+      modalTop = rect.top + rect.height / 2 - modalH / 2;
+      arrowDir = 'left';
+      break;
+    case 'left':
+      modalLeft = rect.left - modalW - 24;
+      modalTop = rect.top + rect.height / 2 - modalH / 2;
+      arrowDir = 'right';
+      break;
+    case 'top':
+      modalLeft = rect.left + rect.width / 2 - modalW / 2;
+      modalTop = rect.top - modalH - 24;
+      arrowDir = 'bottom';
+      break;
+    case 'bottom':
+    default:
+      modalLeft = rect.left + rect.width / 2 - modalW / 2;
+      modalTop = rect.bottom + 24;
+      arrowDir = 'top';
+      break;
+  }
+
+  modalLeft = Math.max(16, Math.min(window.innerWidth - modalW - 16, modalLeft));
+  modalTop = Math.max(16, Math.min(window.innerHeight - modalH - 16, modalTop));
+
+  modal.style.position = 'fixed';
+  modal.style.left = modalLeft + 'px';
+  modal.style.top = modalTop + 'px';
+  modal.style.transform = 'none';
+
+  arrow.style.display = 'block';
+  arrow.className = 'guide-arrow arrow-' + arrowDir;
+  const arrowRect = modal.getBoundingClientRect();
+  let arrowLeft = rect.left + rect.width / 2 - modalLeft - 8;
+  let arrowTop = rect.top + rect.height / 2 - modalTop - 8;
+  if (arrowDir === 'left' || arrowDir === 'right') {
+    arrow.style.top = Math.max(20, Math.min(modalH - 36, arrowTop)) + 'px';
+    arrow.style.left = arrowDir === 'left' ? '-12px' : 'auto';
+    arrow.style.right = arrowDir === 'right' ? '-12px' : 'auto';
+    arrow.style.bottom = 'auto';
+  } else {
+    arrow.style.left = Math.max(20, Math.min(modalW - 36, arrowLeft)) + 'px';
+    arrow.style.top = arrowDir === 'top' ? '-12px' : 'auto';
+    arrow.style.bottom = arrowDir === 'bottom' ? '-12px' : 'auto';
+    arrow.style.right = 'auto';
+  }
+}
+
+window.addEventListener('resize', () => {
+  if (document.getElementById('guideOverlay').classList.contains('open')) {
+    updateGuideHighlight();
+  }
+});

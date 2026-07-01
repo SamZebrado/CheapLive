@@ -320,6 +320,50 @@ body {
   transition: opacity 0.3s;
 }
 .guide-overlay.open { opacity: 1; pointer-events: auto; }
+.guide-overlay.has-highlight {
+  background: transparent;
+  pointer-events: none;
+}
+.guide-overlay.has-highlight .guide-modal {
+  pointer-events: auto;
+}
+.guide-highlight {
+  position: fixed;
+  border: 2px solid var(--cl-accent);
+  border-radius: 12px;
+  box-shadow: 0 0 0 4000px rgba(0,0,0,0.7), 0 0 20px rgba(255,107,74,0.5);
+  pointer-events: none;
+  z-index: 201;
+  transition: all 0.3s ease;
+  display: none;
+}
+.guide-arrow {
+  position: absolute;
+  width: 0;
+  height: 0;
+  z-index: 202;
+  display: none;
+}
+.guide-arrow.arrow-left {
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-right: 12px solid var(--cl-surface);
+}
+.guide-arrow.arrow-right {
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-left: 12px solid var(--cl-surface);
+}
+.guide-arrow.arrow-top {
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-bottom: 12px solid var(--cl-surface);
+}
+.guide-arrow.arrow-bottom {
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: 12px solid var(--cl-surface);
+}
 .guide-modal {
   background: var(--cl-surface);
   border: 1px solid var(--cl-border);
@@ -330,6 +374,7 @@ body {
   overflow-y: auto;
   padding: 24px;
   position: relative;
+  z-index: 203;
 }
 .guide-modal h2 { font-size: 18px; color: var(--cl-accent); margin-bottom: 4px; }
 .guide-step-indicator {
