@@ -718,6 +718,18 @@ function simLoop(ts) {
   const gy = document.getElementById('guideYaw');
   if (gy) gy.textContent = state.faceParams.yaw.toFixed(2);
 
+  // Update face params live display
+  const fd = document.getElementById('fpDetected');
+  if (fd) fd.textContent = _faceLandmarker ? '已检测' : '—';
+  const fpm = document.getElementById('fpMouth');
+  if (fpm) fpm.textContent = state.faceParams.mouthOpen.toFixed(2);
+  const fpb = document.getElementById('fpBlink');
+  if (fpb) fpb.textContent = state.faceParams.blink.toFixed(2);
+  const fps = document.getElementById('fpSmile');
+  if (fps) fps.textContent = state.faceParams.smile.toFixed(2);
+  const fpy = document.getElementById('fpYaw');
+  if (fpy) fpy.textContent = state.faceParams.yaw.toFixed(2);
+
   // Update sender panel params
   const hd = document.getElementById('headYawVal');
   if (hd) hd.textContent = state.faceParams.yaw.toFixed(2);
@@ -730,18 +742,20 @@ function simLoop(ts) {
 }
 
 // ====== UI HANDLERS ======
-function toggleCapture() {
-  state.captureOn = !state.captureOn;
-  const el = document.getElementById('captureToggle');
-  el.classList.toggle('on', state.captureOn);
-  document.getElementById('cameraPerm').textContent = state.captureOn ? '已授权' : '未授权';
-  document.getElementById('cameraPerm').style.color = state.captureOn ? 'var(--cl-green)' : 'var(--cl-text-muted)';
+async function toggleCapture() {
+  if (_faceLandmarker || _faceVideoStream) {
+    stopFaceTracking();
+  } else {
+    await startFaceTracking();
+  }
 }
 
-function toggleVoice() {
-  state.voiceOn = !state.voiceOn;
-  document.getElementById('voiceToggle').classList.toggle('on', state.voiceOn);
-  document.getElementById('voicePresetDisplay').textContent = state.voiceOn ? VOICE_PRESETS.find(v => v.id === state.voicePreset).name : '原声';
+async function toggleVoice() {
+  if (_micAudioContext) {
+    stopMicLevel();
+  } else {
+    await startMicLevel();
+  }
 }
 
 function selectAvatar(avatar, el) {
@@ -959,18 +973,16 @@ let _faceVideoStream = null;
 let _faceDetectRAF = null;
 
 async function startFaceTracking() {
-  const btn = document.getElementById('faceCamBtn');
-  const status = document.getElementById('faceCamStatus');
-  const videoWrap = document.getElementById('faceVideoWrap');
-
   if (_faceLandmarker || _faceVideoStream) {
     stopFaceTracking();
     return;
   }
 
-  btn.disabled = true;
-  status.style.display = 'block';
-  status.textContent = '请求摄像头权限...';
+  const toggle = document.getElementById('captureToggle');
+  const perm = document.getElementById('cameraPerm');
+  toggle.classList.add('on');
+  perm.textContent = '请求摄像头权限...';
+  perm.style.color = 'var(--cl-blue)';
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -981,9 +993,14 @@ async function startFaceTracking() {
     video.srcObject = stream;
     await video.play();
 
-    status.textContent = '加载 MediaPipe 模型（约 3MB）...';
+    perm.textContent = '加载模型（约 3MB）...';
 
-    const mp = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/+esm');
+    let mp;
+    try {
+      mp = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/+esm');
+    } catch {
+      mp = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm');
+    }
     const { FilesetResolver, FaceLandmarker } = mp;
 
     const filesetResolver = await FilesetResolver.forVisionTasks(
@@ -995,21 +1012,27 @@ async function startFaceTracking() {
         modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
         delegate: 'GPU'
       },
+      outputFaceBlendshapes: true,
+      outputFacialTransformationMatrixes: true,
       runningMode: 'VIDEO',
       numFaces: 1,
     });
 
-    status.textContent = '面捕运行中';
-    videoWrap.style.display = 'block';
-    btn.textContent = '停止面捕';
-    btn.disabled = false;
+    perm.textContent = '已授权 · 面捕运行中';
+    perm.style.color = 'var(--cl-green)';
 
     startFaceDetectionLoop(video);
 
   } catch (err) {
     console.error('Face tracking error:', err);
-    status.textContent = '错误: ' + (err.message || '无法启动摄像头或加载模型');
-    btn.disabled = false;
+    const msg = err.name === 'NotAllowedError' ? '权限被拒绝' :
+      err.name === 'NotFoundError' ? '未找到摄像头' :
+      err.name === 'NotReadableError' ? '摄像头被占用' :
+      (err.message || '无法启动摄像头');
+    perm.textContent = '错误: ' + msg.slice(0, 40);
+    perm.style.color = 'var(--cl-orange)';
+    toggle.classList.remove('on');
+    document.getElementById('fpDetected').textContent = '—';
     if (_faceVideoStream) {
       _faceVideoStream.getTracks().forEach(t => t.stop());
       _faceVideoStream = null;
@@ -1051,20 +1074,15 @@ function updateFaceParamsFromBlendshapes(blendshapes, matrices) {
   state.faceParams.mouthOpen = mouthOpen;
   state.faceParams.blink = Math.max(blinkLeft, blinkRight);
   state.faceParams.smile = (smileLeft + smileRight) / 2;
-  state.faceParams.faceDetected = true;
 
-  // Extract yaw from transformation matrix if available
   if (matrices && matrices.length > 0) {
     const m = matrices[0].data;
-    // 4x4 matrix: extract yaw from rotation
     const yaw = Math.atan2(m[8], m[10]);
-    state.faceParams.yaw = (yaw / Math.PI + 1) / 2; // normalize to 0-1
+    state.faceParams.yaw = (yaw / Math.PI + 1) / 2;
   }
 
-  document.getElementById('faceDetectedVal').textContent = 'true';
-  document.getElementById('mouthOpenVal').textContent = mouthOpen.toFixed(2);
-  document.getElementById('blinkVal').textContent = Math.max(blinkLeft, blinkRight).toFixed(2);
-  document.getElementById('smileVal').textContent = state.faceParams.smile.toFixed(2);
+  document.getElementById('cameraPerm').textContent = '已授权 · 面捕运行中';
+  document.getElementById('cameraPerm').style.color = 'var(--cl-green)';
 }
 
 function stopFaceTracking() {
@@ -1077,13 +1095,11 @@ function stopFaceTracking() {
     _faceVideoStream = null;
   }
   _faceLandmarker = null;
-  const btn = document.getElementById('faceCamBtn');
-  const status = document.getElementById('faceCamStatus');
-  const videoWrap = document.getElementById('faceVideoWrap');
-  btn.textContent = '开启摄像头';
-  status.style.display = 'none';
-  videoWrap.style.display = 'none';
-  document.getElementById('faceDetectedVal').textContent = 'false';
+  const toggle = document.getElementById('captureToggle');
+  const perm = document.getElementById('cameraPerm');
+  toggle.classList.remove('on');
+  perm.textContent = '未开启';
+  perm.style.color = 'var(--cl-text-muted)';
 }
 
 // ====== MIC LEVEL (Web Audio API) ======
@@ -1093,14 +1109,16 @@ let _micStream = null;
 let _micInterval = null;
 
 async function startMicLevel() {
-  const btn = document.getElementById('micBtn');
-  const status = document.getElementById('micStatus');
-  const valEl = document.getElementById('micLevelVal');
-
   if (_micAudioContext) {
     stopMicLevel();
     return;
   }
+
+  const toggle = document.getElementById('voiceToggle');
+  const perm = document.getElementById('micPerm');
+  toggle.classList.add('on');
+  perm.textContent = '请求麦克风权限...';
+  perm.style.color = 'var(--cl-blue)';
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1119,15 +1137,21 @@ async function startMicLevel() {
       for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
       const avg = sum / dataArray.length;
       const normalized = Math.min(1, avg / 128);
-      valEl.textContent = normalized.toFixed(2);
-      valEl.style.color = normalized > 0.05 ? 'var(--cl-green)' : 'var(--cl-text-muted)';
+      const valEl = document.getElementById('micLevelVal');
+      if (valEl) valEl.textContent = normalized.toFixed(2);
+      perm.textContent = '已授权 · 音量: ' + (normalized * 100).toFixed(0) + '%';
+      perm.style.color = normalized > 0.05 ? 'var(--cl-green)' : 'var(--cl-text-muted)';
     }, 100);
 
-    btn.textContent = '停止麦克风';
-    status.textContent = '麦克风运行中';
+    document.getElementById('voicePresetDisplay').textContent = '麦克风运行中';
 
   } catch (err) {
-    status.textContent = '错误: ' + (err.message || '无法访问麦克风');
+    const msg = err.name === 'NotAllowedError' ? '权限被拒绝' :
+      err.name === 'NotFoundError' ? '未找到麦克风' :
+      (err.message || '无法访问麦克风');
+    perm.textContent = '错误: ' + msg.slice(0, 40);
+    perm.style.color = 'var(--cl-orange)';
+    toggle.classList.remove('on');
     console.error('Mic error:', err);
   }
 }
@@ -1145,11 +1169,12 @@ function stopMicLevel() {
     _micStream.getTracks().forEach(t => t.stop());
     _micStream = null;
   }
-  const btn = document.getElementById('micBtn');
-  const status = document.getElementById('micStatus');
+  const toggle = document.getElementById('voiceToggle');
+  const perm = document.getElementById('micPerm');
   const valEl = document.getElementById('micLevelVal');
-  btn.textContent = '开启麦克风';
-  status.textContent = '点击开启麦克风';
-  valEl.textContent = '—';
-  valEl.style.color = 'var(--cl-text-muted)';
+  toggle.classList.remove('on');
+  perm.textContent = '未开启';
+  perm.style.color = 'var(--cl-text-muted)';
+  document.getElementById('voicePresetDisplay').textContent = '原声';
+  if (valEl) valEl.textContent = '—';
 }

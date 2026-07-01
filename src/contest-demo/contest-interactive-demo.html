@@ -73,6 +73,7 @@
           <span class="fp-item"><span class="fp-label">微笑:</span><span class="fp-val" id="fpSmile">0.00</span></span>
           <span class="fp-item"><span class="fp-label">转头:</span><span class="fp-val" id="fpYaw">0.00</span></span>
         </div>
+        <video id="faceVideo" style="display:none" playsinline muted></video>
       </div>
       <!-- App Card: QR -->
       <div class="app-card">
@@ -93,8 +94,9 @@
           <div class="mini-toggle" id="voiceToggle" onclick="toggleVoice()"></div>
         </div>
         <div class="field"><span>当前预设</span><span class="val" id="voicePresetDisplay" style="color:var(--cl-text-muted)">原声</span></div>
-        <div style="font-size:9px;color:var(--cl-text-muted);padding-top:4px">
-          麦克风/变声链路为后续适配能力，本 demo 主要展示面捕与悬浮叠加流程。
+        <div class="field"><span>麦克风音量</span><span class="val" id="micLevelVal" style="color:var(--cl-text-muted)">—</span></div>
+        <div style="font-size:9px;color:var(--cl-text-dim);padding-top:4px">
+          麦克风输入用于音量检测和后续变声扩展；完整直播音频路由是未来方向。
         </div>
       </div>
     </div>
