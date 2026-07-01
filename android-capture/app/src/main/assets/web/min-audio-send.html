@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Min Audio Send</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a0a0a; color:#e0e0e0; font-family:monospace; font-size:13px; padding:12px; }
+  h2 { color:#60a5fa; font-size:15px; margin-bottom:8px; }
+  .section { margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #1f2937; }
+  .status { line-height:1.7; }
+  .status .label { color:#6b7280; display:inline-block; min-width:140px; }
+  .status .val { color:#fbbf24; }
+  .ok { color:#4ade80 !important; }
+  .warn { color:#f87171 !important; }
+  .info { color:#93c5fd !important; }
+  .muted { color:#6b7280 !important; }
+  button { padding:8px 14px; background:#1e3a5f; color:#93c5fd; border:1px solid #3b82f6; border-radius:4px; font-size:13px; cursor:pointer; margin:6px 4px 0 0; }
+  button:active { background:#2563eb; }
+  button:disabled { opacity:0.4; cursor:not-allowed; }
+  #msg { margin-top:8px; color:#f87171; font-size:12px; min-height:16px; }
+  .url-box { background:#111827; padding:8px 10px; border-radius:4px; font-size:11px; color:#9ca3af; word-break:break-all; margin-top:4px; }
+  .meter { width:100%; height:16px; background:#1f2937; border-radius:4px; overflow:hidden; margin-top:4px; }
+  .meter-fill { height:100%; background:linear-gradient(90deg, #4ade80, #fbbf24, #f87171); width:0%; transition: width 0.05s linear; }
+  .meter-label { font-size:11px; color:#9ca3af; margin-bottom:2px; }
+  select { padding:6px 10px; background:#1e3a5f; color:#93c5fd; border:1px solid #3b82f6; border-radius:4px; font-size:13px; margin:4px 0; }
+  .effect-section { background:#111827; padding:10px; border-radius:6px; margin-top:8px; }
+  .effect-note { color:#6b7280; font-size:11px; margin-top:8px; line-height:1.5; }
+  .monitor-warn { color:#fbbf24; font-size:11px; margin-top:4px; }
+</style>
+</head>
+<body>
+
+<h2>MIN AUDIO SEND</h2>
+
+<div class="section">
+  <div class="status">
+    <span class="label">serverRunning:</span><span class="val" id="sServerRunning">-</span><br>
+    <span class="label">serverPort:</span><span class="val" id="sServerPort">-</span><br>
+    <span class="label">token:</span><span class="val" id="sToken">-</span><br>
+    <span class="label">wsClients:</span><span class="val" id="sWsClients">0</span><br>
+    <span class="label">bridgeStatus:</span><span class="val" id="sBridgeStatus">-</span>
+  </div>
+  <div class="url-box" id="sReceiverUrl">receiver URL: -</div>
+</div>
+
+<div class="section">
+  <div class="status">
+    <span class="label">micPermission:</span><span class="val" id="sMicPermission">-</span><br>
+    <span class="label">micReady:</span><span class="val" id="sMicReady">-</span><br>
+    <span class="label">audioMode:</span><span class="val" id="sAudioMode">raw-level</span>
+  </div>
+  <div class="meter-label">Raw mic level</div>
+  <div class="meter"><div class="meter-fill" id="micMeter"></div></div>
+</div>
+
+<div class="section">
+  <div class="status">
+    <span class="label">micLevel:</span><span class="val" id="sMicLevel">0</span><br>
+    <span class="label">sendCount:</span><span class="val" id="sSendCount">0</span><br>
+    <span class="label">seq:</span><span class="val" id="sSeq">0</span><br>
+    <span class="label">source:</span><span class="val" id="sSource">idle</span><br>
+    <span class="label">lastSendAgeMs:</span><span class="val" id="sLastSendAgeMs">-</span>
+  </div>
+</div>
+
+<button id="btnStart">Start Microphone</button>
+<button id="btnStop" disabled>Stop</button>
+<div id="msg"></div>
+
+<!-- ===== Gate 2: Voice Effect Prototype ===== -->
+<div class="effect-section">
+  <div class="status">
+    <span class="label">effectMode:</span>
+    <select id="effectModeSelect" disabled>
+      <option value="off">off (no processing)</option>
+      <option value="robot">robot (delay + tremolo)</option>
+      <option value="low-pass">low-pass (muffled)</option>
+      <option value="monster">monster (low-pass + distortion)</option>
+    </select><br>
+    <span class="label">effectStatus:</span><span class="val" id="sEffectStatus">disabled (mic not started)</span><br>
+    <span class="label">processedLevel:</span><span class="val" id="sProcessedLevel">0</span>
+  </div>
+  <div class="meter-label">Processed level</div>
+  <div class="meter"><div class="meter-fill" id="processedMeter" style="background:linear-gradient(90deg, #a78bfa, #ec4899, #f87171);"></div></div>
+
+  <div style="margin-top:8px;">
+    <button id="btnMonitorStart" disabled>Start Local Monitor</button>
+    <button id="btnMonitorStop" disabled>Stop Local Monitor</button>
+  </div>
+  <div class="monitor-warn" id="monitorStatus">Local monitor off. Click Start to hear processed audio (may cause echo).</div>
+
+  <div class="effect-note">
+    Simple voice effects prototype. Full live-stream audio routing is not solved here:<br>
+    the open question is how to send processed voice into the livestream while avoiding<br>
+    local monitor echo for the streamer.
+  </div>
+</div>
+
+<script>
+(function() {
+  const el = {
+    serverRunning: document.getElementById('sServerRunning'),
+    serverPort: document.getElementById('sServerPort'),
+    token: document.getElementById('sToken'),
+    wsClients: document.getElementById('sWsClients'),
+    bridgeStatus: document.getElementById('sBridgeStatus'),
+    receiverUrl: document.getElementById('sReceiverUrl'),
+    micPermission: document.getElementById('sMicPermission'),
+    micReady: document.getElementById('sMicReady'),
+    audioMode: document.getElementById('sAudioMode'),
+    micLevel: document.getElementById('sMicLevel'),
+    sendCount: document.getElementById('sSendCount'),
+    seq: document.getElementById('sSeq'),
+    source: document.getElementById('sSource'),
+    lastSendAgeMs: document.getElementById('sLastSendAgeMs'),
+    effectStatus: document.getElementById('sEffectStatus'),
+    processedLevel: document.getElementById('sProcessedLevel'),
+  };
+  const micMeter = document.getElementById('micMeter');
+  const processedMeter = document.getElementById('processedMeter');
+  const btnStart = document.getElementById('btnStart');
+  const btnStop = document.getElementById('btnStop');
+  const btnMonitorStart = document.getElementById('btnMonitorStart');
+  const btnMonitorStop = document.getElementById('btnMonitorStop');
+  const effectModeSelect = document.getElementById('effectModeSelect');
+  const monitorStatus = document.getElementById('monitorStatus');
+  const msgEl = document.getElementById('msg');
+
+  // Audio graph nodes
+  let audioContext = null;
+  let sourceNode = null;       // MediaStreamSource
+  let micAnalyser = null;      // analyser on raw mic input
+  let processedAnalyser = null; // analyser on processed chain output
+  let effectInputGain = null;   // gain node before effect chain
+  let effectOutputGain = null;  // gain node after effect chain
+  // effect nodes (rebuilt on mode change)
+  let effectNodes = [];
+  // monitor
+  let monitorConnected = false;
+  let stream = null;
+  let isRunning = false;
+  let sendCount = 0;
+  let lastSendTime = 0;
+  let lastPush = 0;
+  let levelInterval = null;
+  let sessionInfo = null;
+  let currentLevel = 0;
+  let currentProcessedLevel = 0;
+  let currentEffectMode = 'off';
+
+  function setMsg(s, color) { msgEl.textContent = s; msgEl.style.color = color || '#f87171'; }
+
+  function updateBridgeStatus() {
+    if (window.CheapLiveBridge && typeof window.CheapLiveBridge.getSessionInfo === 'function') {
+      el.bridgeStatus.textContent = 'android-bridge';
+      el.bridgeStatus.className = 'ok';
+    } else {
+      el.bridgeStatus.textContent = 'browser-debug';
+      el.bridgeStatus.className = 'info';
+    }
+  }
+
+  function refreshSessionInfo() {
+    try {
+      if (window.CheapLiveBridge && typeof window.CheapLiveBridge.getSessionInfo === 'function') {
+        const infoStr = window.CheapLiveBridge.getSessionInfo();
+        if (infoStr) {
+          const info = JSON.parse(infoStr);
+          sessionInfo = info;
+          el.serverRunning.textContent = info.serverRunning ? 'YES' : 'NO';
+          el.serverRunning.className = info.serverRunning ? 'ok' : 'warn';
+          el.serverPort.textContent = info.port || '-';
+          el.token.textContent = info.token ? info.token.substring(0, 12) + '...' : '-';
+          el.wsClients.textContent = info.wsClientCount || 0;
+          if (info.audioReceiverUrlLan) {
+            el.receiverUrl.textContent = 'LAN: ' + info.audioReceiverUrlLan + '\nDebug: ' + (info.audioReceiverUrlDebug || info.audioReceiverUrl);
+          } else if (info.audioReceiverUrl) {
+            el.receiverUrl.textContent = 'receiver URL: ' + info.audioReceiverUrl;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[MIN-AUDIO-SEND] refreshSessionInfo error:', e.message);
+    }
+  }
+
+  function sendLevel(level, processed) {
+    if (!window.CheapLiveBridge) return;
+    const now = Date.now();
+    if (now - lastPush < 50) return;
+    lastPush = now;
+    try {
+      const payload = JSON.stringify({
+        type: 'audio-level',
+        level: level,
+        processedLevel: processed,
+        audioMode: 'raw-level',
+        effectMode: currentEffectMode,
+        source: 'microphone',
+        timestamp: now,
+      });
+      window.CheapLiveBridge.publishAudioLevel(payload);
+      sendCount++;
+      lastSendTime = now;
+      el.sendCount.textContent = sendCount;
+      el.source.textContent = 'microphone';
+      el.source.className = 'ok';
+    } catch (_) {}
+  }
+
+  function computeLevel(analyser) {
+    if (!analyser) return 0;
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i];
+    const avg = sum / data.length;
+    return avg / 255;
+  }
+
+  // ===== Effect chain management =====
+  function clearEffectNodes() {
+    effectNodes.forEach(n => { try { n.disconnect(); } catch(_) {} });
+    effectNodes = [];
+  }
+
+  function buildEffectChain(mode) {
+    clearEffectNodes();
+    if (!audioContext || !effectInputGain || !effectOutputGain) return;
+
+    if (mode === 'off') {
+      // Direct pass-through
+      effectInputGain.connect(effectOutputGain);
+      el.effectStatus.textContent = 'off (passthrough)';
+      el.effectStatus.className = 'muted';
+      return;
+    }
+
+    if (mode === 'robot') {
+      // Delay + tremolo (LFO gain modulation) + bandpass
+      const delay = audioContext.createDelay(0.05);
+      delay.delayTime.value = 0.025;
+      const bandpass = audioContext.createBiquadFilter();
+      bandpass.type = 'bandpass';
+      bandpass.frequency.value = 800;
+      bandpass.Q.value = 5;
+      // Tremolo: LFO oscillator → gain modulation
+      const tremoloGain = audioContext.createGain();
+      tremoloGain.gain.value = 0.5;
+      const lfo = audioContext.createOscillator();
+      lfo.frequency.value = 30; // 30 Hz tremolo
+      const lfoGain = audioContext.createGain();
+      lfoGain.gain.value = 0.5;
+      lfo.connect(lfoGain);
+      lfoGain.connect(tremoloGain.gain);
+      lfo.start();
+
+      effectInputGain.connect(bandpass);
+      bandpass.connect(delay);
+      delay.connect(tremoloGain);
+      tremoloGain.connect(effectOutputGain);
+
+      effectNodes = [delay, bandpass, tremoloGain, lfo, lfoGain];
+      el.effectStatus.textContent = 'robot (delay + tremolo + bandpass)';
+      el.effectStatus.className = 'info';
+      return;
+    }
+
+    if (mode === 'low-pass') {
+      // Simple low-pass filter
+      const lowpass = audioContext.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.value = 400;
+      lowpass.Q.value = 1;
+
+      effectInputGain.connect(lowpass);
+      lowpass.connect(effectOutputGain);
+
+      effectNodes = [lowpass];
+      el.effectStatus.textContent = 'low-pass (400Hz cutoff)';
+      el.effectStatus.className = 'info';
+      return;
+    }
+
+    if (mode === 'monster') {
+      // Low-pass + distortion + gain
+      const lowpass = audioContext.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.value = 300;
+      lowpass.Q.value = 2;
+
+      const distortion = audioContext.createWaveShaper();
+      distortion.curve = makeDistortionCurve(80);
+
+      const gainBoost = audioContext.createGain();
+      gainBoost.gain.value = 1.5;
+
+      effectInputGain.connect(lowpass);
+      lowpass.connect(distortion);
+      distortion.connect(gainBoost);
+      gainBoost.connect(effectOutputGain);
+
+      effectNodes = [lowpass, distortion, gainBoost];
+      el.effectStatus.textContent = 'monster (low-pass + distortion + boost)';
+      el.effectStatus.className = 'info';
+      return;
+    }
+  }
+
+  function makeDistortionCurve(amount) {
+    const samples = 256;
+    const curve = new Float32Array(samples);
+    const deg = Math.PI / 180;
+    for (let i = 0; i < samples; i++) {
+      const x = (i * 2) / samples - 1;
+      curve[i] = ((3 + amount) * x * 20 * deg) / (Math.PI + amount * Math.abs(x));
+    }
+    return curve;
+  }
+
+  function setEffectMode(mode) {
+    currentEffectMode = mode;
+    if (isRunning && audioContext) {
+      buildEffectChain(mode);
+      // Reconnect monitor if it was on
+      if (monitorConnected) {
+        effectOutputGain.connect(audioContext.destination);
+      }
+    }
+  }
+
+  // ===== Local monitor =====
+  function startMonitor() {
+    if (!audioContext || !effectOutputGain) return;
+    if (audioContext.state === 'suspended') {
+      audioContext.resume().then(() => {
+        el.effectStatus.textContent += ' | audioContext resumed';
+      }).catch(e => {
+        el.effectStatus.textContent += ' | resume failed: ' + e.message;
+      });
+    }
+    try {
+      effectOutputGain.connect(audioContext.destination);
+      monitorConnected = true;
+      monitorStatus.textContent = 'Local monitor ON - you will hear processed audio (may cause echo).';
+      monitorStatus.style.color = '#f87171';
+      btnMonitorStart.disabled = true;
+      btnMonitorStop.disabled = false;
+    } catch (e) {
+      monitorStatus.textContent = 'Monitor start failed: ' + e.message;
+      monitorStatus.style.color = '#f87171';
+    }
+  }
+
+  function stopMonitor() {
+    if (effectOutputGain && audioContext) {
+      try { effectOutputGain.disconnect(audioContext.destination); } catch(_) {}
+    }
+    monitorConnected = false;
+    monitorStatus.textContent = 'Local monitor off. Click Start to hear processed audio (may cause echo).';
+    monitorStatus.style.color = '#fbbf24';
+    btnMonitorStart.disabled = false;
+    btnMonitorStop.disabled = true;
+  }
+
+  // ===== Microphone start/stop =====
+  async function startMicrophone() {
+    try {
+      console.log('[MIN-AUDIO-SEND] startMicrophone called');
+      setMsg('Requesting microphone permission...', '#93c5fd');
+      el.micPermission.textContent = 'requesting...';
+      el.micPermission.className = '';
+
+      if (window.CheapLiveBridge && typeof window.CheapLiveBridge.requestMicrophonePermission === 'function') {
+        window.CheapLiveBridge.requestMicrophonePermission();
+      }
+
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+        video: false
+      });
+
+      el.micPermission.textContent = 'granted';
+      el.micPermission.className = 'ok';
+      setMsg('Microphone access granted!', '#4ade80');
+
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      sourceNode = audioContext.createMediaStreamSource(stream);
+
+      // Raw mic analyser
+      micAnalyser = audioContext.createAnalyser();
+      micAnalyser.fftSize = 256;
+      sourceNode.connect(micAnalyser);
+
+      // Effect chain: source → effectInputGain → [effects] → effectOutputGain → processedAnalyser
+      effectInputGain = audioContext.createGain();
+      effectInputGain.gain.value = 1.0;
+      effectOutputGain = audioContext.createGain();
+      effectOutputGain.gain.value = 1.0;
+      processedAnalyser = audioContext.createAnalyser();
+      processedAnalyser.fftSize = 256;
+
+      sourceNode.connect(effectInputGain);
+      effectOutputGain.connect(processedAnalyser);
+
+      // Build initial effect chain
+      buildEffectChain(currentEffectMode);
+
+      isRunning = true;
+      el.micReady.textContent = 'YES';
+      el.micReady.className = 'ok';
+      el.source.textContent = 'microphone';
+      el.source.className = 'ok';
+      btnStart.disabled = true;
+      btnStop.disabled = false;
+      effectModeSelect.disabled = false;
+      btnMonitorStart.disabled = false;
+
+      levelInterval = setInterval(() => {
+        const level = computeLevel(micAnalyser);
+        const pLevel = computeLevel(processedAnalyser);
+        currentLevel = level;
+        currentProcessedLevel = pLevel;
+        el.micLevel.textContent = (level * 100).toFixed(1) + '%';
+        el.micLevel.className = level > 0.01 ? 'ok' : 'muted';
+        micMeter.style.width = (level * 100) + '%';
+        el.processedLevel.textContent = (pLevel * 100).toFixed(1) + '%';
+        el.processedLevel.className = pLevel > 0.01 ? 'ok' : 'muted';
+        processedMeter.style.width = Math.min(100, pLevel * 100) + '%';
+        sendLevel(level, pLevel);
+      }, 50);
+
+      updateUI();
+      setMsg('Running. micLevel + processedLevel active.', '#4ade80');
+    } catch (e) {
+      console.error('[MIN-AUDIO-SEND] startMicrophone error:', e.message, e.name);
+      setMsg('Error: ' + e.message, '#f87171');
+      el.micPermission.textContent = e.name || 'failed';
+      el.micPermission.className = 'warn';
+      el.micReady.textContent = 'NO';
+      el.micReady.className = 'warn';
+    }
+  }
+
+  function stopMicrophone() {
+    isRunning = false;
+    if (levelInterval) { clearInterval(levelInterval); levelInterval = null; }
+    stopMonitor();
+    clearEffectNodes();
+    if (sourceNode) { try { sourceNode.disconnect(); } catch(_) {} sourceNode = null; }
+    if (micAnalyser) { micAnalyser = null; }
+    if (processedAnalyser) { processedAnalyser = null; }
+    if (effectInputGain) { try { effectInputGain.disconnect(); } catch(_) {} effectInputGain = null; }
+    if (effectOutputGain) { try { effectOutputGain.disconnect(); } catch(_) {} effectOutputGain = null; }
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+    if (audioContext) { try { audioContext.close(); } catch(_) {} audioContext = null; }
+    el.micReady.textContent = 'NO';
+    el.micReady.className = 'warn';
+    el.source.textContent = 'stopped';
+    el.source.className = '';
+    el.micLevel.textContent = '0';
+    el.micLevel.className = 'muted';
+    el.processedLevel.textContent = '0';
+    el.processedLevel.className = 'muted';
+    el.effectStatus.textContent = 'disabled (mic not started)';
+    el.effectStatus.className = 'muted';
+    micMeter.style.width = '0%';
+    processedMeter.style.width = '0%';
+    setMsg('Stopped.', '#fbbf24');
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    effectModeSelect.disabled = true;
+    btnMonitorStart.disabled = true;
+    btnMonitorStop.disabled = true;
+  }
+
+  function updateUI() {
+    if (lastSendTime > 0) {
+      el.lastSendAgeMs.textContent = (Date.now() - lastSendTime) + 'ms';
+    }
+    refreshSessionInfo();
+    if (isRunning) {
+      requestAnimationFrame(updateUI);
+    }
+  }
+
+  // ===== Event listeners =====
+  btnStart.addEventListener('click', startMicrophone);
+  btnStop.addEventListener('click', stopMicrophone);
+  effectModeSelect.addEventListener('change', function() {
+    setEffectMode(this.value);
+  });
+  btnMonitorStart.addEventListener('click', startMonitor);
+  btnMonitorStop.addEventListener('click', stopMonitor);
+
+  // ===== Public API =====
+  window.MinAudioSend = {
+    startMicrophone: startMicrophone,
+    stopMicrophone: stopMicrophone,
+    isRunning: () => isRunning,
+    getSendCount: () => sendCount,
+    getMicLevel: () => currentLevel,
+    getProcessedLevel: () => currentProcessedLevel,
+    getEffectMode: () => currentEffectMode,
+    setEffectMode: setEffectMode,
+  };
+
+  refreshSessionInfo();
+  updateBridgeStatus();
+  setInterval(updateBridgeStatus, 2000);
+})();
+</script>
+</body>
+</html>

@@ -11,12 +11,14 @@
 
     <!-- 普通变声（P1）：声明麦克风权限，运行时由用户主动触发请求，不自动请求 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application
         android:allowBackup="false"
         android:label="CheapLive Capture"
-        android:theme="@style/Theme.CheapLiveCapture">
+        android:theme="@style/Theme.CheapLiveCapture"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".HomeActivity"
@@ -37,8 +39,15 @@
 
         <activity
             android:name=".MainActivity"
-            android:exported="false"
+            android:exported="true"
             android:label="面捕 / 多端会话 (开发中)"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <activity
+            android:name=".ScreensaverActivity"
+            android:exported="true"
+            android:label="Screen Saver"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:theme="@style/Theme.CheapLiveCapture.NoActionBar.Fullscreen" />
     </application>
 </manifest>

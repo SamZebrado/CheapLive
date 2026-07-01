@@ -50,6 +50,13 @@ import com.google.zxing.qrcode.QRCodeWriter
  */
 class MainActivity : AppCompatActivity() {
 
+    // === Dev Flags (audio 开发线，默认关闭，不影响 demo) ===
+    private val devAudioEnabled = false
+    private val devFaceDebugEnabled = false // 默认关闭正式面捕调试
+
+    private var isMinFaceTestMode = false
+    private var isMinAudioTestMode = false
+
     private var webView: WebView? = null
     private var server: LocalServer? = null
     private var session: Session? = null
@@ -109,6 +116,9 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        isMinFaceTestMode = intent.getStringExtra("MODE") == "MIN_FACE_TEST"
+        isMinAudioTestMode = intent.getStringExtra("MODE") == "MIN_AUDIO_TEST"
+
         val scroll = ScrollView(this).apply {
             setBackgroundColor(cBg)
             isFillViewport = true
@@ -119,57 +129,673 @@ class MainActivity : AppCompatActivity() {
         }
         scroll.addView(root, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
 
-        buildTopBar(root)
-        buildServerCard(root)
-        buildAvatarCard(root)
-        buildFaceCaptureCard(root)
-        buildPoseCaptureCard(root)
-        buildVoiceCard(root)
-        buildAiVoiceCard(root)
-        buildControlCard(root)
-        buildStateCard(root)
-        buildQrSection(root)
+        if (isMinFaceTestMode) {
+            buildMinFaceTopBar(root)
+            buildMinFaceStatusCard(root)
+            buildMinFaceQrSection(root)
+        } else if (isMinAudioTestMode) {
+            buildMinAudioTopBar(root)
+            buildMinAudioStatusCard(root)
+            buildMinAudioQrSection(root)
+        } else {
+            buildTopBar(root)
+            buildServerCard(root)
+            buildAvatarCard(root)
+            buildFaceCaptureCard(root)
+            buildPoseCaptureCard(root)
+            buildVoiceCard(root)
+            buildAiVoiceCard(root)
+            buildControlCard(root)
+            buildStateCard(root)
+            buildQrSection(root)
+        }
 
         webView = WebView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0).apply { weight = 0f; height = 1 }
-            visibility = View.GONE
+            val h = if (isMinFaceTestMode || isMinAudioTestMode) {
+                (400 * resources.displayMetrics.density).toInt()
+            } else {
+                (320 * resources.displayMetrics.density).toInt()
+            }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, h).apply { weight = 0f }
+            visibility = View.VISIBLE
         }
         root.addView(webView)
 
         setContentView(scroll)
         setupWebView()
-        btnStart.setOnClickListener { safeStartSession() }
-        btnStop.setOnClickListener { safeStopSession() }
 
-        // 进入页面时立即初始化 appState，避免 null 导致的崩溃
+        if (isMinFaceTestMode) {
+            setupMinFaceMode()
+        } else if (isMinAudioTestMode) {
+            setupMinAudioMode()
+        } else {
+            btnStart.setOnClickListener { safeStartSession() }
+            btnStop.setOnClickListener { safeStopSession() }
+
+            // 进入页面时立即初始化 appState，避免 null 导致的崩溃
+            if (appState == null) {
+                appState = AppState()
+            }
+
+            // 进入页面时提前生成 session/token/二维码
+            val initialIp = PrivateIpPicker.pick()
+            if (initialIp != null && session == null) {
+                val s = SessionManager.createSession(initialIp, PORT)
+                session = s
+                val previewLink = "http://${s.privateIp}:${s.port}/receiver/?token=${s.token}"
+                currentSessionUrl = previewLink
+                qrImageView?.apply {
+                    visibility = View.VISIBLE
+                    setImageBitmap(generateQRCode(previewLink, 600))
+                }
+                tvServerStatus.text = "会话已就绪（服务器未启动）"
+                tvSessionInfo.text = "链接与二维码已固定；点击「开始多端会话」启动服务器"
+            }
+
+            // 仅检查权限状态并反映到 UI，不自动请求麦克风/摄像头权限。
+            val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            val hasCamera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            appState?.setField("voicePermission", if (hasAudio) "granted" else "not_requested")
+            appState?.setField("cameraPermission", if (hasCamera) "granted" else "not_requested")
+            updateVoiceStatus()
+            updateFaceCaptureStatus()
+            refreshAllButtons()
+
+            // 提前启动 LocalServer，供 WebView capture 页面通过 loopback 加载 MediaPipe 资源
+            ensureServerStarted()
+            showCapturePage()
+        }
+    }
+
+    // ============================================================
+    // Min Face Test 模式 UI
+    // ============================================================
+    private lateinit var tvMinFaceServerStatus: TextView
+    private lateinit var tvMinFaceToken: TextView
+    private lateinit var tvMinFaceReceiverUrl: TextView
+    private lateinit var tvMinFaceStatus: TextView
+    private lateinit var btnMinFaceStart: Button
+    private lateinit var btnMinFaceStop: Button
+
+    private fun buildMinFaceTopBar(root: LinearLayout) {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#111827"))
+            setPadding(48, 56, 48, 40)
+        }
+        val titleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val logo = TextView(this).apply {
+            text = "🧪"
+            textSize = 24f
+            gravity = Gravity.CENTER
+            val lp = LinearLayout.LayoutParams(76, 76)
+            lp.marginEnd = 24
+            layoutParams = lp
+        }
+        titleRow.addView(logo)
+        val titleCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val title = TextView(this).apply {
+            text = "Min Face Transport Test"
+            textSize = 20f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cText)
+        }
+        titleCol.addView(title)
+        val badge = TextView(this).apply {
+            text = "Isolated Testing"
+            textSize = 10f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cWarning)
+            setBackgroundColor(Color.argb(30, 255, 212, 59))
+            setPadding(16, 6, 16, 6)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = 6
+            layoutParams = lp
+        }
+        titleCol.addView(badge)
+        titleRow.addView(titleCol)
+        bar.addView(titleRow)
+        val subtitle = TextView(this).apply {
+            text = "验证真实面部参数从 Android App 到电脑浏览器的传输链路"
+            textSize = 12f
+            setTextColor(cTextSec)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = 16
+            layoutParams = lp
+        }
+        bar.addView(subtitle)
+        root.addView(bar)
+    }
+
+    private fun buildMinFaceStatusCard(root: LinearLayout) {
+        val card = makeMinFaceCard()
+        addMinFaceCardTitle(card, "📡 服务器状态", "Server")
+
+        tvMinFaceServerStatus = TextView(this).apply {
+            text = "服务器状态: 启动中..."
+            textSize = 13f
+            setTextColor(cTextSec)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 8
+            layoutParams = lp
+        }
+        card.addView(tvMinFaceServerStatus)
+
+        tvMinFaceToken = TextView(this).apply {
+            text = "token: -"
+            textSize = 12f
+            setTextColor(cTextMuted)
+            setPadding(16, 12, 16, 12)
+            setBackgroundColor(cBgSecondary)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 8
+            layoutParams = lp
+        }
+        card.addView(tvMinFaceToken)
+
+        tvMinFaceReceiverUrl = TextView(this).apply {
+            text = "receiver URL: -"
+            textSize = 11f
+            setTextColor(cTextMuted)
+            setPadding(16, 12, 16, 12)
+            setBackgroundColor(cBgSecondary)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        card.addView(tvMinFaceReceiverUrl)
+
+        // 控制按钮
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        btnMinFaceStart = Button(this).apply {
+            text = "启动摄像头"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cBg)
+            setBackgroundColor(cAccent2)
+            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            lp.marginEnd = 8
+            layoutParams = lp
+            setPadding(0, 24, 0, 24)
+            background = createRoundedDrawable(cAccent2, 12f)
+        }
+        btnMinFaceStart.setOnClickListener { startMinFaceCamera() }
+        btnRow.addView(btnMinFaceStart)
+
+        btnMinFaceStop = Button(this).apply {
+            text = "停止"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cText)
+            setBackgroundColor(cBgCard)
+            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            lp.marginStart = 8
+            layoutParams = lp
+            setPadding(0, 24, 0, 24)
+            background = createRoundedDrawable(cBgCard, 12f)
+            isEnabled = false
+            alpha = 0.5f
+        }
+        btnMinFaceStop.setOnClickListener { stopMinFaceCamera() }
+        btnRow.addView(btnMinFaceStop)
+        card.addView(btnRow)
+
+        // 状态显示
+        tvMinFaceStatus = TextView(this).apply {
+            text = "等待启动..."
+            textSize = 12f
+            setTextColor(cTextMuted)
+            setPadding(16, 12, 16, 12)
+            setBackgroundColor(cBgSecondary)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            layoutParams = lp
+        }
+        card.addView(tvMinFaceStatus)
+
+        root.addView(card)
+    }
+
+    private fun buildMinFaceQrSection(root: LinearLayout) {
+        val card = makeMinFaceCard()
+        addMinFaceCardTitle(card, "📱 Receiver 连接", "QR Code")
+
+        val desc = TextView(this).apply {
+            text = "手机扫码或电脑浏览器打开 LAN URL。Debug URL 需要 adb forward。"
+            textSize = 12f
+            setTextColor(cTextSec)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        card.addView(desc)
+
+        qrImageView = ImageView(this).apply {
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.gravity = Gravity.CENTER_HORIZONTAL
+            lp.bottomMargin = 12
+            layoutParams = lp
+        }
+        card.addView(qrImageView)
+
+        root.addView(card)
+    }
+
+    private fun makeMinFaceCard(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(cBgCard)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.setMargins(32, 12, 32, 12)
+            layoutParams = lp
+            setPadding(32, 28, 32, 28)
+            background = createRoundedDrawable(cBgCard, 24f)
+        }
+    }
+
+    private fun addMinFaceCardTitle(card: LinearLayout, title: String, badge: String) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        val tv = TextView(this).apply {
+            this.text = title
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cText)
+        }
+        row.addView(tv)
+        val badgeView = TextView(this).apply {
+            this.text = badge
+            textSize = 9f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cAccent)
+            setBackgroundColor(Color.argb(30, 79, 195, 247))
+            setPadding(10, 4, 10, 4)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.marginStart = 12
+            layoutParams = lp
+        }
+        row.addView(badgeView)
+        card.addView(row)
+    }
+
+    private fun setupMinFaceMode() {
+        // 初始化 appState
         if (appState == null) {
             appState = AppState()
         }
 
-        // 进入页面时提前生成 session/token/二维码
+        // 创建 session
         val initialIp = PrivateIpPicker.pick()
         if (initialIp != null && session == null) {
             val s = SessionManager.createSession(initialIp, PORT)
             session = s
-            val previewLink = "http://${s.privateIp}:${s.port}/receiver/?token=${s.token}"
-            currentSessionUrl = previewLink
+            val receiverLink = "http://127.0.0.1:${s.port}/min-face-receiver?token=${s.token}"
+            currentSessionUrl = receiverLink
+            tvMinFaceToken.text = "token: ${s.token.take(12)}..."
+            tvMinFaceReceiverUrl.text = "receiver URL: $receiverLink"
             qrImageView?.apply {
                 visibility = View.VISIBLE
-                setImageBitmap(generateQRCode(previewLink, 600))
+                setImageBitmap(generateQRCode(receiverLink, 500))
             }
-            tvServerStatus.text = "会话已就绪（服务器未启动）"
-            tvSessionInfo.text = "链接与二维码已固定；点击「开始多端会话」启动服务器"
         }
 
-        // 仅检查权限状态并反映到 UI，不自动请求麦克风/摄像头权限。
-        val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        // 启动服务器
+        ensureServerStarted()
+
+        // 加载 min-face-send 页面
+        showMinFaceSendPage()
+
+        tvMinFaceServerStatus.text = "服务器状态: 运行中 ✓"
+        tvMinFaceServerStatus.setTextColor(cAccent2)
+        tvMinFaceStatus.text = "服务器就绪，点击「启动摄像头」开始面捕"
+    }
+
+    private fun showMinFaceSendPage() {
+        val s = session
+        val url = if (s != null && isServerRunning) {
+            "http://127.0.0.1:${s.port}/min-face-send?token=${s.token}"
+        } else {
+            "file:///android_asset/web/min-face-send.html"
+        }
+        android.util.Log.i("CheapLiveCapture", "showMinFaceSendPage: loading $url")
+        webView?.loadUrl(url)
+    }
+
+    private fun startMinFaceCamera() {
         val hasCamera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        appState?.setField("voicePermission", if (hasAudio) "granted" else "not_requested")
-        appState?.setField("cameraPermission", if (hasCamera) "granted" else "not_requested")
-        updateVoiceStatus()
-        updateFaceCaptureStatus()
-        refreshAllButtons()
-        showCapturePage()
+        if (!hasCamera) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), REQ_CAMERA)
+            tvMinFaceStatus.text = "请求摄像头权限中..."
+            return
+        }
+        webView?.evaluateJavascript(
+            "(function() { if (window.MinFaceSend && window.MinFaceSend.startCamera) { window.MinFaceSend.startCamera(); return 'started'; } else { return 'api-not-ready'; } })()"
+        ) { result ->
+            android.util.Log.i("CheapLiveCapture", "startMinFaceCamera result: $result")
+            btnMinFaceStart.isEnabled = false
+            btnMinFaceStart.alpha = 0.5f
+            btnMinFaceStop.isEnabled = true
+            btnMinFaceStop.alpha = 1f
+            tvMinFaceStatus.text = "摄像头启动中..."
+        }
+    }
+
+    private fun stopMinFaceCamera() {
+        webView?.evaluateJavascript(
+            "(function() { if (window.MinFaceSend && window.MinFaceSend.stopCamera) { window.MinFaceSend.stopCamera(); return 'stopped'; } else { return 'api-not-ready'; } })()"
+        ) { result ->
+            android.util.Log.i("CheapLiveCapture", "stopMinFaceCamera result: $result")
+            btnMinFaceStart.isEnabled = true
+            btnMinFaceStart.alpha = 1f
+            btnMinFaceStop.isEnabled = false
+            btnMinFaceStop.alpha = 0.5f
+            tvMinFaceStatus.text = "已停止"
+        }
+    }
+
+    // ============================================================
+    // Min Audio Test 模式 UI
+    // ============================================================
+    private lateinit var tvMinAudioServerStatus: TextView
+    private lateinit var tvMinAudioToken: TextView
+    private lateinit var tvMinAudioReceiverUrl: TextView
+    private lateinit var tvMinAudioStatus: TextView
+    private lateinit var btnMinAudioStart: Button
+    private lateinit var btnMinAudioStop: Button
+
+    private fun buildMinAudioTopBar(root: LinearLayout) {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#111827"))
+            setPadding(48, 56, 48, 40)
+        }
+        val titleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val logo = TextView(this).apply {
+            text = "🎙"
+            textSize = 24f
+            gravity = Gravity.CENTER
+            val lp = LinearLayout.LayoutParams(76, 76)
+            lp.marginEnd = 24
+            layoutParams = lp
+        }
+        titleRow.addView(logo)
+        val titleCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val title = TextView(this).apply {
+            text = "Min Audio Transport Test"
+            textSize = 20f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cText)
+        }
+        titleCol.addView(title)
+        val badge = TextView(this).apply {
+            text = "Isolated Testing"
+            textSize = 10f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cWarning)
+            setBackgroundColor(Color.argb(30, 255, 212, 59))
+            setPadding(16, 6, 16, 6)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = 6
+            layoutParams = lp
+        }
+        titleCol.addView(badge)
+        titleRow.addView(titleCol)
+        bar.addView(titleRow)
+        val subtitle = TextView(this).apply {
+            text = "验证麦克风音量从 Android App 到电脑浏览器的传输链路"
+            textSize = 12f
+            setTextColor(cTextSec)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = 16
+            layoutParams = lp
+        }
+        bar.addView(subtitle)
+        root.addView(bar)
+    }
+
+    private fun buildMinAudioStatusCard(root: LinearLayout) {
+        val card = makeMinAudioCard()
+        addMinAudioCardTitle(card, "📡 服务器状态", "Server")
+
+        tvMinAudioServerStatus = TextView(this).apply {
+            text = "服务器状态: 启动中..."
+            textSize = 13f
+            setTextColor(cTextSec)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 8
+            layoutParams = lp
+        }
+        card.addView(tvMinAudioServerStatus)
+
+        tvMinAudioToken = TextView(this).apply {
+            text = "token: -"
+            textSize = 12f
+            setTextColor(cTextMuted)
+            setPadding(16, 12, 16, 12)
+            setBackgroundColor(cBgSecondary)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 8
+            layoutParams = lp
+        }
+        card.addView(tvMinAudioToken)
+
+        tvMinAudioReceiverUrl = TextView(this).apply {
+            text = "receiver URL: -"
+            textSize = 11f
+            setTextColor(cTextMuted)
+            setPadding(16, 12, 16, 12)
+            setBackgroundColor(cBgSecondary)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        card.addView(tvMinAudioReceiverUrl)
+
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        btnMinAudioStart = Button(this).apply {
+            text = "启动麦克风"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cBg)
+            setBackgroundColor(cAccent2)
+            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            lp.marginEnd = 8
+            layoutParams = lp
+            setPadding(0, 24, 0, 24)
+            background = createRoundedDrawable(cAccent2, 12f)
+        }
+        btnMinAudioStart.setOnClickListener { startMinAudioMicrophone() }
+        btnRow.addView(btnMinAudioStart)
+
+        btnMinAudioStop = Button(this).apply {
+            text = "停止"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cText)
+            setBackgroundColor(cBgCard)
+            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            lp.marginStart = 8
+            layoutParams = lp
+            setPadding(0, 24, 0, 24)
+            background = createRoundedDrawable(cBgCard, 12f)
+            isEnabled = false
+            alpha = 0.5f
+        }
+        btnMinAudioStop.setOnClickListener { stopMinAudioMicrophone() }
+        btnRow.addView(btnMinAudioStop)
+        card.addView(btnRow)
+
+        tvMinAudioStatus = TextView(this).apply {
+            text = "等待启动..."
+            textSize = 12f
+            setTextColor(cTextMuted)
+            setPadding(16, 12, 16, 12)
+            setBackgroundColor(cBgSecondary)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            layoutParams = lp
+        }
+        card.addView(tvMinAudioStatus)
+
+        root.addView(card)
+    }
+
+    private fun buildMinAudioQrSection(root: LinearLayout) {
+        val card = makeMinAudioCard()
+        addMinAudioCardTitle(card, "📱 Receiver 连接", "QR Code")
+
+        val desc = TextView(this).apply {
+            text = "手机扫码或电脑浏览器打开 LAN URL。Debug URL 需要 adb forward。"
+            textSize = 12f
+            setTextColor(cTextSec)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        card.addView(desc)
+
+        val qrImg = ImageView(this).apply {
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.gravity = Gravity.CENTER_HORIZONTAL
+            lp.bottomMargin = 12
+            layoutParams = lp
+        }
+        card.addView(qrImg)
+        qrImageView = qrImg
+
+        root.addView(card)
+    }
+
+    private fun makeMinAudioCard(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(cBgCard)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.setMargins(32, 12, 32, 12)
+            layoutParams = lp
+            setPadding(32, 28, 32, 28)
+            background = createRoundedDrawable(cBgCard, 24f)
+        }
+    }
+
+    private fun addMinAudioCardTitle(card: LinearLayout, title: String, badge: String) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        val tv = TextView(this).apply {
+            this.text = title
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cText)
+        }
+        row.addView(tv)
+        val badgeView = TextView(this).apply {
+            this.text = badge
+            textSize = 9f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(cAccent)
+            setBackgroundColor(Color.argb(30, 79, 195, 247))
+            setPadding(10, 4, 10, 4)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.marginStart = 12
+            layoutParams = lp
+        }
+        row.addView(badgeView)
+        card.addView(row)
+    }
+
+    private fun setupMinAudioMode() {
+        if (appState == null) {
+            appState = AppState()
+        }
+
+        val initialIp = PrivateIpPicker.pick()
+        if (initialIp != null && session == null) {
+            val s = SessionManager.createSession(initialIp, PORT)
+            session = s
+            val debugLink = "http://127.0.0.1:${s.port}/min-audio-receiver?token=${s.token}"
+            val lanLink = "http://${s.privateIp}:${s.port}/min-audio-receiver?token=${s.token}"
+            currentSessionUrl = lanLink
+            tvMinAudioToken.text = "token: ${s.token.take(12)}..."
+            tvMinAudioReceiverUrl.text = "LAN: $lanLink\nDebug: $debugLink (requires adb forward)"
+            qrImageView?.apply {
+                visibility = View.VISIBLE
+                setImageBitmap(generateQRCode(lanLink, 500))
+            }
+        }
+
+        ensureServerStarted()
+        showMinAudioSendPage()
+
+        tvMinAudioServerStatus.text = "服务器状态: 运行中 ✓"
+        tvMinAudioServerStatus.setTextColor(cAccent2)
+        tvMinAudioStatus.text = "服务器就绪，点击「启动麦克风」开始音频采集"
+    }
+
+    private fun showMinAudioSendPage() {
+        val s = session
+        val url = if (s != null && isServerRunning) {
+            "http://127.0.0.1:${s.port}/min-audio-send?token=${s.token}"
+        } else {
+            "file:///android_asset/web/min-audio-send.html"
+        }
+        android.util.Log.i("CheapLiveCapture", "showMinAudioSendPage: loading $url")
+        webView?.loadUrl(url)
+    }
+
+    private fun startMinAudioMicrophone() {
+        val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (!hasAudio) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQ_AUDIO)
+            tvMinAudioStatus.text = "请求麦克风权限中..."
+            return
+        }
+        webView?.evaluateJavascript(
+            "(function() { if (window.MinAudioSend && window.MinAudioSend.startMicrophone) { window.MinAudioSend.startMicrophone(); return 'started'; } else { return 'api-not-ready'; } })()"
+        ) { result ->
+            android.util.Log.i("CheapLiveCapture", "startMinAudioMicrophone result: $result")
+            btnMinAudioStart.isEnabled = false
+            btnMinAudioStart.alpha = 0.5f
+            btnMinAudioStop.isEnabled = true
+            btnMinAudioStop.alpha = 1f
+            tvMinAudioStatus.text = "麦克风启动中..."
+        }
+    }
+
+    private fun stopMinAudioMicrophone() {
+        webView?.evaluateJavascript(
+            "(function() { if (window.MinAudioSend && window.MinAudioSend.stopMicrophone) { window.MinAudioSend.stopMicrophone(); return 'stopped'; } else { return 'api-not-ready'; } })()"
+        ) { result ->
+            android.util.Log.i("CheapLiveCapture", "stopMinAudioMicrophone result: $result")
+            btnMinAudioStart.isEnabled = true
+            btnMinAudioStart.alpha = 1f
+            btnMinAudioStop.isEnabled = false
+            btnMinAudioStop.alpha = 0.5f
+            tvMinAudioStatus.text = "已停止"
+        }
     }
 
     // ============================================================
@@ -437,6 +1063,22 @@ class MainActivity : AppCompatActivity() {
             appState?.applyCommand("setFaceCapture", mapOf("enabled" to !current))
             btnFaceToggle.text = if (!current) "停止面捕" else "启用面捕"
             updateFaceCaptureStatus()
+
+            if (!current) {
+                // 启动 WebView 中的 camera
+                webView?.evaluateJavascript(
+                    "(function() { if (window.CheapLiveCapture && window.CheapLiveCapture.startCamera) { window.CheapLiveCapture.startCamera('android-button'); return 'startCamera-dispatched'; } else { return 'api-not-ready'; } })()"
+                ) { result ->
+                    android.util.Log.i("CheapLiveCapture", "startCamera dispatch result: $result")
+                }
+            } else {
+                // 停止 WebView 中的 camera
+                webView?.evaluateJavascript(
+                    "(function() { if (window.CheapLiveCapture && window.CheapLiveCapture.stopCamera) { return JSON.stringify(window.CheapLiveCapture.stopCamera('android-button')); } else { return JSON.stringify({ok:false,error:'CheapLiveCapture API not ready'}); } })()"
+                ) { result ->
+                    android.util.Log.i("CheapLiveCapture", "stopCamera result: $result")
+                }
+            }
         } catch (e: Throwable) {
             appState?.setField("lastError", "face capture toggle error: ${e.message}")
             updateFaceCaptureStatus()
@@ -756,6 +1398,26 @@ class MainActivity : AppCompatActivity() {
             layoutParams = lp
         }
         card.addView(tvStatePanel)
+
+        // Debug: Audio Probe button (only visible when devAudioEnabled = true)
+        if (devAudioEnabled) {
+            val btnAudioProbe = makeButton("🔍 打开 Audio Probe（调试）", cPurple, cBg).apply {
+                setOnClickListener {
+                    val s = session ?: return@setOnClickListener
+                    val probeUrl = "http://127.0.0.1:${s.port}/audio-probe/?token=${s.token}&autostart=1&devAudio=1"
+                    webView?.apply {
+                        visibility = View.VISIBLE
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            (resources.displayMetrics.heightPixels * 0.6).toInt()
+                        )
+                        loadUrl(probeUrl)
+                    }
+                }
+            }
+            card.addView(btnAudioProbe)
+        }
+
         root.addView(card)
     }
 
@@ -764,7 +1426,16 @@ class MainActivity : AppCompatActivity() {
     // ============================================================
     private fun buildQrSection(root: LinearLayout) {
         val card = makeCard()
-        addCardTitle(card, "📱 会话链接", "扫码连接")
+        addCardTitle(card, "📱 接收端链接", "扫码连接")
+
+        val hint = TextView(this).apply {
+            text = "此二维码用于打开接收/播放端页面，不是手机采集端。\n请在电脑或展示设备浏览器中打开，用于接收本机采集的头像/声音数据。\n面部、动作和声音采集请在本 Android App 内完成。"
+            setTextColor(cTextSec)
+            textSize = 13f
+            setPadding(0, 4, 0, 12)
+            lineHeight = (19 * resources.displayMetrics.density).toInt()
+        }
+        card.addView(hint)
 
         qrImageView = ImageView(this).apply {
             setBackgroundColor(Color.WHITE)
@@ -1011,11 +1682,18 @@ class MainActivity : AppCompatActivity() {
         settings.domStorageEnabled = true
         settings.cacheMode = WebSettings.LOAD_NO_CACHE
         settings.setSupportMultipleWindows(false)
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
 
         wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url?.toString() ?: return true
-                return !url.startsWith("file:///android_asset/")
+                return !url.startsWith("file:///android_asset/") &&
+                    !url.startsWith("http://127.0.0.1:")
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                android.util.Log.i("CheapLiveWebView", "onPageFinished: $url")
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -1059,21 +1737,113 @@ class MainActivity : AppCompatActivity() {
                 val r = request ?: return
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                     val wanted = r.resources
+                    android.util.Log.i("CheapLiveWebView", "onPermissionRequest: resources=[${wanted.joinToString()}]")
                     val allowed = wanted.filter {
                         it == PermissionRequest.RESOURCE_VIDEO_CAPTURE ||
                         it == PermissionRequest.RESOURCE_AUDIO_CAPTURE
                     }.toTypedArray()
-                    if (allowed.isNotEmpty()) r.grant(allowed) else r.deny()
+                    if (allowed.isNotEmpty()) {
+                        android.util.Log.i("CheapLiveWebView", "onPermissionRequest: granting [${allowed.joinToString()}]")
+                        r.grant(allowed)
+                    } else {
+                        android.util.Log.w("CheapLiveWebView", "onPermissionRequest: denying all")
+                        r.deny()
+                    }
                 }
+            }
+
+            override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+                val cm = consoleMessage ?: return super.onConsoleMessage(consoleMessage)
+                val level = cm.messageLevel()
+                val text = cm.message()
+                val src = cm.sourceId()
+                val line = cm.lineNumber()
+                val tag = "CheapLiveWebView"
+                when (level) {
+                    android.webkit.ConsoleMessage.MessageLevel.ERROR ->
+                        android.util.Log.e(tag, "[JS ERROR] $text ($src:$line)")
+                    android.webkit.ConsoleMessage.MessageLevel.WARNING ->
+                        android.util.Log.w(tag, "[JS WARN] $text ($src:$line)")
+                    else ->
+                        android.util.Log.d(tag, "[JS] $text ($src:$line)")
+                }
+                return true
             }
         }
     }
 
+    private fun ensureServerStarted() {
+        if (isServerRunning) return
+        val ip = PrivateIpPicker.pick() ?: "127.0.0.1"
+        val baseSession = session ?: SessionManager.createSession(ip, PORT)
+        val srv = LocalServer(this, baseSession, appState ?: AppState())
+        val actualPort = try {
+            srv.start()
+        } catch (t: Throwable) {
+            android.util.Log.e("CheapLiveCapture", "ensureServerStarted failed: ${t.message}")
+            return
+        }
+        val finalSession = baseSession.copy(port = actualPort, privateIp = ip)
+        session = finalSession
+        server = srv
+        isServerRunning = true
+        android.util.Log.i("CheapLiveCapture", "ensureServerStarted: port=$actualPort")
+
+        val b = bridge ?: CaptureBridge(finalSession, srv, { _, _ -> }).also { bridge = it }
+        webView?.addJavascriptInterface(b, "CheapLiveBridge")
+    }
+
     private fun showCapturePage() {
-        webView?.loadUrl("file:///android_asset/web/capture/index.html")
+        val s = session
+        val url = if (s != null && isServerRunning) {
+            val devParam = if (devAudioEnabled) "&devAudio=1" else ""
+            val page = if (devFaceDebugEnabled) "min-face-send" else "capture/"
+            "http://127.0.0.1:${s.port}/$page?token=${s.token}$devParam"
+        } else {
+            "file:///android_asset/web/capture/index.html"
+        }
+        android.util.Log.i("CheapLiveCapture", "showCapturePage: loading $url")
+        webView?.loadUrl(url)
     }
 
     private fun startSession() {
+        if (isServerRunning && server != null && appState != null && session != null) {
+            // server 已由 ensureServerStarted 提前启动，补全 UI 和监听器
+            val finalSession = session!!
+            val srv = server!!
+            appState?.setField("serverRunning", true)
+            appState?.setField("viewerConnected", true)
+            val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            appState?.setField("voicePermission", if (hasAudio) "granted" else "denied")
+
+            appState?.addListener { snap ->
+                runOnUiThread {
+                    updateStatePanel(snap)
+                    updateAvatarDisplay()
+                    updateVoiceStatus()
+                    updateFaceCaptureStatus()
+                    refreshAvatarButtons()
+                    refreshExprButtons()
+                    refreshActionButtons()
+                    refreshPresetButtons()
+                    tvServerBadge.text = if (snap.serverRunning) "ONLINE" else "OFFLINE"
+                    tvServerBadge.setTextColor(if (snap.serverRunning) cAccent2 else cDanger)
+                    tvServerBadge.setBackgroundColor(if (snap.serverRunning) Color.argb(30, 105, 219, 124) else Color.argb(30, 255, 107, 107))
+                }
+            }
+
+            val b = bridge ?: CaptureBridge(finalSession, srv, { _, _ -> }).also { bridge = it }
+            webView?.addJavascriptInterface(b, "CheapLiveBridge")
+            val link = "http://${finalSession.privateIp}:${finalSession.port}/receiver/?token=${finalSession.token}"
+            currentSessionUrl = link
+            tvServerStatus.text = "会话已启动"
+            tvSessionInfo.text = "扫描二维码在接收端打开（电脑/展示设备浏览器）"
+            qrImageView?.apply {
+                visibility = View.VISIBLE
+                setImageBitmap(generateQRCode(link, 600))
+            }
+            return
+        }
         if (isServerRunning) {
             tvServerStatus.text = "服务器已在运行中（链接与二维码不变）"
             return
@@ -1140,7 +1910,7 @@ class MainActivity : AppCompatActivity() {
         val link = "http://${finalSession.privateIp}:$actualPort/receiver/?token=${finalSession.token}"
         currentSessionUrl = link
         tvServerStatus.text = if (existingSession == null) "会话已启动" else "会话已重启（链接与二维码不变）"
-        tvSessionInfo.text = "扫描二维码或点击「复制链接」"
+        tvSessionInfo.text = "扫描二维码在接收端打开（电脑/展示设备浏览器）"
         qrImageView?.apply {
             visibility = View.VISIBLE
             setImageBitmap(generateQRCode(link, 600))
@@ -1210,13 +1980,38 @@ class MainActivity : AppCompatActivity() {
                 REQ_CAMERA -> {
                     val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
                     appState?.setField("cameraPermission", if (granted) "granted" else "denied")
-                    if (granted) {
+                    if (isMinFaceTestMode) {
+                        if (granted) {
+                            startMinFaceCamera()
+                        } else {
+                            tvMinFaceStatus.text = "摄像头权限被拒绝"
+                        }
+                    } else if (granted) {
                         appState?.applyCommand("setFaceCapture", mapOf("enabled" to true))
                         appState?.applyCommand("setCaptureMode", mapOf("mode" to "real-camera"))
+                        webView?.evaluateJavascript(
+                            "(function() { if (window.CheapLiveCapture && window.CheapLiveCapture.startCamera) { window.CheapLiveCapture.startCamera('android-permission-result'); return 'startCamera-dispatched'; } else { return 'api-not-ready'; } })()"
+                        ) { result ->
+                            android.util.Log.i("CheapLiveCapture", "startCamera dispatch (from permission): $result")
+                        }
                     } else {
                         appState?.applyCommand("setFaceCapture", mapOf("enabled" to false))
                         appState?.applyCommand("setCaptureMode", mapOf("mode" to "simulated"))
                         appState?.setField("lastError", "camera permission denied")
+                        btnFaceToggle.text = "启用面捕"
+                    }
+                    refreshAllButtons()
+                    updateFaceCaptureStatus()
+                }
+                REQ_AUDIO -> {
+                    val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+                    appState?.setField("voicePermission", if (granted) "granted" else "denied")
+                    if (isMinAudioTestMode) {
+                        if (granted) {
+                            startMinAudioMicrophone()
+                        } else {
+                            tvMinAudioStatus.text = "麦克风权限被拒绝"
+                        }
                     }
                     refreshAllButtons()
                 }
@@ -1233,6 +2028,7 @@ class MainActivity : AppCompatActivity() {
             appState?.setField("lastError", "permission result error: ${e.message}")
         }
     }
+
 
     private fun generateQRCode(text: String, size: Int): Bitmap? {
         return try {
@@ -1256,5 +2052,6 @@ class MainActivity : AppCompatActivity() {
         private const val PORT = 8765
         private const val REQ_PERMISSIONS = 1001
         private const val REQ_CAMERA = 1002
+        private const val REQ_AUDIO = 1003
     }
 }

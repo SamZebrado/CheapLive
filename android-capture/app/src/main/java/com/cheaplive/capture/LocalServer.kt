@@ -255,6 +255,12 @@ class LocalServer(
                     val mime = guessMime(relative)
                     serveAsset(output, "web/$relative", mime)
                 }
+                path == "/min-audio-send" || path == "/min-audio-send/" -> {
+                    serveAsset(output, "web/min-audio-send.html", "text/html; charset=utf-8")
+                }
+                path == "/min-audio-receiver" || path == "/min-audio-receiver/" -> {
+                    serveAsset(output, "web/min-audio-receiver.html", "text/html; charset=utf-8")
+                }
                 else -> {
                     writeHttpResponse(output, 404, "Not Found", "text/plain", "404".toByteArray())
                 }
