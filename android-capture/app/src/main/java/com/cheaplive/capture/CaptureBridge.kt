@@ -147,4 +147,39 @@ class CaptureBridge(
             "{\"ok\":false,\"reason\":\"parse\"}"
         }
     }
+
+    @JavascriptInterface fun publishAudioChunk(json: String): String {
+        return try {
+            val obj = JSONObject(json)
+            val type = obj.optString("type", "")
+            if (type != "audio-chunk") {
+                return "{\"ok\":false,\"reason\":\"wrong type\"}"
+            }
+            val seq = obj.optLong("seq", session.seq++)
+            val timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+            val effectMode = obj.optString("effectMode", "original")
+            val mimeType = obj.optString("mimeType", "audio/webm")
+            val data = obj.optString("data", "")
+            if (data.isEmpty()) {
+                return "{\"ok\":false,\"reason\":\"empty data\"}"
+            }
+            android.util.Log.i("CheapLiveAudio", "publishAudioChunk: seq=$seq, effectMode=$effectMode, mimeType=$mimeType, dataSize=${data.length}")
+            val frameJson = JSONObject().apply {
+                put("type", "audio-chunk")
+                put("version", 1)
+                put("sessionId", session.sessionId)
+                put("seq", seq)
+                put("timestamp", timestamp)
+                put("source", "microphone")
+                put("effectMode", effectMode)
+                put("mimeType", mimeType)
+                put("data", data)
+            }.toString()
+            broadcast.broadcastFrame(frameJson)
+            "{\"ok\":true,\"seq\":$seq}"
+        } catch (e: Exception) {
+            android.util.Log.e("CheapLiveAudio", "publishAudioChunk error: ${e.message}")
+            "{\"ok\":false,\"reason\":\"parse\"}"
+        }
+    }
 }

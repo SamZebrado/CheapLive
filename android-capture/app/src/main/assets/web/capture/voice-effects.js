@@ -22,6 +22,9 @@ export function createVoiceInputController({
   let currentEffectMode = 'original';
   let currentMicLevel = 0;
   let currentProcessedLevel = 0;
+  let mediaStreamDest = null;
+  let mediaRecorder = null;
+  let audioChunkSeq = 0;
 
   const EFFECT_MODES = ['original', 'cute', 'robot', 'deep', 'radio'];
 
@@ -192,10 +195,17 @@ export function createVoiceInputController({
       sourceNode.connect(effectInputGain);
       effectOutputGain.connect(processedAnalyser);
 
+      // 关键：创建 MediaStreamAudioDestinationNode 用于网络传输
+      mediaStreamDest = audioContext.createMediaStreamDestination();
+      effectOutputGain.connect(mediaStreamDest);
+
       currentEffectMode = EFFECT_MODES.includes(effectMode) ? effectMode : 'original';
       buildEffectChain(currentEffectMode);
 
       isRunning = true;
+
+      // 启动 MediaRecorder 分片发送
+      startMediaRecorder();
 
       levelInterval = setInterval(() => {
         const level = computeLevel(micAnalyser);
@@ -231,10 +241,69 @@ export function createVoiceInputController({
     } catch (_) {}
   }
 
+  function startMediaRecorder() {
+    if (!mediaStreamDest || !mediaStreamDest.stream) {
+      console.error('[CheapLiveAudio]', 'mediaStreamDest not ready');
+      return;
+    }
+    try {
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
+      mediaRecorder = new MediaRecorder(mediaStreamDest.stream, mimeType ? { mimeType } : undefined);
+      mediaRecorder.ondataavailable = async (event) => {
+        if (!event.data || event.data.size === 0) return;
+        try {
+          const buffer = await event.data.arrayBuffer();
+          sendAudioChunkToBridge(buffer);
+        } catch (e) {
+          console.error('[CheapLiveAudio]', 'chunk_read_error:', e.message);
+        }
+      };
+      mediaRecorder.onerror = (e) => {
+        console.error('[CheapLiveAudio]', 'recorder_error:', e.error?.message || String(e));
+      };
+      mediaRecorder.start(200);
+      console.error('[CheapLiveAudio]', 'recorder_started mimeType=' + (mimeType || 'default'));
+    } catch (e) {
+      console.error('[CheapLiveAudio]', 'recorder_init_error:', e.message);
+    }
+  }
+
+  function sendAudioChunkToBridge(arrayBuffer) {
+    if (!window.CheapLiveBridge || !window.CheapLiveBridge.publishAudioChunk) return;
+    try {
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const base64 = btoa(binary);
+      audioChunkSeq++;
+      const payload = JSON.stringify({
+        type: 'audio-chunk',
+        seq: audioChunkSeq,
+        timestamp: Date.now(),
+        effectMode: currentEffectMode,
+        mimeType: mediaRecorder ? mediaRecorder.mimeType : 'audio/webm',
+        data: base64,
+      });
+      window.CheapLiveBridge.publishAudioChunk(payload);
+      if (audioChunkSeq % 20 === 0) {
+        console.error('[CheapLiveAudio]', 'chunk_sent seq=' + audioChunkSeq + ' size=' + bytes.length);
+      }
+    } catch (e) {
+      console.error('[CheapLiveAudio]', 'chunk_send_error:', e.message);
+    }
+  }
+
   function stop() {
     isRunning = false;
     monitorEnabled = false;
     if (levelInterval) { clearInterval(levelInterval); levelInterval = null; }
+    if (mediaRecorder) {
+      try { if (mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch(_) {}
+      mediaRecorder = null;
+    }
+    if (mediaStreamDest) { try { mediaStreamDest.disconnect(); } catch(_) {} mediaStreamDest = null; }
     clearEffectNodes();
     if (sourceNode) { try { sourceNode.disconnect(); } catch(_) {} sourceNode = null; }
     micAnalyser = null;
