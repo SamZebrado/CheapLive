@@ -12,6 +12,20 @@
   #hud { padding: 8px 12px; font-size: 12px; }
   #avatar { margin-top: 8px; }
   h3 { margin: 4px 0; }
+  .voice-section { margin-top: 12px; padding-top: 8px; border-top: 1px solid #2a2a40; }
+  .voice-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .voice-label { min-width: 80px; color: #8896b3; }
+  .voice-value { font-family: monospace; color: #4fc3f7; }
+  .voice-meter { flex: 1; height: 12px; background: #1a1a2e; border-radius: 6px; overflow: hidden; }
+  .voice-meter-fill { height: 100%; background: linear-gradient(90deg, #4ade80, #fbbf24, #f87171); width: 0%; transition: width 0.05s linear; }
+  .voice-btn { padding: 4px 10px; background: #1e3a5f; color: #93c5fd; border: 1px solid #3b82f6; border-radius: 4px; font-size: 12px; cursor: pointer; margin-right: 4px; }
+  .voice-btn:active { background: #2563eb; }
+  .voice-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .voice-btn.stop { background: #5f1e1e; color: #fd9393; border-color: #f87171; }
+  .preset-row { display: flex; gap: 4px; flex-wrap: wrap; margin: 6px 0; }
+  .preset-btn { padding: 3px 8px; background: rgba(255,255,255,0.05); border: 1px solid #2a3654; border-radius: 4px; font-size: 11px; color: #8896b3; cursor: pointer; }
+  .preset-btn.active { background: rgba(79,195,247,0.15); border-color: rgba(79,195,247,0.5); color: #4fc3f7; }
+  .preset-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -30,6 +44,36 @@
     <div>headRoll: <span id="headRoll">0.00</span></div>
     <div>fps: <span id="fps">0</span></div>
     <div id="sessionInfo">—</div>
+    <div class="voice-section">
+      <h3>🎙️ 简易变声</h3>
+      <div class="voice-row">
+        <span class="voice-label">麦克风:</span>
+        <span class="voice-value" id="voiceStatus">OFF</span>
+        <button class="voice-btn" id="voiceStartBtn" onclick="startVoiceCapture()">启动</button>
+        <button class="voice-btn stop" id="voiceStopBtn" onclick="stopVoiceCapture()" disabled>停止</button>
+      </div>
+      <div class="voice-row">
+        <span class="voice-label">输入电平:</span>
+        <div class="voice-meter"><div class="voice-meter-fill" id="micMeterFill"></div></div>
+        <span class="voice-value" id="micLevelValue">0%</span>
+      </div>
+      <div class="voice-row">
+        <span class="voice-label">处理后电平:</span>
+        <div class="voice-meter"><div class="voice-meter-fill" id="processedMeterFill"></div></div>
+        <span class="voice-value" id="processedLevelValue">0%</span>
+      </div>
+      <div class="preset-row">
+        <button class="preset-btn active" data-preset="original" onclick="setVoicePreset('original')">原声</button>
+        <button class="preset-btn" data-preset="cute" onclick="setVoicePreset('cute')">可爱</button>
+        <button class="preset-btn" data-preset="robot" onclick="setVoicePreset('robot')">机器人</button>
+        <button class="preset-btn" data-preset="deep" onclick="setVoicePreset('deep')">低沉</button>
+        <button class="preset-btn" data-preset="radio" onclick="setVoicePreset('radio')">电台</button>
+      </div>
+      <div class="voice-row">
+        <span class="voice-label">本地监听:</span>
+        <button class="preset-btn" id="monitorBtn" onclick="toggleMonitor()" disabled>OFF</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -38,6 +82,7 @@
 
 <script type="module">
   import { createSphereMesh, deformSphere, computeVertexLight, computeSphereFaceColor } from '/capture/sphere.js';
+  import { createVoiceInputController } from '/capture/voice-effects.js';
 
   const videoElement = document.getElementById('webcam');
   const canvasElement = document.getElementById('output_canvas');
@@ -230,6 +275,91 @@
     console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'getUserMedia_unavailable'}));
     startMediaPipe();
   }
+
+  // ===== Voice effects integration =====
+  const voiceUi = {
+    status: document.getElementById('voiceStatus'),
+    startBtn: document.getElementById('voiceStartBtn'),
+    stopBtn: document.getElementById('voiceStopBtn'),
+    micMeterFill: document.getElementById('micMeterFill'),
+    micLevelValue: document.getElementById('micLevelValue'),
+    processedMeterFill: document.getElementById('processedMeterFill'),
+    processedLevelValue: document.getElementById('processedLevelValue'),
+    monitorBtn: document.getElementById('monitorBtn'),
+    presetBtns: document.querySelectorAll('.preset-btn[data-preset]')
+  };
+
+  const voiceController = createVoiceInputController({
+    onMicLevel: (level) => {
+      if (voiceUi.micMeterFill) voiceUi.micMeterFill.style.width = (level * 100) + '%';
+      if (voiceUi.micLevelValue) voiceUi.micLevelValue.textContent = (level * 100).toFixed(1) + '%';
+    },
+    onProcessedLevel: (level) => {
+      if (voiceUi.processedMeterFill) voiceUi.processedMeterFill.style.width = Math.min(100, level * 100) + '%';
+      if (voiceUi.processedLevelValue) voiceUi.processedLevelValue.textContent = (level * 100).toFixed(1) + '%';
+    },
+    onStateChange: (state) => {
+      updateVoiceUI(state);
+      syncVoicePresetToBridge(state.effectMode);
+    },
+    onError: (msg) => {
+      console.error('[CheapLiveVoiceDiag]', 'error:', msg);
+      if (voiceUi.status) voiceUi.status.textContent = 'ERROR';
+    }
+  });
+
+  function updateVoiceUI(state) {
+    if (voiceUi.status) {
+      voiceUi.status.textContent = state.running ? 'ON' : 'OFF';
+      voiceUi.status.style.color = state.running ? '#4ade80' : '#8896b3';
+    }
+    if (voiceUi.startBtn) voiceUi.startBtn.disabled = state.running;
+    if (voiceUi.stopBtn) voiceUi.stopBtn.disabled = !state.running;
+    if (voiceUi.monitorBtn) {
+      voiceUi.monitorBtn.disabled = !state.running;
+      voiceUi.monitorBtn.textContent = state.monitorEnabled ? 'ON' : 'OFF';
+      voiceUi.monitorBtn.classList.toggle('active', state.monitorEnabled);
+    }
+    voiceUi.presetBtns.forEach(btn => {
+      const preset = btn.getAttribute('data-preset');
+      btn.classList.toggle('active', preset === state.effectMode);
+      btn.disabled = !state.running;
+    });
+  }
+
+  function syncVoicePresetToBridge(effectMode) {
+    if (window.CheapLiveBridge && typeof window.CheapLiveBridge.setVoicePreset === 'function') {
+      try {
+        window.CheapLiveBridge.setVoicePreset(effectMode);
+      } catch (_) {}
+    }
+  }
+
+  window.startVoiceCapture = async function() {
+    try {
+      await voiceController.start({ effectMode: voiceController.getState().effectMode });
+    } catch (e) {
+      console.error('[CheapLiveVoiceDiag]', 'start error:', e.message);
+    }
+  };
+
+  window.stopVoiceCapture = function() {
+    voiceController.stop();
+  };
+
+  window.setVoicePreset = function(preset) {
+    voiceController.setEffectMode(preset);
+  };
+
+  window.toggleMonitor = function() {
+    const state = voiceController.getState();
+    voiceController.setMonitorEnabled(!state.monitorEnabled);
+  };
+
+  // Expose for debugging
+  window.__cheapLiveVoiceDiag = {
+    getState: () => voiceController.getState()
+  };
 </script>
 </body>
 </html>
