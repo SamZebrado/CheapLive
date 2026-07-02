@@ -49,6 +49,14 @@ class AppState {
     /** 摄像头权限状态：granted | denied | not_requested */
     @Volatile var cameraPermission: String = "not_requested"
 
+    // === 面捕扩展字段 ===
+    /** 头部位置追踪：是否把 faceX/faceY 映射为 avatar 平移 */
+    @Volatile var headPositionTrackingEnabled: Boolean = false
+    /** 眨眼追踪开关 */
+    @Volatile var blinkTrackingEnabled: Boolean = true
+    /** 瞳孔追踪开关 */
+    @Volatile var pupilTrackingEnabled: Boolean = true
+
     // === 姿态捕捉相关字段 ===
     @Volatile var poseCaptureEnabled: Boolean = false
     @Volatile var poseCaptureStatus: String = "off"
@@ -92,6 +100,9 @@ class AppState {
         webVoiceStatus = webVoiceStatus,
         voicePermission = voicePermission,
         cameraPermission = cameraPermission,
+        headPositionTrackingEnabled = headPositionTrackingEnabled,
+        blinkTrackingEnabled = blinkTrackingEnabled,
+        pupilTrackingEnabled = pupilTrackingEnabled,
         poseCaptureEnabled = poseCaptureEnabled,
         poseCaptureStatus = poseCaptureStatus,
         poseMode = poseMode,
@@ -260,6 +271,24 @@ class AppState {
                 lastCommand = "ping"
                 CommandResult(true, "pong")
             }
+            "setHeadPositionTracking" -> {
+                val enabled = params["enabled"] as? Boolean ?: false
+                headPositionTrackingEnabled = enabled
+                lastCommand = "setHeadPositionTracking($enabled)"
+                CommandResult(true, "head position tracking set to $enabled")
+            }
+            "setBlinkTracking" -> {
+                val enabled = params["enabled"] as? Boolean ?: true
+                blinkTrackingEnabled = enabled
+                lastCommand = "setBlinkTracking($enabled)"
+                CommandResult(true, "blink tracking set to $enabled")
+            }
+            "setPupilTracking" -> {
+                val enabled = params["enabled"] as? Boolean ?: true
+                pupilTrackingEnabled = enabled
+                lastCommand = "setPupilTracking($enabled)"
+                CommandResult(true, "pupil tracking set to $enabled")
+            }
             else -> {
                 lastError = "unknown command: $type"
                 CommandResult(false, "unknown command: $type")
@@ -287,6 +316,9 @@ class AppState {
             "webVoiceStatus" -> webVoiceStatus = value as? String ?: "available"
             "voicePermission" -> voicePermission = value as? String ?: "not_requested"
             "cameraPermission" -> cameraPermission = value as? String ?: "not_requested"
+            "headPositionTrackingEnabled" -> headPositionTrackingEnabled = value as? Boolean ?: false
+            "blinkTrackingEnabled" -> blinkTrackingEnabled = value as? Boolean ?: true
+            "pupilTrackingEnabled" -> pupilTrackingEnabled = value as? Boolean ?: true
             "poseCaptureEnabled" -> poseCaptureEnabled = value as? Boolean ?: false
             "poseCaptureStatus" -> poseCaptureStatus = value as? String ?: "off"
             "poseMode" -> poseMode = value as? String ?: "simulated"
@@ -329,6 +361,9 @@ data class AppStateSnapshot(
     val webVoiceStatus: String,
     val voicePermission: String,
     val cameraPermission: String,
+    val headPositionTrackingEnabled: Boolean,
+    val blinkTrackingEnabled: Boolean,
+    val pupilTrackingEnabled: Boolean,
     val poseCaptureEnabled: Boolean,
     val poseCaptureStatus: String,
     val poseMode: String,
@@ -368,6 +403,9 @@ fun AppStateSnapshot.toJson(): String {
     sb.append(",\"webVoiceStatus\":\"").append(escapeJson(webVoiceStatus)).append('"')
     sb.append(",\"voicePermission\":\"").append(escapeJson(voicePermission)).append('"')
     sb.append(",\"cameraPermission\":\"").append(escapeJson(cameraPermission)).append('"')
+    sb.append(",\"headPositionTrackingEnabled\":$headPositionTrackingEnabled")
+    sb.append(",\"blinkTrackingEnabled\":$blinkTrackingEnabled")
+    sb.append(",\"pupilTrackingEnabled\":$pupilTrackingEnabled")
     sb.append(",\"poseCaptureEnabled\":$poseCaptureEnabled")
     sb.append(",\"poseCaptureStatus\":\"").append(escapeJson(poseCaptureStatus)).append('"')
     sb.append(",\"poseMode\":\"").append(escapeJson(poseMode)).append('"')

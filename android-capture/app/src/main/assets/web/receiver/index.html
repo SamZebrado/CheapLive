@@ -115,6 +115,111 @@
   }
   button:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
   button.primary { background: rgba(79,195,247,0.15); border-color: rgba(79,195,247,0.4); color: var(--color-accent); }
+  button.active { background: rgba(105,219,124,0.15); border-color: rgba(105,219,124,0.4); color: var(--color-accent2); }
+  button.small { padding: 6px 10px; font-size: 11px; flex: none; }
+
+  .control-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .control-section {
+    margin-bottom: 10px;
+  }
+  .control-section:last-child { margin-bottom: 0; }
+  .control-section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .control-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .control-row:last-child { margin-bottom: 0; }
+  .control-row button { flex: 1; min-width: 80px; }
+
+  .preset-row { display: flex; gap: 4px; flex-wrap: wrap; }
+  .preset-row button { flex: 1; min-width: 50px; padding: 6px 4px; font-size: 10px; }
+
+  .sensitivity-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+  .sensitivity-row .sensitivity-label {
+    color: var(--text-muted);
+    min-width: 60px;
+    font-size: 10px;
+  }
+  .sensitivity-row .sensitivity-slider {
+    flex: 1;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: rgba(255,255,255,0.08);
+    border-radius: 2px;
+    outline: none;
+  }
+  .sensitivity-row .sensitivity-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    cursor: pointer;
+  }
+  .sensitivity-row .sensitivity-value {
+    color: var(--text-primary);
+    font-family: 'SF Mono', monospace;
+    min-width: 36px;
+    text-align: right;
+    font-size: 10px;
+  }
+
+  /* 应用模式 */
+  body.app-mode .container { max-width: 100%; padding: 0; }
+  body.app-mode .hero,
+  body.app-mode .status-grid,
+  body.app-mode .actions,
+  body.app-mode .control-panel,
+  body.app-mode .log-panel,
+  body.app-mode .stage-overlay { display: none !important; }
+  body.app-mode .stage-card {
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    border-radius: 0;
+  }
+  body.app-mode #stage {
+    width: 100vw;
+    height: 100vh;
+    max-width: 100%;
+    border-radius: 0;
+  }
+  .app-mode-exit {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 1000;
+    display: none;
+    opacity: 0.3;
+    padding: 6px 10px;
+    font-size: 10px;
+  }
+  body.app-mode .app-mode-exit { display: block; }
+  .app-mode-exit:hover { opacity: 1; }
+  body.app-mode { background: #0a0e1a; }
 
   .log-panel {
     background: rgba(0,0,0,0.3);
@@ -264,6 +369,14 @@
       <div class="value" id="voicePresetStatus">original</div>
     </div>
     <div class="status-item">
+      <div class="label">Audio</div>
+      <div class="value off" id="audioStatus">TAP TO ENABLE</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Audio Chunks</div>
+      <div class="value" id="audioChunkStatus">0</div>
+    </div>
+    <div class="status-item">
       <div class="label">Subtitle</div>
       <div class="value off" id="subtitleStatus">OFF</div>
     </div>
@@ -286,9 +399,114 @@
   </div>
 
   <div class="actions">
+    <button class="primary" id="enableAudioBtn">打开音频</button>
     <button class="primary" id="reconnect">重连 WebSocket</button>
     <button id="refreshStatus">刷新状态</button>
   </div>
+
+  <div class="control-panel" id="controlPanel">
+    <div class="control-section">
+      <div class="control-section-title">Display</div>
+      <div class="control-row">
+        <button id="toggleAppModeBtn" class="small">进入应用模式</button>
+        <button id="toggleMirrorBtn" class="small active">镜像 ON</button>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">Face Capture</div>
+      <div class="control-row">
+        <button id="startFaceBtn" class="small">启动面捕</button>
+        <button id="stopFaceBtn" class="small">停止面捕</button>
+      </div>
+      <div class="control-row">
+        <button id="togglePosBtn" class="small">位置追踪 OFF</button>
+        <button id="toggleBlinkBtn" class="small active">眨眼 ON</button>
+        <button id="togglePupilBtn" class="small active">瞳孔 ON</button>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">Test Expression (模拟表情测试)</div>
+      <div class="control-row">
+        <button data-expr="blink" class="expr-btn small">眨眼</button>
+        <button data-expr="smile" class="expr-btn small">微笑</button>
+        <button data-expr="mouth" class="expr-btn small">张嘴</button>
+        <button data-expr="wide" class="expr-btn small">睁大</button>
+        <button data-expr="halfblink" class="expr-btn small">半眨</button>
+        <button data-expr="brow_raise" class="expr-btn small">扬眉</button>
+        <button data-expr="" class="expr-btn small">重置表情</button>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">Test Head Pose (模拟姿态测试)</div>
+      <div class="control-row">
+        <button data-expr="look_left" class="expr-btn small">← 向左看</button>
+        <button data-expr="look_right" class="expr-btn small">向右看 →</button>
+        <button data-expr="look_up" class="expr-btn small">↑ 抬头</button>
+        <button data-expr="head_left" class="expr-btn small">↺ 左倾</button>
+        <button data-expr="head_right" class="expr-btn small">↻ 右倾</button>
+        <button data-expr="" class="expr-btn small">姿势归零</button>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">Test Action (模拟动作测试)</div>
+      <div class="control-row">
+        <button data-action="" class="action-btn small active">无动作</button>
+        <button data-action="nod" class="action-btn small">点头</button>
+        <button data-action="look" class="action-btn small">张望</button>
+        <button data-action="bounce" class="action-btn small">弹跳</button>
+        <button data-action="tail" class="action-btn small">摆尾</button>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">Sensitivity (参数放大系数)</div>
+      <div class="sensitivity-row">
+        <span class="sensitivity-label">眼睛</span>
+        <input type="range" id="sensEye" class="sensitivity-slider" min="50" max="300" value="100" data-senskey="eye">
+        <span id="sensEyeVal" class="sensitivity-value">1.0x</span>
+      </div>
+      <div class="sensitivity-row">
+        <span class="sensitivity-label">嘴巴</span>
+        <input type="range" id="sensMouth" class="sensitivity-slider" min="50" max="300" value="100" data-senskey="mouth">
+        <span id="sensMouthVal" class="sensitivity-value">1.0x</span>
+      </div>
+      <div class="sensitivity-row">
+        <span class="sensitivity-label">微笑</span>
+        <input type="range" id="sensSmile" class="sensitivity-slider" min="50" max="300" value="100" data-senskey="smile">
+        <span id="sensSmileVal" class="sensitivity-value">1.0x</span>
+      </div>
+      <div class="sensitivity-row">
+        <span class="sensitivity-label">眉毛</span>
+        <input type="range" id="sensBrow" class="sensitivity-slider" min="50" max="300" value="100" data-senskey="brow">
+        <span id="sensBrowVal" class="sensitivity-value">1.0x</span>
+      </div>
+      <div class="sensitivity-row">
+        <span class="sensitivity-label">头部姿态</span>
+        <input type="range" id="sensHead" class="sensitivity-slider" min="50" max="300" value="100" data-senskey="head">
+        <span id="sensHeadVal" class="sensitivity-value">1.0x</span>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">Voice Preset</div>
+      <div class="preset-row">
+        <button data-preset="original" class="preset-btn small active">original</button>
+        <button data-preset="cute" class="preset-btn small">cute</button>
+        <button data-preset="robot" class="preset-btn small">robot</button>
+        <button data-preset="deep" class="preset-btn small">deep</button>
+        <button data-preset="radio" class="preset-btn small">radio</button>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">Avatar</div>
+      <div class="preset-row">
+        <button data-avatar="sacabambaspis3d" class="avatar-btn small active">fish3d</button>
+        <button data-avatar="sacabambaspis" class="avatar-btn small">fish</button>
+        <button data-avatar="cat" class="avatar-btn small">cat</button>
+        <button data-avatar="dog" class="avatar-btn small">dog</button>
+      </div>
+    </div>
+  </div>
+
+  <button class="app-mode-exit" id="appModeExitBtn">退出应用模式</button>
 
   <div class="log-panel" id="logPanel">
     <div class="log-entry info">Receiver 初始化中...</div>
@@ -342,6 +560,9 @@
   var stageOverlay = document.getElementById('stageOverlay');
   var logPanel = document.getElementById('logPanel');
 
+  // ===== Helpers =====
+  function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+
   // ===== State =====
   var appState = {
     serverRunning: false,
@@ -361,6 +582,9 @@
     aiVoiceStatus: 'real_app_only',
     webVoiceStatus: 'available',
     voicePermission: 'not_requested',
+    headPositionTrackingEnabled: false,
+    blinkTrackingEnabled: true,
+    pupilTrackingEnabled: true,
     poseCaptureEnabled: false,
     poseCaptureStatus: 'off',
     poseMode: 'simulated',
@@ -368,7 +592,16 @@
     poseQuality: 'none',
     poseLandmarkCount: 0,
     poseLastUpdatedAt: 0,
-    poseError: ''
+    poseError: '',
+    // 接收端本地控制选项（不依赖服务器）
+    mirrorEnabled: true,
+    sensitivity: {
+      eye: 1.0,
+      mouth: 1.0,
+      smile: 1.0,
+      brow: 1.0,
+      head: 1.0
+    }
   };
 
   // WebSocket face frame data (from real capture)
@@ -380,6 +613,12 @@
   var localFrameCount = 0;
   var lastAppliedSeq = -1;
   var lastAppliedSource = null;
+
+  // 位置追踪平滑
+  var smoothPosX = 0.5;
+  var smoothPosY = 0.5;
+  var targetPosX = 0.5;
+  var targetPosY = 0.5;
 
   // Diagnostic object for testing
   window.__cheapLiveReceiverDiag = {
@@ -397,9 +636,21 @@
     },
     rendererKey: null,
     rendererFile: null,
+    rendererReady: false,
+    rendererParams: null,
     simulationEnabled: true,
+    idleActive: null,
+    realFrameActive: null,
+    captureMode: null,
     frameCount: 0,
-    latencyMs: null
+    latencyMs: null,
+    positionTracking: {
+      enabled: false,
+      rawFaceX: 0,
+      rawFaceY: 0,
+      appliedX: 0.5,
+      appliedY: 0.5
+    }
   };
 
   // WebSocket
@@ -542,17 +793,37 @@
 
       currentRendererAvatar = avatarName;
       rendererReady = true;
+      window.__cheapLiveReceiverDiag.rendererReady = true;
       log('3D 渲染器已初始化: ' + avatarName + (isQuadruped ? ' (四足动物)' : isWhale ? ' (纺锤体)' : ' (球体)'), 'success');
       return true;
     } catch (e) {
       log('3D 渲染器初始化失败: ' + e.message, 'error');
       procRenderer = null;
       rendererReady = false;
+      window.__cheapLiveReceiverDiag.rendererReady = false;
       currentRendererType = null;
       currentRendererAvatar = null;
       return false;
     }
   }
+
+  // 暴露 initProcRenderer 供测试调用
+  window.__cheapLiveInitRenderer = initProcRenderer;
+
+  // 暴露面捕帧注入函数供测试调用（模拟 WebSocket face-frame 消息）
+  window.__cheapLiveInjectFaceFrame = function(params, source) {
+    lastFrameSeq = (lastFrameSeq || 0) + 1;
+    lastFrameTime = Date.now();
+    faceFrame = params;
+    hasRealFrame = true;
+    lastFrameSource = source || 'real-camera';
+    localFrameCount++;
+    window.__cheapLiveReceiverDiag.lastFrameSeq = lastFrameSeq;
+    window.__cheapLiveReceiverDiag.lastFrameSource = lastFrameSource;
+    window.__cheapLiveReceiverDiag.frameCount = localFrameCount;
+    window.__cheapLiveReceiverDiag.realFrameActive = true;
+    window.__cheapLiveReceiverDiag.captureMode = lastFrameSource;
+  };
 
   // 当 module script 加载完成后初始化
   window._onRendererReady = function() {
@@ -577,6 +848,8 @@
         var eyeLeft = 1, eyeRight = 1;
         var mouthOpen = 0, mouthSmile = 0;
         var browLeft = 0, browRight = 0;
+        var gazeLeftX = 0, gazeLeftY = 0;
+        var gazeRightX = 0, gazeRightY = 0;
 
         // 头部旋转（角度转换为归一化 0-1）
         var headYaw = 0.5;
@@ -585,17 +858,77 @@
 
         var isRealFrame = hasRealFrame && lastFrameSource === 'real-camera' && faceFrame;
 
+        window.__cheapLiveReceiverDiag.realFrameActive = isRealFrame;
+        window.__cheapLiveReceiverDiag.idleActive = !isRealFrame;
+        window.__cheapLiveReceiverDiag.captureMode = lastFrameSource || 'none';
+
         // 优先使用真实面捕数据
         if (isRealFrame) {
-          eyeLeft = faceFrame.eyeLeft !== undefined ? faceFrame.eyeLeft : 1;
-          eyeRight = faceFrame.eyeRight !== undefined ? faceFrame.eyeRight : 1;
-          mouthOpen = faceFrame.mouthOpen !== undefined ? faceFrame.mouthOpen : 0;
-          mouthSmile = faceFrame.mouthSmile !== undefined ? faceFrame.mouthSmile : 0;
-          browLeft = faceFrame.browLeft !== undefined ? faceFrame.browLeft : 0;
-          browRight = faceFrame.browRight !== undefined ? faceFrame.browRight : 0;
-          headYaw = 0.5 + (faceFrame.headYaw || 0) / 120;
-          headPitch = 0.5 + (faceFrame.headPitch || 0) / 90;
-          headRoll = 0.5 + (faceFrame.headRoll || 0) / 80;
+          // 镜像关系（可选）：人和画面上的鱼是镜像，需要翻转 yaw/pitch/roll 并交换左右眼
+          // 人向左转头(yaw负) → 鱼向画面右边看；人低头(pitch正) → 鱼抬头
+          var rawEyeLeft = faceFrame.eyeLeft !== undefined ? faceFrame.eyeLeft : 1;
+          var rawEyeRight = faceFrame.eyeRight !== undefined ? faceFrame.eyeRight : 1;
+          var rawMouthOpen = faceFrame.mouthOpen !== undefined ? faceFrame.mouthOpen : 0;
+          var rawMouthSmile = faceFrame.mouthSmile !== undefined ? faceFrame.mouthSmile : 0;
+          var rawBrowLeft = faceFrame.browLeft !== undefined ? faceFrame.browLeft : 0;
+          var rawBrowRight = faceFrame.browRight !== undefined ? faceFrame.browRight : 0;
+          var rawYaw = faceFrame.headYaw || 0;
+          var rawPitch = faceFrame.headPitch || 0;
+          var rawRoll = faceFrame.headRoll || 0;
+          var rawGazeLX = faceFrame.gazeLeftX !== undefined ? faceFrame.gazeLeftX : 0;
+          var rawGazeLY = faceFrame.gazeLeftY !== undefined ? faceFrame.gazeLeftY : 0;
+          var rawGazeRX = faceFrame.gazeRightX !== undefined ? faceFrame.gazeRightX : 0;
+          var rawGazeRY = faceFrame.gazeRightY !== undefined ? faceFrame.gazeRightY : 0;
+
+          // 灵敏度系数（接收端本地调节）
+          var sens = appState.sensitivity || { eye: 1, mouth: 1, smile: 1, brow: 1, head: 1 };
+          var sEye = clamp(sens.eye || 1, 0.1, 5);
+          var sMouth = clamp(sens.mouth || 1, 0.1, 5);
+          var sSmile = clamp(sens.smile || 1, 0.1, 5);
+          var sBrow = clamp(sens.brow || 1, 0.1, 5);
+          var sHead = clamp(sens.head || 1, 0.1, 5);
+
+          if (appState.mirrorEnabled) {
+            // 镜像：交换左右眼/眉，反转 yaw/pitch/roll，gaze 交换并反转 x
+            eyeLeft = rawEyeRight;
+            eyeRight = rawEyeLeft;
+            browLeft = rawBrowRight;
+            browRight = rawBrowLeft;
+            headYaw = 0.5 - rawYaw / 120;
+            headPitch = 0.5 - rawPitch / 90;
+            headRoll = 0.5 - rawRoll / 80;
+            gazeLeftX = -rawGazeRX;
+            gazeLeftY = rawGazeRY;
+            gazeRightX = -rawGazeLX;
+            gazeRightY = rawGazeLY;
+          } else {
+            // 不镜像：保留原始方向
+            eyeLeft = rawEyeLeft;
+            eyeRight = rawEyeRight;
+            browLeft = rawBrowLeft;
+            browRight = rawBrowRight;
+            headYaw = 0.5 + rawYaw / 120;
+            headPitch = 0.5 + rawPitch / 90;
+            headRoll = 0.5 + rawRoll / 80;
+            gazeLeftX = rawGazeLX;
+            gazeLeftY = rawGazeLY;
+            gazeRightX = rawGazeRX;
+            gazeRightY = rawGazeRY;
+          }
+
+          // 应用灵敏度（在归一化 0..1 值上放大）
+          // 眼睛：放大闭合度（1-eye 越大表示越闭）
+          eyeLeft = clamp(1 - (1 - eyeLeft) * sEye, 0, 1);
+          eyeRight = clamp(1 - (1 - eyeRight) * sEye, 0, 1);
+          mouthOpen = clamp(rawMouthOpen * sMouth, 0, 1);
+          mouthSmile = clamp(rawMouthSmile * sSmile, 0, 1);
+          browLeft = clamp(browLeft * sBrow, 0, 1);
+          browRight = clamp(browRight * sBrow, 0, 1);
+          // 头部姿态：放大偏离中性的幅度
+          headYaw = clamp(0.5 + (headYaw - 0.5) * sHead, 0, 1);
+          headPitch = clamp(0.5 + (headPitch - 0.5) * sHead, 0, 1);
+          headRoll = clamp(0.5 + (headRoll - 0.5) * sHead, 0, 1);
+
           lastAppliedSeq = lastFrameSeq;
           lastAppliedSource = lastFrameSource;
           window.__cheapLiveReceiverDiag.lastAppliedSeq = lastAppliedSeq;
@@ -604,12 +937,17 @@
             eyeLeft: eyeLeft,
             eyeRight: eyeRight,
             mouthOpen: mouthOpen,
-            headYaw: faceFrame.headYaw || 0,
-            mouthSmile: mouthSmile
+            headYaw: rawYaw,
+            headPitch: rawPitch,
+            headRoll: rawRoll,
+            mouthSmile: mouthSmile,
+            gazeLeftX: gazeLeftX,
+            gazeLeftY: gazeLeftY
           };
           if (animTime % 30 === 0) {
-            console.error('[CheapLiveReceiverDiag] avatar_frame_applied seq=' + lastAppliedSeq + ' source=' + lastAppliedSource + ' headYaw=' + (faceFrame.headYaw || 0) + ' mouthOpen=' + mouthOpen);
+            console.error('[CheapLiveReceiverDiag] avatar_frame_applied seq=' + lastAppliedSeq + ' source=' + lastAppliedSource + ' headYaw=' + rawYaw + ' headPitch=' + rawPitch + ' headRoll=' + rawRoll + ' mouthOpen=' + mouthOpen.toFixed(2) + ' eyeL=' + eyeLeft.toFixed(2) + ' eyeR=' + eyeRight.toFixed(2) + ' gazeLX=' + gazeLeftX.toFixed(2) + ' mirror=' + (appState.mirrorEnabled ? 1 : 0) + ' sensHead=' + sHead);
           }
+          // 传给 3D 渲染器（在下面 updateParams 调用中加入 gaze 参数）
         } else {
           // 表情（仅模拟模式使用）
           if (appState.avatarExpression === 'blink') {
@@ -653,16 +991,69 @@
           }
 
           if (animTime % 120 === 0) {
-            console.error('[CheapLiveReceiverDiag] avatar_simulation_tick headYaw=' + headYaw);
+            console.error('[CheapLiveReceiverDiag] idle_tick realFrameActive=false headYaw=' + headYaw);
           }
         }
 
+        // 眨眼追踪开关
+        if (!appState.blinkTrackingEnabled) {
+          eyeLeft = 1;
+          eyeRight = 1;
+        }
+        // 瞳孔追踪开关
+        if (!appState.pupilTrackingEnabled) {
+          gazeLeftX = 0;
+          gazeLeftY = 0;
+          gazeRightX = 0;
+          gazeRightY = 0;
+        }
+
         // 呼吸效果（通过 headY 微偏移模拟）
-        var headY = 0.5;
+        var breathY = 0;
         if (appState.avatarAction === 'bounce') {
-          headY = 0.5 - Math.abs(Math.sin(animTime * 0.15)) * 0.1;
+          breathY = -Math.abs(Math.sin(animTime * 0.15)) * 0.1;
         } else {
-          headY = 0.5 + Math.sin(animTime * 0.05) * 0.02;
+          breathY = Math.sin(animTime * 0.05) * 0.02;
+        }
+
+        // 头部位置追踪
+        var posX = 0.5;
+        var posY = 0.5 + breathY;
+        if (isRealFrame && appState.headPositionTrackingEnabled && faceFrame) {
+          // 镜像：用户在画面左侧（positionX 负），鱼也应该在画面左侧
+          // 由于 video 是镜像显示，faceFrame.positionX 是原始坐标（未镜像）
+          // 用户往左移（原始 x 减小，positionX 负），鱼也往左移
+          var rawX = faceFrame.positionX || 0;
+          var rawY = faceFrame.positionY || 0;
+          targetPosX = 0.5 + rawX * 0.25; // 偏移幅度限制
+          targetPosY = 0.5 + rawY * 0.2 + breathY;
+          // 平滑
+          smoothPosX = smoothPosX * 0.85 + targetPosX * 0.15;
+          smoothPosY = smoothPosY * 0.85 + targetPosY * 0.15;
+          posX = smoothPosX;
+          posY = smoothPosY;
+          window.__cheapLiveReceiverDiag.positionTracking = {
+            enabled: true,
+            rawFaceX: rawX,
+            rawFaceY: rawY,
+            appliedX: posX,
+            appliedY: posY
+          };
+        } else {
+          // 关闭时平滑回到中心
+          targetPosX = 0.5;
+          targetPosY = 0.5 + breathY;
+          smoothPosX = smoothPosX * 0.9 + targetPosX * 0.1;
+          smoothPosY = smoothPosY * 0.9 + targetPosY * 0.1;
+          posX = smoothPosX;
+          posY = smoothPosY;
+          window.__cheapLiveReceiverDiag.positionTracking = {
+            enabled: false,
+            rawFaceX: faceFrame ? (faceFrame.positionX || 0) : 0,
+            rawFaceY: faceFrame ? (faceFrame.positionY || 0) : 0,
+            appliedX: posX,
+            appliedY: posY
+          };
         }
 
         // 四足动物额外参数
@@ -701,8 +1092,8 @@
             headYaw: headYaw,
             headPitch: headPitch,
             headRoll: headRoll,
-            headX: 0.5,
-            headY: headY,
+            headX: posX,
+            headY: posY,
             bodyPose: appState.bodyPose,
             tailWag: tailWag,
             bodyBounce: bodyBounce,
@@ -718,9 +1109,18 @@
             headYaw: headYaw,
             headPitch: headPitch,
             headRoll: headRoll,
-            headX: 0.5,
-            headY: headY,
+            headX: posX,
+            headY: posY,
+            gazeLeftX: isRealFrame ? gazeLeftX : 0,
+            gazeLeftY: isRealFrame ? gazeLeftY : 0,
+            gazeRightX: isRealFrame ? gazeRightX : 0,
+            gazeRightY: isRealFrame ? gazeRightY : 0,
           });
+        }
+
+        // 暴露 renderer params 快照供测试验证
+        if (procRenderer && procRenderer.params) {
+          window.__cheapLiveReceiverDiag.rendererParams = Object.assign({}, procRenderer.params);
         }
 
         if (animTime % 60 === 0) document.title = '3D:' + appState.avatar + '|w=' + stage.width + '|h=' + stage.height;
@@ -728,6 +1128,7 @@
       } catch (e) {
         log('3D 渲染失败，回退到 2D: ' + e.message, 'warn');
         rendererReady = false;
+        window.__cheapLiveReceiverDiag.rendererReady = false;
         document.title = '3DFAIL:' + e.message.substring(0, 20);
       }
     }
@@ -967,6 +1368,9 @@
         }
       }
     }
+
+    // Control panel UI
+    if (typeof updateControlUI === 'function') updateControlUI();
   }
 
   function applyState(data) {
@@ -989,6 +1393,9 @@
     appState.aiVoiceStatus = data.aiVoiceStatus || 'real_app_only';
     appState.webVoiceStatus = data.webVoiceStatus || 'available';
     appState.voicePermission = data.voicePermission || 'not_requested';
+    appState.headPositionTrackingEnabled = !!data.headPositionTrackingEnabled;
+    appState.blinkTrackingEnabled = data.blinkTrackingEnabled !== false;
+    appState.pupilTrackingEnabled = data.pupilTrackingEnabled !== false;
     appState.poseCaptureEnabled = !!data.poseCaptureEnabled;
     appState.poseCaptureStatus = data.poseCaptureStatus || 'off';
     appState.poseMode = data.poseMode || 'simulated';
@@ -1003,6 +1410,190 @@
       setTimeout(function() { initProcRenderer(appState.avatar); }, 0);
     }
     updateUI();
+  }
+
+  // ===== API: send control command =====
+  var lastControlMsg = null;
+  function sendControl(type, params) {
+    var body = { type: type };
+    if (params) {
+      for (var k in params) body[k] = params[k];
+    }
+    lastControlMsg = body;
+    window.__cheapLiveReceiverDiag.lastControlMsg = body;
+    console.error('[CheapLiveReceiverDiag] send_control type=' + type + ' params=' + JSON.stringify(params || {}));
+    return fetch('/api/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data && data.state) {
+          applyState(data.state);
+        }
+        return data;
+      }).catch(function(e) {
+        log('控制命令失败: ' + e.message, 'error');
+        console.error('[CheapLiveReceiverDiag] control_error type=' + type + ' error=' + e.message);
+      });
+  }
+
+  // ===== 更新控制按钮 UI =====
+  function updateControlUI() {
+    // 位置追踪按钮
+    var posBtn = document.getElementById('togglePosBtn');
+    if (posBtn) {
+      posBtn.textContent = appState.headPositionTrackingEnabled ? '位置追踪 ON' : '位置追踪 OFF';
+      posBtn.classList.toggle('active', !!appState.headPositionTrackingEnabled);
+    }
+    // 眨眼
+    var blinkBtn = document.getElementById('toggleBlinkBtn');
+    if (blinkBtn) {
+      blinkBtn.textContent = appState.blinkTrackingEnabled ? '眨眼 ON' : '眨眼 OFF';
+      blinkBtn.classList.toggle('active', !!appState.blinkTrackingEnabled);
+    }
+    // 瞳孔
+    var pupilBtn = document.getElementById('togglePupilBtn');
+    if (pupilBtn) {
+      pupilBtn.textContent = appState.pupilTrackingEnabled ? '瞳孔 ON' : '瞳孔 OFF';
+      pupilBtn.classList.toggle('active', !!appState.pupilTrackingEnabled);
+    }
+    // 镜像
+    var mirrorBtn = document.getElementById('toggleMirrorBtn');
+    if (mirrorBtn) {
+      mirrorBtn.textContent = appState.mirrorEnabled ? '镜像 ON' : '镜像 OFF';
+      mirrorBtn.classList.toggle('active', !!appState.mirrorEnabled);
+    }
+    // voice preset
+    var presetBtns = document.querySelectorAll('.preset-btn');
+    presetBtns.forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.preset === appState.voicePreset);
+    });
+    // avatar
+    var avatarBtns = document.querySelectorAll('.avatar-btn');
+    avatarBtns.forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.avatar === appState.avatar);
+    });
+    // 测试表情按钮（高亮当前选中的表情）
+    var exprBtns = document.querySelectorAll('.expr-btn');
+    exprBtns.forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.expr === appState.avatarExpression);
+    });
+    // 测试动作按钮
+    var actionBtns = document.querySelectorAll('.action-btn');
+    actionBtns.forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.action === appState.avatarAction);
+    });
+    // 灵敏度滑块
+    var sensKeys = ['eye', 'mouth', 'smile', 'brow', 'head'];
+    sensKeys.forEach(function(k) {
+      var slider = document.getElementById('sens' + k.charAt(0).toUpperCase() + k.slice(1));
+      var valEl = document.getElementById('sens' + k.charAt(0).toUpperCase() + k.slice(1) + 'Val');
+      var val = (appState.sensitivity && appState.sensitivity[k]) || 1;
+      if (slider && String(slider.value) !== String(Math.round(val * 100))) {
+        slider.value = Math.round(val * 100);
+      }
+      if (valEl) valEl.textContent = val.toFixed(1) + 'x';
+    });
+  }
+
+  // ===== 应用模式 =====
+  var appMode = false;
+  function toggleAppMode(force) {
+    appMode = (force !== undefined) ? force : !appMode;
+    document.body.classList.toggle('app-mode', appMode);
+    var btn = document.getElementById('toggleAppModeBtn');
+    if (btn) btn.textContent = appMode ? '退出应用模式' : '进入应用模式';
+    // 重新计算 canvas 尺寸
+    if (typeof resizeStage === 'function') resizeStage();
+    log(appMode ? '已进入应用模式（右上角按钮退出）' : '已退出应用模式', 'info');
+  }
+
+  // ===== 绑定控制按钮 =====
+  function bindControlButtons() {
+    var startBtn = document.getElementById('startFaceBtn');
+    if (startBtn) startBtn.addEventListener('click', function() {
+      sendControl('setFaceCapture', { enabled: true });
+    });
+    var stopBtn = document.getElementById('stopFaceBtn');
+    if (stopBtn) stopBtn.addEventListener('click', function() {
+      sendControl('setFaceCapture', { enabled: false });
+    });
+    var posBtn = document.getElementById('togglePosBtn');
+    if (posBtn) posBtn.addEventListener('click', function() {
+      sendControl('setHeadPositionTracking', { enabled: !appState.headPositionTrackingEnabled });
+    });
+    var blinkBtn = document.getElementById('toggleBlinkBtn');
+    if (blinkBtn) blinkBtn.addEventListener('click', function() {
+      sendControl('setBlinkTracking', { enabled: !appState.blinkTrackingEnabled });
+    });
+    var pupilBtn = document.getElementById('togglePupilBtn');
+    if (pupilBtn) pupilBtn.addEventListener('click', function() {
+      sendControl('setPupilTracking', { enabled: !appState.pupilTrackingEnabled });
+    });
+    var mirrorBtn = document.getElementById('toggleMirrorBtn');
+    if (mirrorBtn) mirrorBtn.addEventListener('click', function() {
+      // 镜像是接收端本地选项，不需要发送到服务器
+      appState.mirrorEnabled = !appState.mirrorEnabled;
+      log('镜像翻转: ' + (appState.mirrorEnabled ? 'ON' : 'OFF'), 'info');
+      updateControlUI();
+    });
+    var appModeBtn = document.getElementById('toggleAppModeBtn');
+    if (appModeBtn) appModeBtn.addEventListener('click', function() { toggleAppMode(); });
+    var exitBtn = document.getElementById('appModeExitBtn');
+    if (exitBtn) exitBtn.addEventListener('click', function() { toggleAppMode(false); });
+    // preset buttons
+    var presetBtns = document.querySelectorAll('.preset-btn');
+    presetBtns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        sendControl('setVoicePreset', { preset: btn.dataset.preset });
+      });
+    });
+    // avatar buttons
+    var avatarBtns = document.querySelectorAll('.avatar-btn');
+    avatarBtns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        sendControl('setAvatar', { avatar: btn.dataset.avatar });
+      });
+    });
+    // 测试表情按钮（本地模拟，不发到服务器）
+    var exprBtns = document.querySelectorAll('.expr-btn');
+    exprBtns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var ex = btn.dataset.expr || '';
+        appState.avatarExpression = ex;
+        // 设置表情时清空真实帧标记，让模拟预览生效
+        hasRealFrame = false;
+        lastFrameSource = null;
+        log('测试表情: ' + (ex || '重置'), 'info');
+        updateControlUI();
+      });
+    });
+    // 测试动作按钮
+    var actionBtns = document.querySelectorAll('.action-btn');
+    actionBtns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var act = btn.dataset.action || '';
+        appState.avatarAction = act;
+        hasRealFrame = false;
+        lastFrameSource = null;
+        log('测试动作: ' + (act || '无'), 'info');
+        updateControlUI();
+      });
+    });
+    // 灵敏度滑块
+    var sensSliders = document.querySelectorAll('.sensitivity-slider');
+    sensSliders.forEach(function(slider) {
+      slider.addEventListener('input', function() {
+        var key = slider.dataset.senskey;
+        var val = parseInt(slider.value, 10) / 100;
+        if (key && appState.sensitivity) {
+          appState.sensitivity[key] = val;
+          var valEl = document.getElementById('sens' + key.charAt(0).toUpperCase() + key.slice(1) + 'Val');
+          if (valEl) valEl.textContent = val.toFixed(1) + 'x';
+        }
+      });
+    });
   }
 
   // ===== API: fetch status =====
@@ -1058,6 +1649,268 @@
     log('轮询已启动（2s 间隔）', 'info');
   }
 
+  // ===== Audio playback (MediaSource + SourceBuffer 流式播放) =====
+  var audioElement = null;
+  var mediaSource = null;
+  var sourceBuffer = null;
+  var audioMimeType = '';
+  var audioChunkCount = 0;
+  var audioQueue = [];
+  var audioObjectUrl = null;
+  var mediaSourceReady = false;
+  var audioUnlocked = false;
+  var audioPlaybackState = 'off'; // off / waiting / playing / error
+
+  window.__cheapLiveReceiverDiag.audioUnlocked = false;
+  window.__cheapLiveReceiverDiag.audioPlaybackState = 'off';
+  window.__cheapLiveReceiverDiag.audioChunkCount = 0;
+
+  function updateAudioStatusUI() {
+    var el = document.getElementById('audioStatus');
+    var chunkEl = document.getElementById('audioChunkStatus');
+    var btn = document.getElementById('enableAudioBtn');
+    if (el) {
+      el.textContent = audioPlaybackState.toUpperCase();
+      el.className = 'value ' + (audioPlaybackState === 'playing' ? 'on' : audioPlaybackState === 'error' ? 'warn' : 'off');
+    }
+    if (chunkEl) chunkEl.textContent = audioChunkCount;
+    if (btn) {
+      if (audioUnlocked) {
+        btn.textContent = '音频已开启';
+        btn.disabled = true;
+      } else {
+        btn.textContent = '打开音频';
+        btn.disabled = false;
+      }
+    }
+  }
+
+  function enableAudio() {
+    if (audioUnlocked) return;
+    console.error('[CheapLiveAudioReceiver] audio_enable_clicked');
+    audioUnlocked = true;
+    window.__cheapLiveReceiverDiag.audioUnlocked = true;
+    if (!audioElement) initAudioPlayback();
+    // 状态设为 waiting，等音频数据到达后自动播放
+    audioPlaybackState = 'waiting';
+    window.__cheapLiveReceiverDiag.audioPlaybackState = 'waiting';
+    updateAudioStatusUI();
+    // 立即尝试播放（如果已经有数据）
+    tryStartAudioPlayback();
+    // 用户手势期间，直接 play() 以解锁 autoplay
+    if (audioElement && audioElement.paused) {
+      audioElement.play().then(function() {
+        console.error('[CheapLiveAudioReceiver] audio_unlocked_by_user_gesture');
+      }).catch(function(e) {
+        console.error('[CheapLiveAudioReceiver] unlock_play_failed:', e.message);
+      });
+    }
+  }
+
+  // 尝试播放音频（在有数据且已解锁时）— 不检查 readyState，直接尝试 play
+  function tryStartAudioPlayback() {
+    if (!audioUnlocked || !audioElement) return;
+    if (!audioElement.paused) {
+      if (audioPlaybackState !== 'playing') {
+        audioPlaybackState = 'playing';
+        window.__cheapLiveReceiverDiag.audioPlaybackState = 'playing';
+        console.error('[CheapLiveAudioReceiver] audio_playback_started');
+        updateAudioStatusUI();
+      }
+      return;
+    }
+    // 直接尝试 play()，不检查 readyState
+    audioElement.play().then(function() {
+      if (audioPlaybackState !== 'playing') {
+        audioPlaybackState = 'playing';
+        window.__cheapLiveReceiverDiag.audioPlaybackState = 'playing';
+        console.error('[CheapLiveAudioReceiver] audio_playback_started');
+        updateAudioStatusUI();
+      }
+    }).catch(function(e) {
+      // play() 失败可能是 autoplay policy 或数据不足，保持 waiting 状态
+      if (audioPlaybackState !== 'error' && audioPlaybackState !== 'playing') {
+        audioPlaybackState = 'waiting';
+        window.__cheapLiveReceiverDiag.audioPlaybackState = 'waiting';
+      }
+      console.error('[CheapLiveAudioReceiver] play_attempt:', e.message, 'readyState=' + audioElement.readyState);
+    });
+  }
+
+  var enableAudioBtn = document.getElementById('enableAudioBtn');
+  if (enableAudioBtn) {
+    enableAudioBtn.addEventListener('click', enableAudio);
+  }
+
+  function initAudioPlayback() {
+    if (audioElement) return;
+    audioElement = document.createElement('audio');
+    audioElement.autoplay = true;
+    document.body.appendChild(audioElement);
+    log('音频播放元素已创建（点击页面启动声音）', 'info');
+    // autoplay policy：首次用户交互时尝试 play
+    var resumeOnce = function() {
+      if (audioElement && audioElement.readyState >= 2) {
+        audioElement.play().then(function() {
+          console.error('[CheapLiveAudioReceiver] audio_playback_started_by_user_gesture');
+        }).catch(function(e) {
+          console.error('[CheapLiveAudioReceiver] resume_play_error:', e.message);
+        });
+      }
+      document.removeEventListener('click', resumeOnce);
+      document.removeEventListener('touchstart', resumeOnce);
+    };
+    document.addEventListener('click', resumeOnce);
+    document.addEventListener('touchstart', resumeOnce);
+  }
+
+  function pickSupportedMimeType(rawMime) {
+    if (typeof MediaSource === 'undefined') return null;
+    var candidates = [
+      rawMime,
+      'audio/webm; codecs="opus"',
+      'audio/webm; codecs=opus',
+      'audio/webm'
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+      var m = candidates[i];
+      if (m && MediaSource.isTypeSupported(m)) return m;
+    }
+    return null;
+  }
+
+  function initMediaSource(rawMime) {
+    if (mediaSource) return;
+    var supportedMime = pickSupportedMimeType(rawMime);
+    if (!supportedMime) {
+      console.error('[CheapLiveAudioReceiver] mime_not_supported raw=' + rawMime);
+      return;
+    }
+    audioMimeType = supportedMime;
+    try {
+      mediaSource = new MediaSource();
+      audioObjectUrl = URL.createObjectURL(mediaSource);
+      audioElement.src = audioObjectUrl;
+      mediaSource.addEventListener('sourceopen', function() {
+        try {
+          sourceBuffer = mediaSource.addSourceBuffer(audioMimeType);
+          sourceBuffer.mode = 'sequence';
+          sourceBuffer.addEventListener('updateend', flushAudioQueue);
+          mediaSourceReady = true;
+          console.error('[CheapLiveAudioReceiver] media_source_ready mime=' + audioMimeType);
+          flushAudioQueue();
+          tryStartAudioPlayback();
+        } catch (e) {
+          console.error('[CheapLiveAudioReceiver] add_sourcebuffer_error:', e.message, 'mime=' + audioMimeType);
+        }
+      });
+      mediaSource.addEventListener('sourceended', function() {
+        console.error('[CheapLiveAudioReceiver] media_source_ended');
+      });
+      mediaSource.addEventListener('error', function(e) {
+        console.error('[CheapLiveAudioReceiver] media_source_error:', (e && e.message) || 'unknown');
+      });
+    } catch (e) {
+      console.error('[CheapLiveAudioReceiver] init_media_source_error:', e.message);
+    }
+  }
+
+  function handleAudioChunk(msg) {
+    if (!audioElement) initAudioPlayback();
+    audioChunkCount++;
+    window.__cheapLiveReceiverDiag.audioChunkCount = audioChunkCount;
+
+    var chunkMimeType = msg.mimeType || 'audio/webm';
+    var base64 = msg.data;
+
+    // 解码 base64
+    try {
+      var binaryString = atob(base64);
+      var bytes = new Uint8Array(binaryString.length);
+      for (var i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+    } catch (e) {
+      if (audioChunkCount % 50 === 0) {
+        console.error('[CheapLiveAudioReceiver] decode_error:', e.message);
+      }
+      return;
+    }
+
+    // 第一个 chunk：初始化 MediaSource（第一个 chunk 包含 webm header）
+    if (audioChunkCount === 1 && !mediaSource) {
+      initMediaSource(chunkMimeType);
+    }
+
+    // append 到 SourceBuffer（如果还没 ready，会进队列等待）
+    appendAudioChunk(bytes);
+
+    if (audioUnlocked && audioPlaybackState !== 'playing') {
+      audioPlaybackState = 'waiting';
+      window.__cheapLiveReceiverDiag.audioPlaybackState = 'waiting';
+    }
+    updateAudioStatusUI();
+
+    if (audioChunkCount % 20 === 0) {
+      var sbState = sourceBuffer ? (sourceBuffer.updating ? 'updating' : 'idle') : 'null';
+      console.error('[CheapLiveAudioReceiver] audio_chunk_received count=' + audioChunkCount + ' size=' + bytes.length + ' queue=' + audioQueue.length + ' sb=' + sbState);
+    }
+  }
+
+  function appendAudioChunk(bytes) {
+    if (!sourceBuffer || !mediaSourceReady || mediaSource.readyState !== 'open') {
+      audioQueue.push(bytes);
+      if (audioQueue.length > 60) audioQueue.shift();
+      return;
+    }
+    if (sourceBuffer.updating) {
+      audioQueue.push(bytes);
+      if (audioQueue.length > 60) audioQueue.shift();
+      return;
+    }
+    try {
+      sourceBuffer.appendBuffer(bytes);
+      tryStartAudioPlayback();
+    } catch (e) {
+      console.error('[CheapLiveAudioReceiver] append_error:', e.message);
+      // 如果 append 失败（可能是缓冲区满），跳过这个 chunk
+      if (audioQueue.length > 30) audioQueue.shift();
+    }
+  }
+
+  function flushAudioQueue() {
+    if (!sourceBuffer || !mediaSourceReady || mediaSource.readyState !== 'open') return;
+    if (sourceBuffer.updating || audioQueue.length === 0) return;
+    var chunk = audioQueue.shift();
+    try {
+      sourceBuffer.appendBuffer(chunk);
+    } catch (e) {
+      console.error('[CheapLiveAudioReceiver] flush_error:', e.message);
+    }
+  }
+
+  // 定期刷新队列 + 清理旧缓冲
+  setInterval(function() {
+    if (sourceBuffer && !sourceBuffer.updating && audioQueue.length > 0) {
+      flushAudioQueue();
+    }
+    // 清理 SourceBuffer 旧数据，避免缓冲区无限增长
+    if (sourceBuffer && !sourceBuffer.updating && mediaSource.readyState === 'open') {
+      try {
+        var buffered = sourceBuffer.buffered;
+        if (buffered.length > 0) {
+          var end = buffered.end(buffered.length - 1);
+          var start = buffered.start(0);
+          if (end - start > 10) {
+            sourceBuffer.remove(start, end - 5);
+          }
+        }
+      } catch (e) {}
+    }
+    // 尝试自动播放（如果已解锁且有数据）
+    tryStartAudioPlayback();
+  }, 1000);
+
   // ===== WebSocket (for real face frames) =====
   function connectWS() {
     if (!token) {
@@ -1081,7 +1934,24 @@
     ws.onmessage = function(ev) {
       try {
         var msg = typeof ev.data === 'string' ? JSON.parse(ev.data) : null;
-        if (!msg || msg.type !== 'face-frame' || !msg.params) return;
+        if (!msg) return;
+
+        // 处理音频分片
+        if (msg.type === 'audio-chunk' && msg.data) {
+          handleAudioChunk(msg);
+          return;
+        }
+
+        // 处理音频电平
+        if (msg.type === 'audio-level') {
+          if (msg.effectMode) {
+            appState.voicePreset = msg.effectMode;
+            updateUI();
+          }
+          return;
+        }
+
+        if (msg.type !== 'face-frame' || !msg.params) return;
         if (msg.seq <= lastFrameSeq) return;
         lastFrameSeq = msg.seq;
         lastFrameTime = Date.now();
@@ -1211,6 +2081,9 @@
   // ===== Init =====
   log('Receiver 页面加载', 'info');
   log('Token: ' + (token ? '已提供' : '缺失'), 'info');
+
+  // 绑定控制按钮
+  if (typeof bindControlButtons === 'function') bindControlButtons();
 
   // 先获取一次状态
   fetchStatus();
