@@ -409,12 +409,13 @@ class LocalServer(
         val ext = path.substringAfterLast('.').lowercase()
         return when (ext) {
             "html", "htm" -> "text/html; charset=utf-8"
-            "js" -> "application/javascript; charset=utf-8"
+            "js", "mjs" -> "application/javascript; charset=utf-8"
             "css" -> "text/css; charset=utf-8"
             "json" -> "application/json; charset=utf-8"
             "png" -> "image/png"
             "jpg", "jpeg" -> "image/jpeg"
             "svg" -> "image/svg+xml"
+            "wasm" -> "application/wasm"
             else -> "application/octet-stream"
         }
     }
