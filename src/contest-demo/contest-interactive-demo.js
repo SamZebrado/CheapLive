@@ -14,8 +14,18 @@ const state = {
   guideStep: 0,
   floatingMode: 'edit', // 'edit' | 'display'
   // Simulated face params
-  faceParams: { mouthOpen: 0, blink: 0, yaw: 0, pitch: 0, smile: 0 },
+  faceParams: { mouthOpen: 0, blink: 0, yaw: 0, pitch: 0, roll: 0, smile: 0 },
 };
+
+// ====== FACE FRAME STATE ======
+let _faceFrameActive = false;
+let _faceFrameSource = null;
+let _lastAppliedFrame = null;
+let _lastAppliedSeq = 0;
+let _lastAppliedValues = null;
+let _idleActive = true;
+let _frameTimeoutId = null;
+const FRAME_IDLE_TIMEOUT_MS = 3000;
 
 const VOICE_PRESETS = [
   { id: 'original', name: '原声' },
@@ -139,6 +149,7 @@ function faceParamsToRendererParams(fp) {
     eyeRight: 1 - (fp.blink ?? 0),
     headYaw: (fp.yaw ?? 0) * 0.5 + 0.5,
     headPitch: (fp.pitch ?? 0) * 0.5 + 0.5,
+    headRoll: (fp.roll ?? 0) * 0.5 + 0.5,
     browLeft: 0,
     browRight: 0,
   };
@@ -185,6 +196,71 @@ function set3DRenderersVisible(visible) {
     fwCanvas.style.display = '';
   }
 }
+
+// ====== FACE FRAME INJECTION ======
+// Frame fields: source, seq, headYaw (deg), headPitch (deg), headRoll (deg),
+//               mouthOpen (0-1), mouthSmile (0-1)
+// Degrees range: yaw ±60, pitch ±45, roll ±40
+function _degToNorm(deg, maxDeg) {
+  const clamped = Math.max(-maxDeg, Math.min(maxDeg, deg));
+  return (clamped / maxDeg) * 0.5 + 0.5;
+}
+
+function _applyFaceFrameInternal(frame) {
+  if (!frame || typeof frame !== 'object') return false;
+
+  _faceFrameActive = true;
+  _faceFrameSource = frame.source || 'unknown';
+  _lastAppliedSeq = frame.seq || 0;
+  _lastAppliedFrame = { ...frame };
+
+  // Map frame fields to faceParams (yaw/pitch/roll in degrees → normalized -1..1 for state)
+  if (typeof frame.headYaw === 'number') {
+    state.faceParams.yaw = Math.max(-1, Math.min(1, frame.headYaw / 60));
+  }
+  if (typeof frame.headPitch === 'number') {
+    state.faceParams.pitch = Math.max(-1, Math.min(1, frame.headPitch / 45));
+  }
+  if (typeof frame.headRoll === 'number') {
+    state.faceParams.roll = Math.max(-1, Math.min(1, frame.headRoll / 40));
+  }
+  if (typeof frame.mouthOpen === 'number') {
+    state.faceParams.mouthOpen = Math.max(0, Math.min(1, frame.mouthOpen));
+  }
+  if (typeof frame.mouthSmile === 'number') {
+    state.faceParams.smile = Math.max(0, Math.min(1, frame.mouthSmile));
+  }
+
+  _lastAppliedValues = {
+    yaw: state.faceParams.yaw,
+    pitch: state.faceParams.pitch,
+    roll: state.faceParams.roll,
+    mouthOpen: state.faceParams.mouthOpen,
+    smile: state.faceParams.smile,
+  };
+
+  // Reset idle timeout
+  if (_frameTimeoutId) clearTimeout(_frameTimeoutId);
+  _frameTimeoutId = setTimeout(() => {
+    _faceFrameActive = false;
+    _faceFrameSource = null;
+  }, FRAME_IDLE_TIMEOUT_MS);
+
+  return true;
+}
+
+window.__cheapLiveContestAvatarApplyFrame = function (frame) {
+  return _applyFaceFrameInternal(frame);
+};
+
+window.__cheapLiveContestAvatarResetFrame = function () {
+  _faceFrameActive = false;
+  _faceFrameSource = null;
+  if (_frameTimeoutId) {
+    clearTimeout(_frameTimeoutId);
+    _frameTimeoutId = null;
+  }
+};
 
 function drawSacabambaspis(ctx, cx, cy, p, s) {
   const mouth = Math.max(0, Math.min(1, p.mouthOpen));
@@ -765,12 +841,29 @@ function startSimLoop() {
 function simLoop(ts) {
   simTime = ts * 0.001;
 
-  // Simulate face params (only when real face tracking is NOT running)
-  if (!_faceLandmarker) {
+  // Simulate face params (only when real face tracking is NOT running
+  // AND no mock/real face frame is active)
+  if (!_faceLandmarker && !_faceFrameActive) {
+    _idleActive = true;
     state.faceParams.mouthOpen = 0.5 + 0.5 * Math.sin(simTime * 1.2);
     state.faceParams.blink = Math.max(0, Math.sin(simTime * 3) > 0.95 ? 1 : 0);
     state.faceParams.yaw = Math.sin(simTime * 0.5);
+    state.faceParams.pitch = Math.sin(simTime * 0.4) * 0.3;
+    state.faceParams.roll = Math.sin(simTime * 0.3) * 0.2;
     state.faceParams.smile = 0.3 + 0.3 * Math.sin(simTime * 0.8);
+  } else {
+    _idleActive = false;
+  }
+
+  // Sync diagnostic
+  const diag = window.__cheapLiveContestAvatarDiag;
+  if (diag) {
+    diag.idleActive = _idleActive;
+    diag.faceFrameActive = _faceFrameActive;
+    diag.frameSource = _faceFrameSource;
+    diag.lastAppliedSeq = _lastAppliedSeq;
+    diag.lastAppliedFrame = _lastAppliedFrame;
+    diag.lastAppliedValues = _lastAppliedValues;
   }
 
   // Draw avatar on main canvas

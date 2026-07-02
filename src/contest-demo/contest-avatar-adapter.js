@@ -7,6 +7,12 @@
     fallbackActive: false,
     rendererReady: false,
     error: null,
+    faceFrameActive: false,
+    frameSource: null,
+    lastAppliedSeq: 0,
+    lastAppliedFrame: null,
+    lastAppliedValues: null,
+    idleActive: true,
   };
 
   window.__cheapLiveContestAvatarDiag = diag;
