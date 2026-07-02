@@ -22,35 +22,33 @@
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
       font-size: 12px;
       opacity: 0;
-      transition: opacity 1s ease-out;
+      transition: opacity 0.5s ease-out;
       pointer-events: none;
       user-select: none;
       -webkit-user-select: none;
+      z-index: 10;
     }
-    .hint.show {
-      opacity: 0.15;
-    }
-    .hint.hide {
-      opacity: 0;
-    }
+    .hint.show { opacity: 0.2; }
+    .hint.hide { opacity: 0; }
     ::-webkit-scrollbar { display: none; }
   </style>
 </head>
 <body>
-  <div class="hint" id="hint">点击进入全屏黑屏，再次点击退出</div>
+  <div class="hint" id="hint">点击进入全屏黑屏</div>
   <script>
   (function() {
     var hint = document.getElementById('hint');
-    var isFullscreen = false;
+    var fullscreenAttempting = false;
 
     function isInFullscreen() {
-      return !!(document.fullscreenElement || document.webkitFullscreenElement);
+      return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
     }
 
     function enterFullscreen() {
       var el = document.documentElement;
+      var p = null;
       if (el.requestFullscreen) {
-        el.requestFullscreen().catch(function() {});
+        p = el.requestFullscreen();
       } else if (el.webkitRequestFullscreen) {
         el.webkitRequestFullscreen();
       } else if (el.mozRequestFullScreen) {
@@ -58,6 +56,7 @@
       } else if (el.msRequestFullscreen) {
         el.msRequestFullscreen();
       }
+      if (p && p.catch) p.catch(function() {});
     }
 
     function exitFullscreen() {
@@ -73,6 +72,15 @@
     }
 
     function toggleFullscreen() {
+      // 防止快速重复调用（100ms 内）
+      if (fullscreenAttempting) return;
+      fullscreenAttempting = true;
+      setTimeout(function() { fullscreenAttempting = false; }, 100);
+
+      // 立即隐藏 hint
+      hint.classList.remove('show');
+      hint.classList.add('hide');
+
       if (isInFullscreen()) {
         exitFullscreen();
       } else {
@@ -80,31 +88,36 @@
       }
     }
 
-    document.addEventListener('fullscreenchange', function() {
-      isFullscreen = isInFullscreen();
-      if (isFullscreen) {
+    // 监听全屏状态变化
+    function onFullscreenChange() {
+      if (isInFullscreen()) {
         hint.style.display = 'none';
         document.body.style.cursor = 'none';
       }
-    });
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    document.addEventListener('mozfullscreenchange', onFullscreenChange);
+    document.addEventListener('MSFullscreenChange', onFullscreenChange);
 
-    document.addEventListener('webkitfullscreenchange', function() {
-      isFullscreen = isInFullscreen();
-      if (isFullscreen) {
-        hint.style.display = 'none';
-        document.body.style.cursor = 'none';
+    // 只用 click 事件（mobile click 由 tap 合成，能正确触发 fullscreen）
+    // 不用 touchend：部分 Android Chrome 版本不认 touchend 为 fullscreen 用户手势
+    var lastInteraction = 0;
+    function handleInteraction() {
+      var now = Date.now();
+      if (now - lastInteraction < 500) return; // 500ms 防抖，防止 touchend→click 双触发残留
+      lastInteraction = now;
+      toggleFullscreen();
+    }
+
+    document.addEventListener('click', handleInteraction, true);
+
+    // 键盘也支持
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        handleInteraction();
       }
     });
-
-    document.addEventListener('click', function(e) {
-      e.preventDefault();
-      toggleFullscreen();
-    });
-
-    document.addEventListener('touchstart', function(e) {
-      e.preventDefault();
-      toggleFullscreen();
-    }, { passive: false });
 
     // Show hint briefly on load
     setTimeout(function() {
@@ -112,8 +125,8 @@
       setTimeout(function() {
         hint.classList.remove('show');
         hint.classList.add('hide');
-      }, 3000);
-    }, 500);
+      }, 2500);
+    }, 300);
   })();
   </script>
 </body>
