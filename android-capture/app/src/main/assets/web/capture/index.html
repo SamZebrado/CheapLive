@@ -8,7 +8,9 @@
   html, body { margin: 0; padding: 0; background: #0d0d18; color: #e8e8f0; font-family: system-ui, sans-serif; }
   #container { display: flex; flex-direction: column; height: 100vh; }
   video, canvas { width: 100%; height: auto; display: block; background: #000; }
-  #output_canvas { max-height: 60vh; }
+  /* 隐藏摄像头预览，但保留 video 元素供 MediaPipe 取帧 */
+  #webcam { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; left: -9999px; top: -9999px; }
+  #output_canvas { display: none; }
   #hud { padding: 8px 12px; font-size: 12px; }
   #avatar { margin-top: 8px; }
   h3 { margin: 4px 0; }
@@ -77,12 +79,10 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-
 <script type="module">
   import { createSphereMesh, deformSphere, computeVertexLight, computeSphereFaceColor } from '/capture/sphere.js';
   import { createVoiceInputController } from '/capture/voice-effects.js';
+  import { FaceLandmarker, FilesetResolver } from '/web/mediapipe/tasks-vision/vision_bundle.mjs';
 
   const videoElement = document.getElementById('webcam');
   const canvasElement = document.getElementById('output_canvas');
@@ -108,18 +108,56 @@
   function computeParams(lm) {
     if (!lm || lm.length < 468) return null;
     // 左眼：点 159-145，右眼：386-374
-    const leftEyeOpen = Math.max(0, 1 - distance(lm[159], lm[145]) * 8);
-    const rightEyeOpen = Math.max(0, 1 - distance(lm[386], lm[374]) * 8);
-    // 嘴巴：13-14 垂直距离
-    const mouth = Math.min(1, distance(lm[13], lm[14]) * 6);
+    // 眼睛开合：distance ≈ 0.014 睁眼, ≈ 0.003 闭眼
+    // 输出 0(闭) ~ 1(睁)
+    const leftEyeOpen = Math.max(0, Math.min(1, (distance(lm[159], lm[145]) - 0.003) / 0.011));
+    const rightEyeOpen = Math.max(0, Math.min(1, (distance(lm[386], lm[374]) - 0.003) / 0.011));
+    // 嘴巴：13-14 垂直距离，distance ≈ 0.005 闭嘴, ≈ 0.04 张大嘴
+    // 输出 0(闭) ~ 1(大张嘴)
+    const mouth = Math.max(0, Math.min(1, (distance(lm[13], lm[14]) - 0.005) / 0.035));
     // 嘴角微笑：61-291 水平扩展与常态比
     const smile = Math.max(0, Math.min(1, (distance(lm[61], lm[291]) - 0.2) * 4));
-    // 头部姿态（粗略）
+    // 头部姿态：鼻尖相对脸部中心的偏移量除以脸宽
     const nose = lm[1];
     const leftCheek = lm[234];
     const rightCheek = lm[454];
-    const yaw = Math.max(-90, Math.min(90, (rightCheek.x - leftCheek.x - 0.2) * 360));
-    const pitch = Math.max(-90, Math.min(90, (nose.y - 0.4) * 360));
+    const centerX = (leftCheek.x + rightCheek.x) / 2;
+    const faceWidth = Math.abs(leftCheek.x - rightCheek.x) || 0.3;
+    const yaw = Math.max(-90, Math.min(90, (nose.x - centerX) / faceWidth * 90));
+    // pitch: 用眼睛连线中点作为基准
+    const leftEyeOuter = lm[33];
+    const rightEyeOuter = lm[263];
+    const eyesMidY = (leftEyeOuter.y + rightEyeOuter.y) / 2;
+    const chin = lm[152];
+    const faceHeight = Math.abs(chin.y - eyesMidY) || 0.2;
+    const noseRelPos = (nose.y - eyesMidY) / faceHeight;
+    const pitch = Math.max(-90, Math.min(90, (noseRelPos - 0.35) * 360));
+    // roll: 两眼外角连线的倾斜角度
+    const eyeDx = rightEyeOuter.x - leftEyeOuter.x;
+    const eyeDy = rightEyeOuter.y - leftEyeOuter.y;
+    const roll = Math.max(-60, Math.min(60, Math.atan2(eyeDy, eyeDx) * 180 / Math.PI));
+    // 瞳孔/视线追踪：用虹膜中心相对眼白中心的偏移
+    // 左眼虹膜：点 468-472（MediaPipe FaceMesh 左虹膜），右眼虹膜：点 473-477
+    // 简化：用瞳孔点 468/473 相对眼眶中心的偏移估算 gaze
+    const leftIris = lm[468];
+    const rightIris = lm[473];
+    const leftEyeCenter = { x: (lm[33].x + lm[133].x) / 2, y: (lm[33].y + lm[133].y) / 2 };
+    const rightEyeCenter = { x: (lm[362].x + lm[263].x) / 2, y: (lm[362].y + lm[263].y) / 2 };
+    const leftEyeWidth = Math.abs(lm[133].x - lm[33].x) || 0.05;
+    const rightEyeWidth = Math.abs(lm[263].x - lm[362].x) || 0.05;
+    const leftGazeX = leftIris ? Math.max(-1, Math.min(1, (leftIris.x - leftEyeCenter.x) / leftEyeWidth * 3)) : 0;
+    const leftGazeY = leftIris ? Math.max(-1, Math.min(1, (leftIris.y - leftEyeCenter.y) / leftEyeWidth * 3)) : 0;
+    const rightGazeX = rightIris ? Math.max(-1, Math.min(1, (rightIris.x - rightEyeCenter.x) / rightEyeWidth * 3)) : 0;
+    const rightGazeY = rightIris ? Math.max(-1, Math.min(1, (rightIris.y - rightEyeCenter.y) / rightEyeWidth * 3)) : 0;
+    // 头部位置：脸部中心相对画面中心的偏移（归一化 -1~1）
+    // 注意：video 是镜像显示的（用户看到的是镜像），但 lm 坐标是原始帧
+    // 这里直接用原始坐标，receiver 端会根据镜像关系调整
+    const faceCenterX = centerX;
+    const faceCenterY = (leftCheek.y + rightCheek.y) / 2;
+    const faceX = Math.max(-1, Math.min(1, (faceCenterX - 0.5) * 2));
+    const faceY = Math.max(-1, Math.min(1, (faceCenterY - 0.5) * 2));
+    const faceScale = Math.max(0.5, Math.min(2, 0.25 / (faceWidth || 0.25)));
+
     return {
       eyeLeft: leftEyeOpen,
       eyeRight: rightEyeOpen,
@@ -128,11 +166,15 @@
       browLeft: 0, browRight: 0,
       headYaw: yaw,
       headPitch: pitch,
-      headRoll: 0,
-      positionX: 0,
-      positionY: 0,
-      scale: 1,
+      headRoll: roll,
+      positionX: faceX,
+      positionY: faceY,
+      faceScale: faceScale,
       tailPitch: 0, tailYaw: 0, tailWave: 0,
+      gazeLeftX: leftGazeX,
+      gazeLeftY: leftGazeY,
+      gazeRightX: rightGazeX,
+      gazeRightY: rightGazeY,
     };
   }
   function distance(a, b) {
@@ -142,6 +184,107 @@
   let seq = 0;
   let lastPush = 0;
   let sessionInfo = null;
+  let publishEnabled = true;
+  let cameraStarted = false;
+  let cameraStream = null;
+
+  // 全局 API：供原生按钮调用
+  window.CheapLiveCapture = {
+    startCamera: function(reason) {
+      console.error('[CheapLiveCaptureDiag] start_camera reason=' + (reason || 'unknown'));
+      publishEnabled = true;
+      if (cameraStream && !cameraStarted) {
+        // 已有 stream 但被暂停，恢复播放
+        videoElement.play().then(() => {
+          frameLoopRunning = false;
+          startFrameLoop();
+        }).catch(() => {});
+        cameraStarted = true;
+        return JSON.stringify({ ok: true, resumed: true });
+      }
+      if (cameraStarted) {
+        return JSON.stringify({ ok: true, alreadyRunning: true });
+      }
+      // 首次启动
+      startCameraInternal(reason || 'api');
+      return JSON.stringify({ ok: true, starting: true });
+    },
+    stopCamera: function(reason, stopHardware) {
+      console.error('[CheapLiveCaptureDiag] stop_camera reason=' + (reason || 'unknown') + ' stopHardware=' + (stopHardware ? 'true' : 'false'));
+      publishEnabled = false;
+      cameraStarted = false;
+      frameLoopRunning = false;
+      if (stopHardware && cameraStream) {
+        try {
+          // 停止所有视频轨道
+          cameraStream.getTracks().forEach(function(track) {
+            track.stop();
+            console.error('[CheapLiveCameraDiag] track_stopped kind=' + track.kind + ' label=' + track.label + ' readyState=' + track.readyState);
+          });
+          cameraStream = null;
+          // 彻底清理 video 元素
+          videoElement.pause();
+          videoElement.srcObject = null;
+          try { videoElement.src = ''; } catch (e2) {}
+          try { videoElement.load(); } catch (e3) {}
+          console.error('[CheapLiveCameraDiag]', JSON.stringify({label: 'camera_hardware_stopped', reason: reason || 'unknown'}));
+        } catch (e) {
+          console.error('[CheapLiveCameraDiag]', JSON.stringify({label: 'stop_hardware_error', error: e.message}));
+        }
+      }
+      return JSON.stringify({ ok: true, stopped: true, stopHardware: !!stopHardware, hasStream: !!cameraStream });
+    },
+    getState: function() {
+      return JSON.stringify({
+        publishEnabled: publishEnabled,
+        cameraStarted: cameraStarted,
+        hasStream: !!cameraStream,
+        faceLandmarkerReady: faceLandmarkerReady,
+        frameLoopRunning: frameLoopRunning,
+        seq: seq
+      });
+    }
+  };
+
+  function startCameraInternal(reason) {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'getUserMedia_unavailable'}));
+      startFaceLandmarker();
+      return;
+    }
+    console.error('[CheapLiveCameraDiag]', JSON.stringify({
+      label:'getUserMedia_start', reason: reason, href:location.href,
+      secure:window.isSecureContext, hasMD:!!navigator.mediaDevices, hasGUM:!!navigator.mediaDevices?.getUserMedia
+    }));
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false })
+      .then((stream) => {
+        cameraStream = stream;
+        cameraStarted = true;
+        videoElement.srcObject = stream;
+        videoElement.muted = true;
+        videoElement.playsInline = true;
+        console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'getUserMedia_resolve', streamId: stream.id, tracks: stream.getTracks().length}));
+        videoElement.play().then(() => {
+          console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'video_play_started', readyState: videoElement.readyState}));
+        }).catch((e) => {
+          console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'video_play_error', error: e.message || String(e)}));
+        });
+        videoElement.onloadeddata = () => {
+          console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'video_loadeddata', readyState: videoElement.readyState, videoWidth: videoElement.videoWidth, videoHeight: videoElement.videoHeight}));
+          startFaceLandmarker();
+        };
+        setTimeout(() => {
+          if (!faceLandmarkerReady && videoElement.readyState >= 2) {
+            console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'video_fallback_start', readyState: videoElement.readyState}));
+            startFaceLandmarker();
+          }
+        }, 3000);
+      })
+      .catch((err) => {
+        console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'getUserMedia_reject',error:err.name,message:err.message}));
+        startFaceLandmarker();
+      });
+  }
 
   // 尝试从原生桥获取会话信息
   try {
@@ -154,6 +297,7 @@
 
   function publish(p, source = 'unknown') {
     if (!window.CheapLiveBridge) return;
+    if (!publishEnabled) return;
     const now = Date.now();
     if (now - lastPush < 33) return; // ~30Hz
     lastPush = now;
@@ -169,7 +313,13 @@
         params: p,
       });
       window.CheapLiveBridge.publishFaceFrame(payload);
-    } catch (_) {}
+      // A3 诊断：每次 publish 记录 seq/source/关键参数（低频，每 ~1s 一次）
+      if (seq % 30 === 0) {
+        console.error('[CheapLiveCaptureDiag] publish_face_frame seq=' + seq + ' source=' + source + ' headYaw=' + (p.headYaw || 0).toFixed(1) + ' headPitch=' + (p.headPitch || 0).toFixed(1) + ' headRoll=' + (p.headRoll || 0).toFixed(1) + ' mouthOpen=' + (p.mouthOpen || 0).toFixed(2) + ' eyeLeft=' + (p.eyeLeft || 0).toFixed(2) + ' eyeRight=' + (p.eyeRight || 0).toFixed(2) + ' gazeLX=' + (p.gazeLeftX || 0).toFixed(2));
+      }
+    } catch (e) {
+      console.error('[CheapLiveCaptureDiag] publish_error error=' + (e.message || String(e)));
+    }
   }
 
   // 程序化球体渲染（仅球，简化版）
@@ -202,6 +352,7 @@
   let lastFrame = null;
   let fpsStart = Date.now(), fpsCount = 0;
 
+  let onResultsCount = 0;
   function onResults(results) {
     canvasElement.width = videoElement.videoWidth || 640;
     canvasElement.height = videoElement.videoHeight || 480;
@@ -210,7 +361,17 @@
     canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
     canvasCtx.restore();
 
-    const params = computeParams(results.multiFaceLandmarks?.[0] || []);
+    const lm = results.multiFaceLandmarks?.[0] || [];
+    const params = computeParams(lm);
+    onResultsCount++;
+    // 一次性像素亮度诊断（前 5 帧）：确认摄像头画面有内容
+    if (onResultsCount <= 5) {
+      try {
+        const cx = canvasElement.width / 2, cy = canvasElement.height / 2;
+        const px = canvasCtx.getImageData(cx, cy, 1, 1).data;
+        console.error('[CheapLiveCaptureDiag] video_pixel count=' + onResultsCount + ' center_rgba=(' + px[0] + ',' + px[1] + ',' + px[2] + ',' + px[3] + ') videoW=' + videoElement.videoWidth + ' currentTime=' + videoElement.currentTime.toFixed(2));
+      } catch (e) {}
+    }
     if (params) {
       hud.eyeLeft.textContent = params.eyeLeft.toFixed(2);
       hud.eyeRight.textContent = params.eyeRight.toFixed(2);
@@ -221,6 +382,9 @@
       drawSphere(avatarCtx, avatarCanvas.width, avatarCanvas.height, params);
       lastFrame = params;
       publish(params, 'real-camera');
+    } else if (onResultsCount % 60 === 1) {
+      // A3 诊断：无脸时周期记录 landmarks 长度
+      console.error('[CheapLiveCaptureDiag] no_face_detected landmarks_len=' + lm.length + ' onResultsCount=' + onResultsCount);
     }
     fpsCount++;
     const dt = Date.now() - fpsStart;
@@ -230,51 +394,77 @@
     }
   }
 
-  // MediaPipe FaceMesh 初始化
-  function startMediaPipe() {
+  // FaceLandmarker (Tasks API) 初始化 - 替代旧 FaceMesh
+  let faceLandmarker = null;
+  let faceLandmarkerReady = false;
+  let frameLoopRunning = false;
+
+  async function startFaceLandmarker() {
     console.error('[CheapLiveCameraDiag]', JSON.stringify({
-       label:'startMediaPipe', hasFaceMesh:typeof FaceMesh, hasCamera:typeof Camera, videoReadyState:videoElement.readyState
+       label:'startFaceLandmarker', videoReadyState:videoElement.readyState
      }));
-    if (typeof FaceMesh === 'undefined' || typeof Camera === 'undefined') {
-      // 无 MediaPipe，走降级：直接渲染默认 avatar，保持 publish 接口可用
-      hud.session.textContent += '（MediaPipe CDN 不可用，使用默认参数）';
+    try {
+      const wasmBaseUrl = '/web/mediapipe/tasks-vision/wasm';
+      const modelAssetPath = '/web/mediapipe/tasks-vision/face_landmarker.task';
+      const filesetResolver = await FilesetResolver.forVisionTasks(wasmBaseUrl);
+      faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+        baseOptions: {
+          modelAssetPath: modelAssetPath,
+          delegate: 'CPU',
+        },
+        outputFaceBlendshapes: false,
+        outputFacialTransformationMatrixes: false,
+        refineLandmarks: true,
+        runningMode: 'VIDEO',
+        numFaces: 1,
+      });
+      faceLandmarkerReady = true;
+      console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'faceLandmarker_initialized'}));
+      startFrameLoop();
+    } catch (e) {
+      console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'faceLandmarker_init_error', error: e.message || String(e)}));
+      hud.session.textContent += '（FaceLandmarker 初始化失败，使用默认参数）';
       const fake = { eyeLeft: 1, eyeRight: 1, mouthOpen: 0, mouthSmile: 0, browLeft: 0, browRight: 0, headYaw: 0, headPitch: 0, headRoll: 0, positionX: 0, positionY: 0, scale: 1, tailPitch: 0, tailYaw: 0, tailWave: 0 };
       drawSphere(avatarCtx, avatarCanvas.width, avatarCanvas.height, fake);
       publish(fake, 'simulation');
-      setInterval(() => { fake.headYaw = Math.sin(Date.now() / 700) * 20; publish(fake, 'simulation'); drawSphere(avatarCtx, avatarCanvas.width, avatarCanvas.height, fake); }, 200);
-      return;
     }
-    const faceMesh = new FaceMesh({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}` });
-    faceMesh.setOptions({
-      maxNumFaces: 1, refineLandmarks: true,
-      minDetectionConfidence: 0.5, minTrackingConfidence: 0.5,
-    });
-    faceMesh.onResults(onResults);
-    const camera = new Camera(videoElement, {
-      onFrame: async () => { await faceMesh.send({ image: videoElement }); },
-      width: 640, height: 480,
-    });
-    camera.start();
   }
 
-  if (navigator.mediaDevices?.getUserMedia) {
-    console.error('[CheapLiveCameraDiag]', JSON.stringify({
-      label:'getUserMedia_start', href:location.href,
-      secure:window.isSecureContext, hasMD:!!navigator.mediaDevices, hasGUM:!!navigator.mediaDevices?.getUserMedia
-    }));
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
-      .then(() => {
-        console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'getUserMedia_resolve'}));
-        startMediaPipe();
-      })
-      .catch((err) => {
-        console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'getUserMedia_reject',error:err.name,message:err.message}));
-        startMediaPipe();
-      });
-  } else {
-    console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'getUserMedia_unavailable'}));
-    startMediaPipe();
+  // 帧循环：使用 detectForVideo 直接从 videoElement 取帧
+  let frameLoopDiagCount = 0;
+  function startFrameLoop() {
+    if (frameLoopRunning) return;
+    frameLoopRunning = true;
+    console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'frame_loop_start', videoReadyState: videoElement.readyState, videoWidth: videoElement.videoWidth, videoHeight: videoElement.videoHeight}));
+    let lastVideoTime = -1;
+    function tick() {
+      if (!frameLoopRunning) return;
+      try {
+        if (faceLandmarkerReady && videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
+          const now = performance.now();
+          if (videoElement.currentTime !== lastVideoTime) {
+            lastVideoTime = videoElement.currentTime;
+            const results = faceLandmarker.detectForVideo(videoElement, now);
+            // 一次性结构诊断（前 3 帧 + 之后每 120 帧）
+            frameLoopDiagCount++;
+            if (frameLoopDiagCount <= 3 || frameLoopDiagCount % 120 === 0) {
+              const fl = results.faceLandmarks;
+              const flLen = Array.isArray(fl) ? (fl[0] ? fl[0].length : 0) : -1;
+              console.error('[CheapLiveCaptureDiag] detect_result count=' + frameLoopDiagCount + ' currentTime=' + videoElement.currentTime.toFixed(3) + ' faceLandmarks_type=' + (fl === undefined ? 'undefined' : Array.isArray(fl) ? 'array[' + fl.length + ']' : typeof fl) + ' firstFace_len=' + flLen);
+            }
+            onResults({ multiFaceLandmarks: results.faceLandmarks || [] });
+          }
+        }
+      } catch (e) {
+        if (Math.random() < 0.05) console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'frame_loop_error', error: e.message || String(e)}));
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
   }
+
+  // 页面加载后自动启动 camera（保持原有行为）
+  startCameraInternal('page_load');
 
   // ===== Voice effects integration =====
   const voiceUi = {
