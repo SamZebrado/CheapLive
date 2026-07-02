@@ -106,7 +106,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var presetButtons: MutableList<Button>
 
     // === Data ===
-    private val avatars = listOf("sacabambaspis" to "🐟 萨卡班甲鱼", "cat" to "🐱 猫", "dog" to "🐶 狗", "rabbit" to "🐰 兔子", "fox" to "🦊 狐狸", "bear" to "🐻 小熊")
+    private val avatars = listOf("sacabambaspis3d" to "🐟 3D 萨卡班甲鱼", "sacabambaspis" to "🐟 萨卡班甲鱼 (经典)", "cat" to "🐱 猫", "dog" to "🐶 狗", "rabbit" to "🐰 兔子", "fox" to "🦊 狐狸", "bear" to "🐻 小熊")
     private val expressions = listOf("blink" to "😉 眨眼", "mouth" to "😮 张嘴", "smile" to "😊 微笑", "wide" to "😲 惊讶")
     private val actions = listOf("nod" to "🙆 点头", "look" to "👀 左右看", "tail" to "🐾 摇尾巴", "bounce" to "⬆️ 弹跳")
     private val presets = listOf("original" to "原声", "cute" to "可爱", "robot" to "机器人", "deep" to "低沉", "radio" to "电台")
@@ -182,7 +182,7 @@ class MainActivity : AppCompatActivity() {
             if (initialIp != null && session == null) {
                 val s = SessionManager.createSession(initialIp, PORT)
                 session = s
-                val previewLink = "http://${s.privateIp}:${s.port}/receiver/?token=${s.token}"
+                val previewLink = "http://${s.privateIp}:${s.port}/receiver/?token=${s.token}&v=${BuildConfig.VERSION_NAME}"
                 currentSessionUrl = previewLink
                 qrImageView?.apply {
                     visibility = View.VISIBLE
@@ -1368,7 +1368,7 @@ class MainActivity : AppCompatActivity() {
         btnOpenDemo = makeButton("打开 Receiver 演示页", cBgSecondary, cText)
         btnOpenDemo.setOnClickListener {
             val s = session ?: return@setOnClickListener
-            val url = "http://${s.privateIp}:${s.port}/receiver/?token=${s.token}"
+            val url = "http://${s.privateIp}:${s.port}/receiver/?token=${s.token}&v=${BuildConfig.VERSION_NAME}"
             try {
                 startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
             } catch (_: Throwable) {
@@ -1580,7 +1580,7 @@ class MainActivity : AppCompatActivity() {
     // State refresh
     // ============================================================
     private fun refreshAvatarButtons() {
-        val current = appState?.avatar ?: "sacabambaspis"
+        val current = appState?.avatar ?: "sacabambaspis3d"
         for (i in avatars.indices) {
             val (av, _) = avatars[i]
             val active = av == current
@@ -1834,7 +1834,7 @@ class MainActivity : AppCompatActivity() {
 
             val b = bridge ?: CaptureBridge(finalSession, srv, { _, _ -> }).also { bridge = it }
             webView?.addJavascriptInterface(b, "CheapLiveBridge")
-            val link = "http://${finalSession.privateIp}:${finalSession.port}/receiver/?token=${finalSession.token}"
+            val link = "http://${finalSession.privateIp}:${finalSession.port}/receiver/?token=${finalSession.token}&v=${BuildConfig.VERSION_NAME}"
             currentSessionUrl = link
             tvServerStatus.text = "会话已启动"
             tvSessionInfo.text = "扫描二维码在接收端打开（电脑/展示设备浏览器）"
@@ -1907,7 +1907,7 @@ class MainActivity : AppCompatActivity() {
 
         val b = bridge ?: CaptureBridge(finalSession, srv, { _, _ -> }).also { bridge = it }
         webView?.addJavascriptInterface(b, "CheapLiveBridge")
-        val link = "http://${finalSession.privateIp}:$actualPort/receiver/?token=${finalSession.token}"
+        val link = "http://${finalSession.privateIp}:$actualPort/receiver/?token=${finalSession.token}&v=${BuildConfig.VERSION_NAME}"
         currentSessionUrl = link
         tvServerStatus.text = if (existingSession == null) "会话已启动" else "会话已重启（链接与二维码不变）"
         tvSessionInfo.text = "扫描二维码在接收端打开（电脑/展示设备浏览器）"

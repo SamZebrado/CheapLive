@@ -34,8 +34,8 @@ class AppState {
     @Volatile var updatedAt: Long = System.currentTimeMillis()
 
     // === 对齐 public demo 的新字段 ===
-    /** 当前 avatar：sacabambaspis | cat | dog | rabbit | fox | bear */
-    @Volatile var avatar: String = "sacabambaspis"
+    /** 当前 avatar：sacabambaspis3d | sacabambaspis | cat | dog | rabbit | fox | bear */
+    @Volatile var avatar: String = "sacabambaspis3d"
     /** 当前表情（瞬时）：blink | mouth | smile | wide | "" */
     @Volatile var avatarExpression: String = ""
     /** 当前动作（瞬时）：nod | look | tail | bounce | "" */
@@ -149,8 +149,8 @@ class AppState {
                 CommandResult(true, "subtitle set to $enabled")
             }
             "setAvatar" -> {
-                val av = params["avatar"] as? String ?: "sacabambaspis"
-                val validAvatars = setOf("sacabambaspis", "cat", "dog", "rabbit", "fox", "bear")
+                val av = params["avatar"] as? String ?: "sacabambaspis3d"
+                val validAvatars = setOf("sacabambaspis3d", "sacabambaspis", "cat", "dog", "rabbit", "fox", "bear")
                 if (av !in validAvatars) {
                     lastError = "invalid avatar: $av"
                     CommandResult(false, "invalid avatar: $av")
@@ -280,7 +280,7 @@ class AppState {
             "latencyMs" -> latencyMs = value as? Int ?: 0
             "faceCaptureEnabled" -> faceCaptureEnabled = value as? Boolean ?: false
             "voiceChangerEnabled" -> voiceChangerEnabled = value as? Boolean ?: false
-            "avatar" -> avatar = value as? String ?: "sacabambaspis"
+            "avatar" -> avatar = value as? String ?: "sacabambaspis3d"
             "avatarExpression" -> avatarExpression = value as? String ?: ""
             "avatarAction" -> avatarAction = value as? String ?: ""
             "aiVoiceStatus" -> aiVoiceStatus = value as? String ?: "real_app_only"

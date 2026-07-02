@@ -8,7 +8,7 @@ class CaptureBridge(
     private val broadcast: CaptureBroadcast,
     private val onStateChange: (String, String) -> Unit,
 ) {
-    private val validAvatarTypes = setOf("mesh-spindle-whale", "mesh-sphere", "sacabambaspis")
+    private val validAvatarTypes = setOf("mesh-spindle-whale", "mesh-sphere", "sacabambaspis", "sacabambaspis3d")
 
     @JavascriptInterface fun getSessionInfo(): String = JSONObject().apply {
         put("sessionId", session.sessionId)
@@ -55,7 +55,7 @@ class CaptureBridge(
                 sessionId = session.sessionId,
                 seq = session.seq++,
                 timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
-                avatar = obj.optString("avatar", "sacabambaspis"),
+                avatar = obj.optString("avatar", "sacabambaspis3d"),
                 params = FaceParams(
                     eyeLeft = p.optDouble("eyeLeft", 1.0).toFloat(),
                     eyeRight = p.optDouble("eyeRight", 1.0).toFloat(),
