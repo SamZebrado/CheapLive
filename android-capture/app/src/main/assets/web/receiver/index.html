@@ -376,6 +376,31 @@
   var lastFrameSeq = -1;
   var lastFrameTime = 0;
   var hasRealFrame = false;
+  var lastFrameSource = null;
+  var localFrameCount = 0;
+  var lastAppliedSeq = -1;
+  var lastAppliedSource = null;
+
+  // Diagnostic object for testing
+  window.__cheapLiveReceiverDiag = {
+    connected: false,
+    lastFrameSeq: 0,
+    lastFrameSource: null,
+    lastAppliedSeq: 0,
+    lastAppliedSource: null,
+    lastAppliedValues: {
+      eyeLeft: null,
+      eyeRight: null,
+      mouthOpen: null,
+      headYaw: null,
+      mouthSmile: null
+    },
+    rendererKey: null,
+    rendererFile: null,
+    simulationEnabled: true,
+    frameCount: 0,
+    latencyMs: null
+  };
 
   // WebSocket
   var ws = null;
@@ -558,45 +583,78 @@
         var headPitch = 0.5;
         var headRoll = 0.5;
 
-        // 表情
-        if (appState.avatarExpression === 'blink') {
-          eyeLeft = 0; eyeRight = 0;
-        } else if (appState.avatarExpression === 'halfblink') {
-          eyeLeft = 0.4; eyeRight = 0.4;
-        } else if (appState.avatarExpression === 'mouth') {
-          mouthOpen = 1.0;
-        } else if (appState.avatarExpression === 'smile') {
-          mouthSmile = 1.0;
-          eyeLeft = 0.65; eyeRight = 0.65;
-        } else if (appState.avatarExpression === 'wide') {
-          mouthOpen = 1;
-          eyeLeft = 1; eyeRight = 1;
-        } else if (appState.avatarExpression === 'look_left') {
-          headYaw = 0.5 - 0.55;
-        } else if (appState.avatarExpression === 'look_right') {
-          headYaw = 0.5 + 0.55;
-        } else if (appState.avatarExpression === 'look_up') {
-          headPitch = 0.5 - 0.5;
-        } else if (appState.avatarExpression === 'brow_raise') {
-          browLeft = 1.0; browRight = 1.0;
-        } else if (appState.avatarExpression === 'head_left') {
-          headRoll = 0.5 - 0.35;
-          headYaw = 0.5 - 0.15;
-        } else if (appState.avatarExpression === 'head_right') {
-          headRoll = 0.5 + 0.35;
-          headYaw = 0.5 + 0.15;
-        }
+        var isRealFrame = hasRealFrame && lastFrameSource === 'real-camera' && faceFrame;
 
-        // 动作
-        if (appState.avatarAction === 'nod') {
-          headPitch = 0.5 + Math.sin(animTime * 0.12) * 15 / 90;
-        } else if (appState.avatarAction === 'look') {
-          headYaw = 0.5 + Math.sin(animTime * 0.08) * 20 / 120;
-        }
+        // 优先使用真实面捕数据
+        if (isRealFrame) {
+          eyeLeft = faceFrame.eyeLeft !== undefined ? faceFrame.eyeLeft : 1;
+          eyeRight = faceFrame.eyeRight !== undefined ? faceFrame.eyeRight : 1;
+          mouthOpen = faceFrame.mouthOpen !== undefined ? faceFrame.mouthOpen : 0;
+          mouthSmile = faceFrame.mouthSmile !== undefined ? faceFrame.mouthSmile : 0;
+          browLeft = faceFrame.browLeft !== undefined ? faceFrame.browLeft : 0;
+          browRight = faceFrame.browRight !== undefined ? faceFrame.browRight : 0;
+          headYaw = 0.5 + (faceFrame.headYaw || 0) / 120;
+          headPitch = 0.5 + (faceFrame.headPitch || 0) / 90;
+          headRoll = 0.5 + (faceFrame.headRoll || 0) / 80;
+          lastAppliedSeq = lastFrameSeq;
+          lastAppliedSource = lastFrameSource;
+          window.__cheapLiveReceiverDiag.lastAppliedSeq = lastAppliedSeq;
+          window.__cheapLiveReceiverDiag.lastAppliedSource = lastAppliedSource;
+          window.__cheapLiveReceiverDiag.lastAppliedValues = {
+            eyeLeft: eyeLeft,
+            eyeRight: eyeRight,
+            mouthOpen: mouthOpen,
+            headYaw: faceFrame.headYaw || 0,
+            mouthSmile: mouthSmile
+          };
+          if (animTime % 30 === 0) {
+            console.error('[CheapLiveReceiverDiag] avatar_frame_applied seq=' + lastAppliedSeq + ' source=' + lastAppliedSource + ' headYaw=' + (faceFrame.headYaw || 0) + ' mouthOpen=' + mouthOpen);
+          }
+        } else {
+          // 表情（仅模拟模式使用）
+          if (appState.avatarExpression === 'blink') {
+            eyeLeft = 0; eyeRight = 0;
+          } else if (appState.avatarExpression === 'halfblink') {
+            eyeLeft = 0.4; eyeRight = 0.4;
+          } else if (appState.avatarExpression === 'mouth') {
+            mouthOpen = 1.0;
+          } else if (appState.avatarExpression === 'smile') {
+            mouthSmile = 1.0;
+            eyeLeft = 0.65; eyeRight = 0.65;
+          } else if (appState.avatarExpression === 'wide') {
+            mouthOpen = 1;
+            eyeLeft = 1; eyeRight = 1;
+          } else if (appState.avatarExpression === 'look_left') {
+            headYaw = 0.5 - 0.55;
+          } else if (appState.avatarExpression === 'look_right') {
+            headYaw = 0.5 + 0.55;
+          } else if (appState.avatarExpression === 'look_up') {
+            headPitch = 0.5 - 0.5;
+          } else if (appState.avatarExpression === 'brow_raise') {
+            browLeft = 1.0; browRight = 1.0;
+          } else if (appState.avatarExpression === 'head_left') {
+            headRoll = 0.5 - 0.35;
+            headYaw = 0.5 - 0.15;
+          } else if (appState.avatarExpression === 'head_right') {
+            headRoll = 0.5 + 0.35;
+            headYaw = 0.5 + 0.15;
+          }
 
-        // 默认轻微转动
-        if (!appState.avatarAction) {
-          headYaw = 0.5 + Math.sin(animTime * 0.03) * 5 / 120;
+          // 动作（仅模拟模式使用）
+          if (appState.avatarAction === 'nod') {
+            headPitch = 0.5 + Math.sin(animTime * 0.12) * 15 / 90;
+          } else if (appState.avatarAction === 'look') {
+            headYaw = 0.5 + Math.sin(animTime * 0.08) * 20 / 120;
+          }
+
+          // 默认轻微转动（仅模拟模式）
+          if (!appState.avatarAction) {
+            headYaw = 0.5 + Math.sin(animTime * 0.03) * 5 / 120;
+          }
+
+          if (animTime % 120 === 0) {
+            console.error('[CheapLiveReceiverDiag] avatar_simulation_tick headYaw=' + headYaw);
+          }
         }
 
         // 呼吸效果（通过 headY 微偏移模拟）
@@ -776,13 +834,20 @@
   }
 
   function render() {
-    if (hasRealFrame && Date.now() - lastFrameTime < 3000) {
-      drawRealFrame();
-      stageOverlay.textContent = '真实面捕帧 · seq=' + lastFrameSeq;
+    var hasRecentFrame = hasRealFrame && Date.now() - lastFrameTime < 3000;
+    if (hasRecentFrame) {
+      // 有真实帧时，优先使用 3D renderer（如果就绪），否则 fallback 到 2D drawRealFrame
+      if (rendererReady && procRenderer && currentRendererAvatar === appState.avatar) {
+        drawSimulatedAvatar();
+      } else {
+        drawRealFrame();
+      }
+      stageOverlay.textContent = '真实面捕帧 · seq=' + lastFrameSeq + ' · source=' + (lastFrameSource || 'unknown');
       stageOverlay.className = 'stage-overlay real';
     } else {
       if (hasRealFrame && Date.now() - lastFrameTime >= 3000) {
         hasRealFrame = false;
+        lastFrameSource = null;
         log('真实帧超时（>3s），切换到模拟预览', 'warn');
       }
       drawSimulatedAvatar();
@@ -801,9 +866,18 @@
   function updateUI() {
     document.getElementById('hostInfo').textContent = location.host;
 
+    // 本地观测到的真实面捕状态（优先级高于服务器端状态）
+    var hasRecentRealFrame = hasRealFrame && lastFrameSource === 'real-camera' && Date.now() - lastFrameTime < 3000;
+    var displayCaptureMode = hasRecentRealFrame ? 'real-camera' : (appState.captureMode || 'simulated');
+    var displayFrameCount = hasRecentRealFrame ? Math.max(localFrameCount, appState.frameCount || 0) : (appState.frameCount || 0);
+    var displayFaceCapture = hasRecentRealFrame || appState.faceCaptureEnabled;
+    var displayLatency = (window.__cheapLiveReceiverDiag.latencyMs != null && window.__cheapLiveReceiverDiag.latencyMs > 0)
+      ? window.__cheapLiveReceiverDiag.latencyMs
+      : (appState.latencyMs || 0);
+
     // Connection
     var connEl = document.getElementById('connStatus');
-    if (appState.viewerConnected) {
+    if (appState.viewerConnected || hasRecentRealFrame) {
       connEl.innerHTML = '<span class="badge connected">Connected</span>';
     } else {
       connEl.innerHTML = '<span class="badge disconnected">Disconnected</span>';
@@ -814,14 +888,18 @@
 
     // Expression / Action
     var exprText = '—';
-    if (appState.avatarExpression) exprText = appState.avatarExpression;
-    if (appState.avatarAction) exprText += (exprText === '—' ? '' : ' / ') + appState.avatarAction;
+    if (hasRecentRealFrame) {
+      exprText = '真实面捕驱动';
+    } else {
+      if (appState.avatarExpression) exprText = appState.avatarExpression;
+      if (appState.avatarAction) exprText += (exprText === '—' ? '' : ' / ') + appState.avatarAction;
+    }
     document.getElementById('exprStatus').textContent = exprText;
 
     // Face capture
     var fcEl = document.getElementById('faceCapStatus');
-    fcEl.textContent = appState.faceCaptureEnabled ? 'ON' : 'OFF';
-    fcEl.className = 'value ' + (appState.faceCaptureEnabled ? 'on' : 'off');
+    fcEl.textContent = displayFaceCapture ? 'ON' : 'OFF';
+    fcEl.className = 'value ' + (displayFaceCapture ? 'on' : 'off');
 
     // Voice preset
     document.getElementById('voicePresetStatus').textContent = appState.voicePreset || 'original';
@@ -832,14 +910,14 @@
     subEl.className = 'value ' + (appState.subtitleEnabled ? 'on' : 'off');
 
     // Frame count / latency
-    document.getElementById('frameCountStatus').textContent = appState.frameCount || 0;
-    document.getElementById('latencyStatus').textContent = (appState.latencyMs > 0 ? appState.latencyMs + ' ms' : '— ms');
+    document.getElementById('frameCountStatus').textContent = displayFrameCount;
+    document.getElementById('latencyStatus').textContent = (displayLatency > 0 ? displayLatency + ' ms' : '— ms');
 
     // Last command
     document.getElementById('lastCmdStatus').textContent = appState.lastCommand || '—';
 
     // Capture mode
-    document.getElementById('captureModeStatus').textContent = appState.captureMode || 'simulated';
+    document.getElementById('captureModeStatus').textContent = displayCaptureMode;
 
     // Renderer mode
     var rendererModeEl = document.getElementById('rendererModeStatus');
@@ -880,7 +958,7 @@
       var scFaceDot = document.getElementById('scFaceDot');
       var scFaceText = document.getElementById('scFaceText');
       if (scFaceDot && scFaceText) {
-        if (appState.faceCaptureEnabled) {
+        if (displayFaceCapture) {
           scFaceDot.className = 'dot on';
           scFaceText.textContent = 'Face Capture ON';
         } else {
@@ -998,6 +1076,7 @@
       log('WebSocket 已连接，等待面捕帧', 'success');
       wsReconnectMs = 1000;
       wsRetryCount = 0;
+      window.__cheapLiveReceiverDiag.connected = true;
     };
     ws.onmessage = function(ev) {
       try {
@@ -1008,10 +1087,22 @@
         lastFrameTime = Date.now();
         faceFrame = msg.params;
         hasRealFrame = true;
+        lastFrameSource = msg.source || 'unknown';
+        localFrameCount++;
+        var latencyMs = msg.timestamp ? (Date.now() - msg.timestamp) : null;
+        window.__cheapLiveReceiverDiag.lastFrameSeq = msg.seq;
+        window.__cheapLiveReceiverDiag.lastFrameSource = lastFrameSource;
+        window.__cheapLiveReceiverDiag.frameCount = localFrameCount;
+        window.__cheapLiveReceiverDiag.latencyMs = latencyMs;
+        window.__cheapLiveReceiverDiag.simulationEnabled = (lastFrameSource !== 'real-camera');
+        window.__cheapLiveReceiverDiag.rendererKey = appState.avatar;
+        console.error('[CheapLiveReceiverDiag] ws_frame_received seq=' + msg.seq + ' source=' + lastFrameSource + ' headYaw=' + (msg.params.headYaw || 0) + ' mouthOpen=' + (msg.params.mouthOpen || 0));
+        updateUI();
       } catch (_) {}
     };
     ws.onclose = function() {
       log('WebSocket 断开', 'warn');
+      window.__cheapLiveReceiverDiag.connected = false;
       if (wsRetryCount < wsMaxRetries) {
         wsRetryCount++;
         wsReconnectMs = Math.min(wsReconnectMs * 1.5, 10000);
