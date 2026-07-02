@@ -771,59 +771,79 @@ export const SPINDLE_DEFAULT_AMBIENT = 0.58;
 export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
   constructor(canvasId, options = {}) {
     super(canvasId);
-    this.spindleMesh = createSpindleMesh({
-        headX: 78,
-        headY: 48,
-        headZ: 62,
-        bodyLength: 310,
-        bodyEndX: 6,
-        bodyEndY: 3,
-        columns: 48,
-        rows: 40,
-        flukeEnabled: true,
-        flukeSize: 2.2,
-        topColor: '#6b7048',
-        bottomColor: '#a8a070',
-        faceTopColor: '#7d7a50',
-        faceBottomColor: '#c0b580',
-      });
-    this.baseYaw = 38;
-    this.basePitch = -6;
+    // 默认模型参数
+    this._modelOptions = {
+      headX: 70, headY: 58, headZ: 54,
+      bodyLength: 210,
+      bodyEndX: 9, bodyEndY: 5,
+      tailLength: 35,
+      columns: 42, rows: 35,
+      topColor: '#c3b681', bottomColor: '#eee1bc',
+      faceTopColor: '#d1c394', faceBottomColor: '#f4e8c8',
+    };
+    this.spindleMesh = createSpindleMesh(this._modelOptions);
+    // 真正正面视角，没有 3/4 视图的不对称
+    this.baseYaw = 0;
+    this.basePitch = 0;
     this.baseRoll = 0;
+    // 光照参数（可选）
     this.lightDir = options.lightDir ?? { ...SPINDLE_DEFAULT_LIGHT_DIR };
     this.ambient = options.ambient ?? SPINDLE_DEFAULT_AMBIENT;
 
+    // 动态甩尾：追踪 yaw 速度
     this._lastYaw = 0;
     this._yawVelocity = 0;
     this._tailSway = 0;
     this._tailSwayDecay = 0.92;
 
-    this._bodyCheckPhase = 0;
-    this._bodyCheckActive = false;
-    this._bodyCheckTimer = 0;
-
     this.draw();
   }
 
-  /** 动态调整身体长度并重建 mesh */
-  setBodyLength(length) {
-    this.spindleMesh = createSpindleMesh({
-      headX: 70,
-      headY: 58,
-      headZ: 54,
-      bodyLength: Math.max(80, Math.min(350, length)),
-      bodyEndX: 9,
-      bodyEndY: 5,
-      columns: 42,
-      rows: 35,
-      flukeEnabled: true,
-      flukeSize: 1.6,
-      topColor: '#c3b681',
-      bottomColor: '#eee1bc',
-      faceTopColor: '#d1c394',
-      faceBottomColor: '#f4e8c8',
-    });
+  /** 获取当前模型参数 */
+  getModelOptions() {
+    return { ...this._modelOptions };
+  }
+
+  /** 设置模型参数并重建 mesh */
+  setModelOptions(opts) {
+    const prev = this._modelOptions;
+    this._modelOptions = {
+      headX: clamp(opts.headX ?? prev.headX, 40, 90),
+      headY: clamp(opts.headY ?? prev.headY, 35, 80),
+      headZ: clamp(opts.headZ ?? prev.headZ, 35, 80),
+      bodyLength: clamp(opts.bodyLength ?? prev.bodyLength, 60, 350),
+      bodyEndX: clamp(opts.bodyEndX ?? prev.bodyEndX, 2, 25),
+      bodyEndY: clamp(opts.bodyEndY ?? prev.bodyEndY, 2, 25),
+      tailLength: clamp(opts.tailLength ?? prev.tailLength, 10, 80),
+      columns: prev.columns,
+      rows: prev.rows,
+      topColor: prev.topColor,
+      bottomColor: prev.bottomColor,
+      faceTopColor: prev.faceTopColor,
+      faceBottomColor: prev.faceBottomColor,
+    };
+    this.spindleMesh = createSpindleMesh(this._modelOptions);
     this.draw();
+  }
+
+  /** 重置为默认参数 */
+  resetModelOptions() {
+    this._modelOptions = {
+      headX: 70, headY: 58, headZ: 54,
+      bodyLength: 210,
+      bodyEndX: 9, bodyEndY: 5,
+      tailLength: 35,
+      columns: 42, rows: 35,
+      topColor: '#c3b681', bottomColor: '#eee1bc',
+      faceTopColor: '#d1c394', faceBottomColor: '#f4e8c8',
+    };
+    this.spindleMesh = createSpindleMesh(this._modelOptions);
+    this.draw();
+  }
+
+  /** 动态调整身体长度（兼容旧 API） */
+  setBodyLength(length) {
+    this.setModelOptions({ bodyLength: length });
   }
 
   /**
@@ -834,25 +854,23 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
    */
   getAnchors(params) {
     const mesh = this.spindleMesh;
-    const hx = mesh.headX;
-    const hy = mesh.headY;
+    const hx = mesh.headX;   // 左右半径
+    const hy = mesh.headY;   // 上下半径
 
-    // Sacabambaspis: large round eyes high on head, wide flat mouth
-    // 可爱模型风：大眼睛、间距适中、眉毛几乎不可见、三角嘴
-    // 眼睛间距调大、尺寸略减，减少重叠混乱感
-    const eyeSpacing = hx * 0.32;
-    const eyeHeight = -hy * 0.26;
-    const mouthHeight = hy * 0.14;
-    const mouthHalfWidth = hx * 0.22;
-    const browOffset = -hy * 0.46;
-    const browSpacing = hx * 0.28;
+    // 萨卡班甲鱼：面部特征上移，集中在灰色上半区和灰白分界线附近
+    const eyeSpacing = hx * 0.30;    // 眼左右位置
+    const eyeHeight = -hy * 0.28;   // 眼上下位置：灰色上半区，更靠上
+    const mouthHeight = hy * 0.06;  // 嘴的上边在灰白分界线下方，减少小胡子感
+    const mouthHalfWidth = hx * 0.20; // 嘴的半宽
+    const browOffset = -hy * 0.62;  // 眉在眼睛轮廓线上方
+    const browSpacing = hx * 0.30;  // 眉水平间距与眼一致
 
     return {
-      leftEye:  { bodyT: 0, horizOffset: -eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0.3 },
-      rightEye: { bodyT: 0, horizOffset:  eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0.3 },
-      mouth:    { bodyT: 0, horizOffset: 0,            vertOffset: mouthHeight, surfaceOffset: 0.3, mouthWidth: mouthHalfWidth },
-      browLeft: { bodyT: 0, horizOffset: -browSpacing, vertOffset: browOffset, surfaceOffset: 0.6 },
-      browRight:{ bodyT: 0, horizOffset:  browSpacing, vertOffset: browOffset, surfaceOffset: 0.6 },
+      leftEye:  { bodyT: 0, horizOffset: -eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0.5 },
+      rightEye: { bodyT: 0, horizOffset:  eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0.5 },
+      mouth:    { bodyT: 0, horizOffset: 0,            vertOffset: mouthHeight, surfaceOffset: 0.5, mouthWidth: mouthHalfWidth },
+      browLeft: { bodyT: 0, horizOffset: -browSpacing, vertOffset: browOffset, surfaceOffset: 0.8 },
+      browRight:{ bodyT: 0, horizOffset:  browSpacing, vertOffset: browOffset, surfaceOffset: 0.8 },
     };
   }
 
@@ -865,46 +883,25 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       angleZ: np.headRoll + this.baseRoll,
     };
 
-    // bodyCheck 动作处理
-    if (this._bodyCheckActive) {
-      this._bodyCheckTimer++;
-      const phase = this._bodyCheckTimer / 45;
-      if (phase >= 1) {
-        this._bodyCheckActive = false;
-        this._bodyCheckPhase = 0;
-        this._bodyCheckTimer = 0;
-      } else {
-        this._bodyCheckPhase = phase;
-      }
-      const bodyCheckYaw = this._calcBodyCheckYaw(this._bodyCheckPhase);
-      const bodyCheckRoll = this._calcBodyCheckRoll(this._bodyCheckPhase);
-      const bodyCheckSway = this._calcBodyCheckTailSway(this._bodyCheckPhase);
-      const bodyCheckTX = this._calcBodyCheckTX(this._bodyCheckPhase);
-      const bodyCheckTY = this._calcBodyCheckTY(this._bodyCheckPhase);
-      rot.angleY += bodyCheckYaw;
-      rot.angleZ += bodyCheckRoll;
-      rot.tailSway = bodyCheckSway;
-      rot.translateX = bodyCheckTX;
-      rot.translateY = bodyCheckTY;
-    } else {
-      // 动态甩尾：基于 yaw 速度的横向位移
-      const currentYaw = np.headYaw;
-      this._yawVelocity = currentYaw - this._lastYaw;
-      this._lastYaw = currentYaw;
-      const maxSway = 15;
-      const swayTarget = -this._yawVelocity * 40;
-      this._tailSway = this._tailSway * this._tailSwayDecay + swayTarget * (1 - this._tailSwayDecay);
-      this._tailSway = Math.max(-maxSway, Math.min(maxSway, this._tailSway));
-      rot.tailSway = this._tailSway;
-    }
+    // 动态甩尾：基于 yaw 速度的横向位移
+    const currentYaw = np.headYaw;
+    this._yawVelocity = currentYaw - this._lastYaw;
+    this._lastYaw = currentYaw;
+    const maxSway = 15;
+    const swayTarget = -this._yawVelocity * 40;
+    this._tailSway = this._tailSway * this._tailSwayDecay + swayTarget * (1 - this._tailSwayDecay);
+    this._tailSway = Math.max(-maxSway, Math.min(maxSway, this._tailSway));
+    rot.tailSway = this._tailSway;
 
     const minSide = Math.min(w, h);
+    // scale：以头部左右直径为基准，占画面 ~55%
     const headDiameter = this.spindleMesh.headX * 2;
     const margin = 0.18;
     const scale = (minSide * (1 - margin * 2)) / headDiameter;
 
-    const originX = w * 0.52 + (np.headX - 0.5) * minSide * 0.22;
-    const originY = h * 0.5 + (np.headY - 0.5) * minSide * 0.18;
+    // 头部中心稍微向上偏移，让下方有空间展示身体
+    const originX = w * 0.5 + (np.headX - 0.5) * minSide * 0.22;
+    const originY = h * 0.48 + (np.headY - 0.5) * minSide * 0.18;
 
     // 萨卡班甲鱼是扁平椭球，旋转时侧面仍应可见，放宽到 -0.15
     // 尾鳍是双面的，不受这个阈值影响
@@ -912,10 +909,8 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const renderAmbient = np.ambient ?? this.ambient;
 
     const deformedBody = deformSpindle(this.spindleMesh, rot);
-    const bcTX = (rot.translateX || 0) * scale;
-    const bcTY = (rot.translateY || 0) * scale;
     this._drawMesh(ctx, deformedBody, {
-      w, h, scale, originX: originX + bcTX, originY: originY + bcTY,
+      w, h, scale, originX, originY,
       baseColorTop: this.spindleMesh.topColor,
       baseColorBottom: this.spindleMesh.bottomColor,
       faceTopColor: this.spindleMesh.faceTopColor,
@@ -925,208 +920,14 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ambient: renderAmbient,
     });
 
-    // 甲胄分块暗线（萨卡班甲鱼特征）
-    this._drawArmorPlates(ctx, deformedBody, {
-      w, h, scale, originX: originX + bcTX, originY: originY + bcTY,
-      lightDir: renderLightDir,
-      ambient: renderAmbient,
-    });
-
-    this._drawFaceFeatures(ctx, np, rot, originX + bcTX, originY + bcTY, scale);
-  }
-
-  _calcBodyCheckTX(phase) {
-    if (phase < 0.25) {
-      const t = phase / 0.25;
-      return -t * 25;
-    } else if (phase < 0.42) {
-      const t = (phase - 0.25) / 0.17;
-      return -25 + t * 90;
-    } else if (phase < 0.6) {
-      const t = (phase - 0.42) / 0.18;
-      return 65 - t * 35;
-    } else {
-      const t = (phase - 0.6) / 0.4;
-      const e = 1 - t;
-      return 30 * e * e;
-    }
-  }
-
-  _calcBodyCheckTY(phase) {
-    if (phase < 0.25) {
-      const t = phase / 0.25;
-      return t * 10;
-    } else if (phase < 0.42) {
-      const t = (phase - 0.25) / 0.17;
-      return 10 - t * 18;
-    } else if (phase < 0.6) {
-      const t = (phase - 0.42) / 0.18;
-      return -8 + t * 14;
-    } else {
-      const t = (phase - 0.6) / 0.4;
-      const e = 1 - t;
-      return 6 * e * e;
-    }
-  }
-
-  _calcBodyCheckYaw(phase) {
-    if (phase < 0.25) {
-      const t = phase / 0.25;
-      return -t * 2;
-    } else if (phase < 0.42) {
-      const t = (phase - 0.25) / 0.17;
-      return -2 + t * 5;
-    } else if (phase < 0.6) {
-      const t = (phase - 0.42) / 0.18;
-      return 3 - t * 2;
-    } else {
-      const t = (phase - 0.6) / 0.4;
-      const e = 1 - t;
-      return 1 * e * e;
-    }
-  }
-
-  _calcBodyCheckRoll(phase) {
-    if (phase < 0.25) {
-      const t = phase / 0.25;
-      return t * 1;
-    } else if (phase < 0.42) {
-      const t = (phase - 0.25) / 0.17;
-      return 1 - t * 4;
-    } else if (phase < 0.6) {
-      const t = (phase - 0.42) / 0.18;
-      return -3 + t * 3;
-    } else {
-      const t = (phase - 0.6) / 0.4;
-      const e = 1 - t;
-      return 0;
-    }
-  }
-
-  _calcBodyCheckTailSway(phase) {
-    if (phase < 0.42) {
-      return Math.sin(phase * Math.PI * 2) * 2;
-    } else if (phase < 0.6) {
-      const t = (phase - 0.42) / 0.18;
-      return 2 + t * 25;
-    } else if (phase < 0.8) {
-      const t = (phase - 0.6) / 0.2;
-      return 27 - t * 32;
-    } else {
-      const t = (phase - 0.8) / 0.2;
-      const e = Math.sin(t * Math.PI);
-      return -5 * e;
-    }
-  }
-
-  triggerBodyCheck() {
-    this._bodyCheckActive = true;
-    this._bodyCheckPhase = 0;
-    this._bodyCheckTimer = 0;
-  }
-
-  _drawArmorPlates(ctx, mesh, options) {
-    const { scale, originX, originY } = options;
-    const vertices = mesh.vertices;
-    const faces = mesh.faces;
-    if (!vertices || !faces) return;
-
-    ctx.save();
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    const plateCols = [12, 28];
-    const plateRows = [10, 26];
-
-    ctx.strokeStyle = 'rgba(45, 35, 20, 0.28)';
-    ctx.lineWidth = Math.max(1.2, 2 * scale);
-
-    for (const targetCol of plateCols) {
-      const colPoints = [];
-      for (let i = 0; i < vertices.length; i++) {
-        const v = vertices[i];
-        if (v.col === targetCol && v.tx !== undefined) {
-          const sx = originX + v.tx * scale;
-          const sy = originY + v.ty * scale;
-          const facing = v.nz || 0;
-          if (facing > -0.1) {
-            colPoints.push({ sx, sy, row: v.row, facing });
-          }
-        }
-      }
-      if (colPoints.length > 2) {
-        colPoints.sort((a, b) => a.row - b.row);
-        ctx.beginPath();
-        ctx.moveTo(colPoints[0].sx, colPoints[0].sy);
-        for (let i = 1; i < colPoints.length; i++) {
-          ctx.lineTo(colPoints[i].sx, colPoints[i].sy);
-        }
-        ctx.stroke();
-      }
-    }
-
-    for (const targetRow of plateRows) {
-      const rowPoints = [];
-      for (let i = 0; i < vertices.length; i++) {
-        const v = vertices[i];
-        if (v.row === targetRow && v.tx !== undefined) {
-          const sx = originX + v.tx * scale;
-          const sy = originY + v.ty * scale;
-          const facing = v.nz || 0;
-          if (facing > -0.1) {
-            rowPoints.push({ sx, sy, col: v.col, facing });
-          }
-        }
-      }
-      if (rowPoints.length > 2) {
-        rowPoints.sort((a, b) => a.col - b.col);
-        ctx.globalAlpha = 0.6;
-        ctx.beginPath();
-        ctx.moveTo(rowPoints[0].sx, rowPoints[0].sy);
-        for (let i = 1; i < rowPoints.length; i++) {
-          ctx.lineTo(rowPoints[i].sx, rowPoints[i].sy);
-        }
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-      }
-    }
-
-    const headBorderRows = [4, 6];
-    ctx.strokeStyle = 'rgba(35, 28, 15, 0.55)';
-    ctx.lineWidth = Math.max(1.8, 2.5 * scale);
-    for (const targetRow of headBorderRows) {
-      const rowPoints = [];
-      for (let i = 0; i < vertices.length; i++) {
-        const v = vertices[i];
-        if (v.row === targetRow && v.tx !== undefined) {
-          const sx = originX + v.tx * scale;
-          const sy = originY + v.ty * scale;
-          const facing = v.nz || 0;
-          if (facing > -0.2) {
-            rowPoints.push({ sx, sy, col: v.col, facing });
-          }
-        }
-      }
-      if (rowPoints.length > 2) {
-        rowPoints.sort((a, b) => a.col - b.col);
-        ctx.beginPath();
-        ctx.moveTo(rowPoints[0].sx, rowPoints[0].sy);
-        for (let i = 1; i < rowPoints.length; i++) {
-          ctx.lineTo(rowPoints[i].sx, rowPoints[i].sy);
-        }
-        ctx.stroke();
-      }
-    }
-
-    ctx.globalAlpha = 1;
-    ctx.restore();
+    this._drawFaceFeatures(ctx, np, rot, originX, originY, scale);
   }
 
   _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
     const anchors = this.getAnchors(np);
     const mesh = this.spindleMesh;
 
-    const eyeBase = Math.max(10, mesh.headX * 0.45);
+    const eyeBase = Math.max(8, mesh.headX * 0.25);
 
     const drawEye = (anchor, openness, eyeWide, eyeSquint, gazeX, gazeY) => {
       const local = computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
@@ -1140,175 +941,148 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
       let rx = Math.max(0.1, proj.radiusX);
       let ry = Math.max(0.1, proj.radiusY);
-      const ang = proj.angle;
 
-      const wideScale = 1 + (eyeWide || 0) * 0.3;
+      // eyeWide: 只放大眼眶/眼白，虹膜不变
+      const wideScale = 1 + (eyeWide || 0) * 0.47;
       rx *= wideScale;
       ry *= wideScale;
 
-      const squintScaleY = 1 - (eyeSquint || 0) * 0.5;
-      const squintScaleX = 1 + (eyeSquint || 0) * 0.1;
+      // eyeSquint: 眯眼
+      const squintScaleY = 1 - (eyeSquint || 0) * 0.55;
+      const squintScaleX = 1 + (eyeSquint || 0) * 0.08;
       rx *= squintScaleX;
       ry *= squintScaleY;
+      const ang = proj.angle;
 
-      const tOpen = Math.max(0, Math.min(1, (openness - 0.1) / 0.4));
+      const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
       const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
-      const irisR = Math.min(rx, ry) * 0.65;
-      const pupilR = irisR * 0.55;
+      // 虹膜/瞳孔：按眼白短轴比例，不是固定圆
+      const irisScale = 0.50;   // 虹膜占眼白短轴的比例
+      const pupilScale = 0.28;  // 瞳孔占眼白短轴的比例
+      const irisR = Math.min(rx, ry) * irisScale;
+      const pupilR2 = Math.min(rx, ry) * pupilScale;
 
-      const maxOffsetX = Math.max(0, rx - irisR) * 0.7;
-      const maxOffsetY = Math.max(0, ry - irisR) * 0.7;
+      // 视线偏移：根据 gazeX/gazeY 偏移虹膜/瞳孔位置
+      const maxOffsetX = Math.max(0, rx - irisR) * 0.55;
+      const maxOffsetY = Math.max(0, ry - irisR) * 0.55;
       const gazeOffsetX = (gazeX || 0) * maxOffsetX;
       const gazeOffsetY = (gazeY || 0) * maxOffsetY;
+      const irisCX = t.screenX + gazeOffsetX;
+      const irisCY = t.screenY + gazeOffsetY;
 
       ctx.save();
       ctx.globalAlpha = facing;
 
-      // Layer 1: Eye socket / deep shadow - 弱化，避免重影感
-      ctx.fillStyle = 'rgba(40,30,15,0.3)';
-      ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, rx * 1.15, ry * 1.08, ang, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Socket rim highlight (cephalic shield edge) - 更弱更细
-      ctx.strokeStyle = 'rgba(90,70,35,0.25)';
-      ctx.lineWidth = Math.max(0.8, 1.5 * scale);
-      ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, rx * 1.08, ry * 1.02, ang, 0, Math.PI * 2);
-      ctx.stroke();
-
-      if (easedOpen < 0.08) {
-        // Closed eye: curved lid line
-        ctx.strokeStyle = '#2a1f10';
-        ctx.lineWidth = Math.max(2, 3 * scale);
-        ctx.lineCap = 'round';
+      if (easedOpen < 0.12) {
+        // 闭眼：画弧形闭眼线，不画眼白和圆形轮廓
+        const closedH = ry * 0.08;
         ctx.beginPath();
-        ctx.moveTo(t.screenX - rx * 0.7, t.screenY);
-        ctx.quadraticCurveTo(t.screenX, t.screenY - ry * 0.15, t.screenX + rx * 0.7, t.screenY);
+        ctx.moveTo(t.screenX - rx * 0.85, t.screenY);
+        ctx.quadraticCurveTo(t.screenX, t.screenY + closedH, t.screenX + rx * 0.85, t.screenY);
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = Math.max(1.5, 2.5 * scale);
         ctx.stroke();
-        ctx.restore();
-        return;
-      }
+      } else if (easedClosed > 0.05) {
+        // 半闭眼：画杏仁形可见眼白 + 弧形上眼皮
+        // 只上眼皮下降，下眼皮保持不动（不往上抬）
+        const visibleH = ry * (1 - easedClosed * 0.85);
+        const topCurve = ry * easedClosed * 0.3;
 
-      // Layer 2: Eye white (sclera) with gradient
-      const visibleRy = ry * Math.max(0.15, easedOpen);
-      const topY = t.screenY - visibleRy;
-      const bottomY = t.screenY + visibleRy * 0.6;
-
-      const scleraGrad = ctx.createRadialGradient(
-        t.screenX - rx * 0.2, topY + visibleRy * 0.2, rx * 0.1,
-        t.screenX, t.screenY, rx
-      );
-      scleraGrad.addColorStop(0, '#ffffff');
-      scleraGrad.addColorStop(0.6, '#f0e8d8');
-      scleraGrad.addColorStop(1, '#d0c4a8');
-      ctx.fillStyle = scleraGrad;
-      ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY + ry * easedClosed * 0.15, rx, visibleRy, ang, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Sclera outline - 更清晰的边界，减少两白球叠压的混乱感
-      ctx.strokeStyle = '#5a4a30';
-      ctx.lineWidth = Math.max(1.5, 2.5 * scale);
-      ctx.globalAlpha = facing * 0.7;
-      ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY + ry * easedClosed * 0.15, rx, visibleRy, ang, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = facing;
-
-      // Layer 3: Iris with radial gradient
-      const irisCx = t.screenX + gazeOffsetX;
-      const irisCy = t.screenY + gazeOffsetY + ry * easedClosed * 0.15;
-
-      const irisGrad = ctx.createRadialGradient(
-        irisCx - irisR * 0.2, irisCy - irisR * 0.25, irisR * 0.1,
-        irisCx, irisCy, irisR
-      );
-      irisGrad.addColorStop(0, '#6b5a3a');
-      irisGrad.addColorStop(0.4, '#4a3820');
-      irisGrad.addColorStop(0.8, '#2a1f10');
-      irisGrad.addColorStop(1, '#1a1208');
-      ctx.fillStyle = irisGrad;
-      ctx.beginPath();
-      ctx.arc(irisCx, irisCy, irisR, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Iris detail ring
-      ctx.strokeStyle = '#5a4828';
-      ctx.lineWidth = Math.max(0.5, 1.5 * scale);
-      ctx.globalAlpha = facing * 0.4;
-      ctx.beginPath();
-      ctx.arc(irisCx, irisCy, irisR * 0.7, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = facing;
-
-      // Layer 4: Pupil (solid dark)
-      ctx.fillStyle = '#0d0804';
-      ctx.beginPath();
-      ctx.arc(irisCx, irisCy, pupilR, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Pupil catchlight
-      ctx.fillStyle = '#4a3820';
-      ctx.globalAlpha = facing * 0.35;
-      ctx.beginPath();
-      ctx.arc(irisCx - pupilR * 0.15, irisCy + pupilR * 0.2, pupilR * 0.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = facing;
-
-      // Layer 5: Highlights
-      // Main highlight
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.ellipse(
-        irisCx - irisR * 0.3, irisCy - irisR * 0.3,
-        irisR * 0.2, irisR * 0.28,
-        -0.5, 0, Math.PI * 2
-      );
-      ctx.fill();
-
-      // Secondary smaller highlight
-      ctx.fillStyle = 'rgba(255,255,255,0.5)';
-      ctx.beginPath();
-      ctx.arc(irisCx + irisR * 0.25, irisCy + irisR * 0.25, irisR * 0.1, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Upper eyelid overlay
-      if (easedClosed > 0.05) {
-        ctx.fillStyle = '#8a7250';
-        ctx.globalAlpha = facing * 0.25 * easedClosed;
         ctx.beginPath();
-        ctx.ellipse(t.screenX, topY + visibleRy * 0.3, rx * 0.95, visibleRy * 0.5, ang, Math.PI, Math.PI * 2);
+        ctx.moveTo(t.screenX - rx * 0.85, t.screenY);
+        ctx.quadraticCurveTo(t.screenX, t.screenY - visibleH + topCurve, t.screenX + rx * 0.85, t.screenY);
+        // 下边缘固定在眼睛底部，不随 blink 上移
+        ctx.quadraticCurveTo(t.screenX, t.screenY + ry * 0.4, t.screenX - rx * 0.85, t.screenY);
+        ctx.closePath();
+        ctx.fillStyle = '#ffffff';
         ctx.fill();
+        ctx.lineWidth = Math.max(1, 2.0 * scale);
+        ctx.strokeStyle = '#222';
+        ctx.stroke();
+
+        // 弧形上眼皮线
+        ctx.beginPath();
+        ctx.moveTo(t.screenX - rx, t.screenY);
+        ctx.quadraticCurveTo(t.screenX, t.screenY - visibleH + topCurve * 1.2, t.screenX + rx, t.screenY);
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = Math.max(1, 1.8 * scale);
+        ctx.stroke();
+
+        // 瞳孔
+        if (easedOpen > 0.15) {
+          // Clip 到可见眼白区域内
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(t.screenX - rx * 0.85, t.screenY);
+          ctx.quadraticCurveTo(t.screenX, t.screenY - visibleH + topCurve, t.screenX + rx * 0.85, t.screenY);
+          ctx.quadraticCurveTo(t.screenX, t.screenY + ry * 0.4, t.screenX - rx * 0.85, t.screenY);
+          ctx.closePath();
+          ctx.clip();
+
+          // 虹膜
+          const halfIrisR = irisR * 0.8;
+          ctx.beginPath();
+          ctx.ellipse(irisCX, irisCY, halfIrisR, halfIrisR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+          ctx.fillStyle = '#7a6b5c';
+          ctx.globalAlpha = Math.max(0.4, facing) * Math.min(1, easedOpen * 1.5);
+          ctx.fill();
+
+          // 瞳孔
+          const halfPupilR = pupilR2 * 0.8;
+          ctx.beginPath();
+          ctx.ellipse(irisCX, irisCY, halfPupilR, halfPupilR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+          ctx.fillStyle = '#1a1a1a';
+          ctx.fill();
+
+          ctx.restore();
+          ctx.globalAlpha = facing;
+        }
+      } else {
+        // 全睁眼：完整眼白 + 圆形轮廓
+        ctx.beginPath();
+        ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.lineWidth = Math.max(1, 2.0 * scale);
+        ctx.strokeStyle = '#222';
+        ctx.stroke();
+
+        // 虹膜 + 瞳孔：作为眼白内部 decal，clip 在眼白内
+        ctx.save();
+        // 用眼白椭圆做 clip 区域
+        ctx.beginPath();
+        ctx.ellipse(t.screenX, t.screenY, rx - 1, ry - 1, ang, 0, Math.PI * 2);
+        ctx.clip();
+
+        // 虹膜：淡色圆环
+        ctx.beginPath();
+        ctx.ellipse(irisCX, irisCY, irisR, irisR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#7a6b5c';
+        ctx.globalAlpha = Math.max(0.4, facing) * easedOpen;
+        ctx.fill();
+
+        // 瞳孔：深色椭圆，在虹膜中心
+        ctx.beginPath();
+        ctx.ellipse(irisCX, irisCY, pupilR2, pupilR2 * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fill();
+
+        // 高光：小白点，可选
+        if (easedOpen > 0.5) {
+          const hlX = irisCX + irisR * 0.3;
+          const hlY = irisCY - irisR * 0.3;
+          ctx.beginPath();
+          ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = Math.max(0.3, facing) * 0.7;
+          ctx.fill();
+        }
+
+        ctx.restore();
         ctx.globalAlpha = facing;
       }
-
-      // Upper eyelid line
-      ctx.strokeStyle = '#3a2a15';
-      ctx.lineWidth = Math.max(1.5, 2.5 * scale);
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(t.screenX - rx * 0.85, t.screenY - visibleRy * 0.2 + ry * easedClosed * 0.1);
-      ctx.quadraticCurveTo(
-        t.screenX,
-        topY - ry * easedClosed * 0.15,
-        t.screenX + rx * 0.85,
-        t.screenY - visibleRy * 0.2 + ry * easedClosed * 0.1
-      );
-      ctx.stroke();
-
-      // Lower lid (subtle)
-      ctx.strokeStyle = '#4a3820';
-      ctx.globalAlpha = facing * 0.3;
-      ctx.lineWidth = Math.max(0.8, 1.5 * scale);
-      ctx.beginPath();
-      ctx.moveTo(t.screenX - rx * 0.7, bottomY - visibleRy * 0.1);
-      ctx.quadraticCurveTo(t.screenX, bottomY, t.screenX + rx * 0.7, bottomY - visibleRy * 0.1);
-      ctx.stroke();
-      ctx.globalAlpha = facing;
-
       ctx.restore();
     };
 
@@ -1317,17 +1091,17 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
-      // 眉毛：萨卡班甲鱼几乎没有眉毛，避免不高兴的感觉
-      if ((raise || 0) < 0.3) return;
-      const len = mesh.headX * 0.16 * scale;
-      const upAmt = raise * 5 * scale;
+      // 眉毛长度和抬升量：直接用 scale，不预乘 rl/dl
+      // 因为 mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
+      const len = mesh.headX * 0.26 * scale;
+      const upAmt = raise * 8 * scale;
       ctx.save();
-      ctx.globalAlpha = facing * 0.12;
-      ctx.strokeStyle = '#4a4028';
-      ctx.lineWidth = Math.max(0.5, 0.8 * scale);
+      ctx.globalAlpha = facing;
+      ctx.strokeStyle = '#2b2b2b';
+      ctx.lineWidth = Math.max(1.5, 2.5 * scale);
       ctx.beginPath();
       const left = mapFaceLocalPoint(t, -len * 0.5, -upAmt);
-      const peak = mapFaceLocalPoint(t, 0, -upAmt * 1.1);
+      const peak = mapFaceLocalPoint(t, 0, -upAmt * 1.2);
       const right = mapFaceLocalPoint(t, len * 0.5, -upAmt);
       ctx.moveTo(left.x, left.y);
       ctx.quadraticCurveTo(peak.x, peak.y, right.x, right.y);
@@ -1340,81 +1114,48 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
       if (facing <= 0.05) return;
+      // 嘴巴尺寸参数：直接用 scale，不预乘 rl/dl
+      // mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
+      const smileWiden = 1 + smile * 0.40;
 
-      const smileWiden = 1 + smile * 0.35;
+      // mouthPress: 抿嘴效果，降低 open
       const effectiveOpen = Math.max(0, open - (mouthPress || 0) * 0.3);
-      const funnelNarrow = 1 - (mouthFunnel || 0) * 0.4;
-      const funnelTall = 1 + (mouthFunnel || 0) * 0.6;
+
+      // mouthFunnel: 嘟嘴效果，使嘴巴变圆（宽度减少，高度增加）
+      const funnelNarrow = 1 - (mouthFunnel || 0) * 0.5;
+      const funnelTall = 1 + (mouthFunnel || 0) * 0.8;
 
       const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * funnelNarrow;
-      const baseH = 2 * scale;
-      const openH = (baseH + 14 * scale * effectiveOpen) * funnelTall;
+      const openH = (3 * scale + 12 * scale * effectiveOpen) * funnelTall;
+      // 微笑：嘴角上扬但上边缘不上升，只向下延伸
       const cornerUp = smile * 3 * scale;
-      const centerDown = smile * 2 * scale + effectiveOpen * openH * 0.55;
-
+      const centerDown = smile * 5 * scale + effectiveOpen * openH * 0.5;
       ctx.save();
       ctx.globalAlpha = facing;
-
-      // Mouth shadow / under lip area
-      ctx.fillStyle = 'rgba(40,25,15,0.25)';
-      ctx.beginPath();
-      const shadowLeft = mapFaceLocalPoint(t, -halfW * 0.9, centerDown + openH * 0.3);
-      const shadowMid = mapFaceLocalPoint(t, 0, centerDown + openH * 0.6);
-      const shadowRight = mapFaceLocalPoint(t, halfW * 0.9, centerDown + openH * 0.3);
-      ctx.moveTo(shadowLeft.x, shadowLeft.y);
-      ctx.quadraticCurveTo(shadowMid.x, shadowMid.y, shadowRight.x, shadowRight.y);
-      ctx.quadraticCurveTo(t.screenX, centerDown + openH * 0.2, shadowLeft.x, shadowLeft.y);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.strokeStyle = '#2a1810';
-      ctx.lineWidth = Math.max(1.5, 3 * scale);
-      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#2b2b2b';
+      ctx.lineWidth = Math.max(1.5, 2.5 * scale);
 
       if (effectiveOpen < 0.05 && smile < 0.1) {
-        const mouthH = halfW * 0.75;
-        const tipY = mapFaceLocalPoint(t, 0, cornerUp + mouthH).y;
-        const leftCorner = mapFaceLocalPoint(t, -halfW * 0.9, cornerUp);
-        const rightCorner = mapFaceLocalPoint(t, halfW * 0.9, cornerUp);
-        const topMid = mapFaceLocalPoint(t, 0, cornerUp - mouthH * 0.1);
-        
-        ctx.fillStyle = '#2a1810';
+        const left = mapFaceLocalPoint(t, -halfW, cornerUp);
+        const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
-        ctx.moveTo(leftCorner.x, leftCorner.y);
-        ctx.quadraticCurveTo(topMid.x, topMid.y, rightCorner.x, rightCorner.y);
-        ctx.lineTo(t.screenX, tipY);
-        ctx.closePath();
-        ctx.fill();
-        
-        ctx.strokeStyle = '#1a0f08';
-        ctx.lineWidth = Math.max(1.2, 2 * scale);
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        ctx.moveTo(leftCorner.x, leftCorner.y);
-        ctx.quadraticCurveTo(topMid.x, topMid.y, rightCorner.x, rightCorner.y);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(leftCorner.x, leftCorner.y);
-        ctx.lineTo(t.screenX, tipY);
-        ctx.lineTo(rightCorner.x, rightCorner.y);
+        ctx.moveTo(left.x, left.y);
+        ctx.lineTo(right.x, right.y);
         ctx.stroke();
       } else if (effectiveOpen < 0.05) {
-        // Smile: slight curve, mostly flat
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
-        const mid = mapFaceLocalPoint(t, 0, centerDown);
+        const mid = mapFaceLocalPoint(t, 0, centerDown - 2 * scale);
         const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
         ctx.quadraticCurveTo(mid.x, mid.y, right.x, right.y);
         ctx.stroke();
       } else {
-        // Open: wide flat mouth with dark interior
-        ctx.fillStyle = '#3a1810';
+        ctx.fillStyle = '#4a2020';
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
-        const topMid = mapFaceLocalPoint(t, 0, centerDown - openH * 0.7);
+        const topMid = mapFaceLocalPoint(t, 0, centerDown - openH * 0.85);
         const right = mapFaceLocalPoint(t, halfW, cornerUp);
-        const botMid = mapFaceLocalPoint(t, 0, centerDown + openH * 0.25);
+        const botMid = mapFaceLocalPoint(t, 0, centerDown + openH * 0.15);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
         ctx.quadraticCurveTo(topMid.x, topMid.y, right.x, right.y);
@@ -1422,17 +1163,6 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
-
-        // Interior tongue hint (subtle)
-        if (effectiveOpen > 0.3) {
-          ctx.fillStyle = '#8a4535';
-          ctx.globalAlpha = facing * 0.6;
-          ctx.beginPath();
-          const tongueY = mapFaceLocalPoint(t, 0, centerDown + openH * 0.1);
-          ctx.ellipse(tongueY.x, tongueY.y, halfW * 0.3, openH * 0.2, 0, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.globalAlpha = facing;
-        }
       }
       ctx.restore();
     };

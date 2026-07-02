@@ -53,8 +53,7 @@ export function radiusScale(s) {
   // r(s) = TAIL_RATIO + (1-TAIL_RATIO) * cos(π/2 * (s-SPHERE_END)/(1-SPHERE_END))
   // s=SPHERE_END: cos(0)=1, r=1
   // s=1: cos(π/2)≈0, r=TAIL_RATIO
-  // TAIL_RATIO = 0.70：身体最窄处宽度为头宽的 70%，确保正面可见
-  const TAIL_RATIO = 0.70;
+  const TAIL_RATIO = 0.035;
   const t = (s - SPHERE_END) / (1 - SPHERE_END) * (Math.PI / 2);
   return TAIL_RATIO + (1 - TAIL_RATIO) * Math.cos(t);
 }
@@ -100,12 +99,10 @@ function getSection(s, headX, headY, headZ, bodyLength) {
   const sc = radiusScale(s);
   const scDeriv = radiusScaleDeriv(s);
 
-  // 沿 Z 的位置：s=0 → +headZ/2，s=1 → +headZ*1.5
-  // z(s) = headZ * (0.5 + s)，z'(s) = headZ
-  // 全部顶点 z >= headZ/2 = 27，都在摄像机前方
-  // s=0（鼻端）z≈27，s=1（尾部）z≈81
-  const spineZ = headZ * (0.5 + s);
-  const spineZDeriv = headZ;
+  // 沿 Z 的位置：s=0 → +headZ，s=1 → -bodyLength
+  // z(s) = headZ - s * (headZ + bodyLength)，z'(s) = -(headZ + bodyLength)
+  const spineZ = headZ - s * (headZ + bodyLength);
+  const spineZDeriv = -(headZ + bodyLength);
 
   // 半径：略扁椭圆（正面更圆，侧面略瘦）—— rx/ry 用同样曲线但乘不同"椭圆度"
   const rx = headX * sc;
@@ -317,8 +314,8 @@ export function createSpindleMesh(options = {}) {
     const flukeStartIdx = vertices.length;
     const flukeHalfHeight = headY * 0.35 * flukeSize;  // 竖向高度
     const flukeThickness = headX * 0.08 * flukeSize;   // 厚度（X方向）
-    const tailExtensionZ = 60;  // 身体后方延伸（正值 = 在摄像机前方）
-    const flukeTipBackZ = tailExtensionZ + bodyLength * 0.15;  // 尾鳍末端
+    const tailExtensionZ = 40;
+    const flukeTipBackZ = -bodyLength - headZ * 0.2 - tailExtensionZ;
 
     const lastRingStart = 1 + (columns - 1) * (rows + 1);
     let bodyEndCenterX = 0, bodyEndCenterY = 0, bodyEndCenterZ = 0;
