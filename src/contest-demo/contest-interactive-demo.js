@@ -5,7 +5,7 @@
 
 // ====== STATE ======
 const state = {
-  currentAvatar: 'sacabambaspis',
+  currentAvatar: 'sacabambaspis-3d',
   showcaseMode: false,
   drawMode: false,
   captureOn: true,
@@ -35,8 +35,10 @@ const AVATAR_NAMES = {
   bear: '小熊 Bear',
 };
 
-let _main3DRenderer = null;
-let _fw3DRenderer = null;
+let _3dReady = false;
+let _3dFailed = false;
+let _3dLoadStarted = false;
+let _ensure3DPromise = null;
 
 // ====== GUIDE STEPS ======
 const GUIDE_STEPS = [
@@ -84,6 +86,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initFWAvatarCanvas();
   initFloatingWindow();
   startSimLoop();
+  if (state.currentAvatar === 'sacabambaspis-3d') {
+    ensure3DRenderers().catch(() => {});
+  }
 });
 
 // ====== AVATAR CANVAS (Middle Panel) ======
@@ -115,12 +120,15 @@ function drawAvatar(ctx, w, h, avatar, params, scale) {
 }
 
 function update3DRenderers(params) {
-  if (_main3DRenderer) {
-    _main3DRenderer.updateParams(params);
+  if (!_3dReady) return false;
+  if (typeof window.renderContestFishAvatar !== 'function') return false;
+  const okMain = window.renderContestFishAvatar('avatarCanvas', params);
+  const fwCanvas = document.getElementById('fwAvatarCanvas');
+  let okFw = true;
+  if (fwCanvas && fwCanvas.offsetParent !== null) {
+    okFw = window.renderContestFishAvatar('fwAvatarCanvas', params);
   }
-  if (_fw3DRenderer) {
-    _fw3DRenderer.updateParams(params);
-  }
+  return okMain && okFw;
 }
 
 function faceParamsToRendererParams(fp) {
@@ -137,12 +145,36 @@ function faceParamsToRendererParams(fp) {
 }
 
 function ensure3DRenderers() {
-  if (!_main3DRenderer) {
-    _main3DRenderer = new _ProceduralSpindleWhaleAvatar('avatarCanvas');
+  if (_3dReady) return Promise.resolve();
+  if (_3dFailed) return Promise.reject(new Error('3D renderer failed to load'));
+  if (_3dLoadStarted) return _ensure3DPromise;
+
+  _3dLoadStarted = true;
+
+  if (typeof window.createContestFishAvatar !== 'function') {
+    _3dFailed = true;
+    const diag = window.__cheapLiveContestAvatarDiag || {};
+    diag.fallbackActive = true;
+    diag.error = 'createContestFishAvatar not available (adapter not loaded)';
+    return Promise.reject(new Error('contest-avatar-adapter not loaded'));
   }
-  if (!_fw3DRenderer) {
-    _fw3DRenderer = new _ProceduralSpindleWhaleAvatar('fwAvatarCanvas');
-  }
+
+  _ensure3DPromise = Promise.all([
+    window.createContestFishAvatar('avatarCanvas'),
+    window.createContestFishAvatar('fwAvatarCanvas'),
+  ])
+    .then(() => {
+      _3dReady = true;
+    })
+    .catch((err) => {
+      _3dFailed = true;
+      const diag = window.__cheapLiveContestAvatarDiag || {};
+      diag.fallbackActive = true;
+      diag.error = String(err && err.message || err);
+      throw err;
+    });
+
+  return _ensure3DPromise;
 }
 
 function set3DRenderersVisible(visible) {
@@ -751,8 +783,19 @@ function simLoop(ts) {
   }
 
   if (state.currentAvatar === 'sacabambaspis-3d') {
-    const rendererParams = faceParamsToRendererParams(state.faceParams);
-    update3DRenderers(rendererParams);
+    if (!_3dLoadStarted && !_3dFailed) {
+      ensure3DRenderers().catch(() => {});
+    }
+    if (_3dReady) {
+      const rendererParams = faceParamsToRendererParams(state.faceParams);
+      update3DRenderers(rendererParams);
+    } else if (_3dFailed) {
+      drawAvatar(avatarCtx, avatarW, avatarH, 'sacabambaspis', state.faceParams, 1);
+      const fc = document.getElementById('fwAvatarCanvas');
+      if (fc && fwCtx) {
+        drawAvatar(fwCtx, fc.width, fc.height, 'sacabambaspis', state.faceParams, fc.width / 360);
+      }
+    }
   } else {
     drawAvatar(avatarCtx, avatarW, avatarH, state.currentAvatar, state.faceParams, 1);
     const fc = document.getElementById('fwAvatarCanvas');
@@ -800,9 +843,12 @@ function selectAvatar(avatar, el) {
   document.getElementById('avatarLabel').textContent = AVATAR_NAMES[avatar] || avatar;
 
   if (avatar === 'sacabambaspis-3d') {
-    ensure3DRenderers();
-    const rendererParams = faceParamsToRendererParams(state.faceParams);
-    update3DRenderers(rendererParams);
+    ensure3DRenderers()
+      .then(() => {
+        const rendererParams = faceParamsToRendererParams(state.faceParams);
+        update3DRenderers(rendererParams);
+      })
+      .catch(() => {});
   }
 }
 
