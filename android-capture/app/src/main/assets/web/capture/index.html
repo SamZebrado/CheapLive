@@ -184,7 +184,7 @@
   let seq = 0;
   let lastPush = 0;
   let sessionInfo = null;
-  let publishEnabled = true;
+  let publishEnabled = false; // 默认不发布，等待 AppState/startCamera 调用
   let cameraStarted = false;
   let cameraStream = null;
 
@@ -203,6 +203,10 @@
         return JSON.stringify({ ok: true, resumed: true });
       }
       if (cameraStarted) {
+        // 摄像头已运行，但可能帧循环停了，确保启动
+        if (!frameLoopRunning) {
+          startFrameLoop();
+        }
         return JSON.stringify({ ok: true, alreadyRunning: true });
       }
       // 首次启动
@@ -243,6 +247,37 @@
         frameLoopRunning: frameLoopRunning,
         seq: seq
       });
+    },
+    // 音频控制 API
+    startVoiceCapture: function(reason) {
+      console.error('[CheapLiveVoiceDiag]', 'startVoiceCapture reason=' + (reason || 'unknown'));
+      if (window.startVoiceCapture) {
+        window.startVoiceCapture();
+        return JSON.stringify({ ok: true, starting: true });
+      }
+      return JSON.stringify({ ok: false, error: 'voiceController not available' });
+    },
+    stopVoiceCapture: function(reason) {
+      console.error('[CheapLiveVoiceDiag]', 'stopVoiceCapture reason=' + (reason || 'unknown'));
+      if (window.stopVoiceCapture) {
+        window.stopVoiceCapture();
+        return JSON.stringify({ ok: true, stopped: true });
+      }
+      return JSON.stringify({ ok: false, error: 'voiceController not available' });
+    },
+    setVoicePreset: function(preset) {
+      console.error('[CheapLiveVoiceDiag]', 'setVoicePreset preset=' + preset);
+      if (window.setVoicePreset) {
+        window.setVoicePreset(preset);
+        return JSON.stringify({ ok: true, preset: preset });
+      }
+      return JSON.stringify({ ok: false, error: 'voiceController not available' });
+    },
+    getVoiceState: function() {
+      if (window.__cheapLiveVoiceDiag && window.__cheapLiveVoiceDiag.getState) {
+        return JSON.stringify(window.__cheapLiveVoiceDiag.getState());
+      }
+      return JSON.stringify({ error: 'voiceController not available' });
     }
   };
 
@@ -401,8 +436,14 @@
 
   async function startFaceLandmarker() {
     console.error('[CheapLiveCameraDiag]', JSON.stringify({
-       label:'startFaceLandmarker', videoReadyState:videoElement.readyState
+       label:'startFaceLandmarker', videoReadyState:videoElement.readyState, modelAlreadyReady:faceLandmarkerReady
      }));
+    // 如果模型已预加载，直接启动帧循环
+    if (faceLandmarkerReady && faceLandmarker) {
+      console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'faceLandmarker_already_ready'}));
+      startFrameLoop();
+      return;
+    }
     try {
       const wasmBaseUrl = '/web/mediapipe/tasks-vision/wasm';
       const modelAssetPath = '/web/mediapipe/tasks-vision/face_landmarker.task';
@@ -463,8 +504,32 @@
     requestAnimationFrame(tick);
   }
 
-  // 页面加载后自动启动 camera（保持原有行为）
-  startCameraInternal('page_load');
+  // 页面加载后只预热 FaceLandmarker 模型（不启动摄像头）
+  // 摄像头只在 AppState/startCamera 明确要求时启动
+  async function preloadFaceLandmarkerModel() {
+    console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'preload_model_start'}));
+    try {
+      const wasmBaseUrl = '/web/mediapipe/tasks-vision/wasm';
+      const modelAssetPath = '/web/mediapipe/tasks-vision/face_landmarker.task';
+      const filesetResolver = await FilesetResolver.forVisionTasks(wasmBaseUrl);
+      faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+        baseOptions: {
+          modelAssetPath: modelAssetPath,
+          delegate: 'CPU',
+        },
+        outputFaceBlendshapes: false,
+        outputFacialTransformationMatrixes: false,
+        refineLandmarks: true,
+        runningMode: 'VIDEO',
+        numFaces: 1,
+      });
+      faceLandmarkerReady = true;
+      console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'faceLandmarker_model_preloaded'}));
+    } catch (e) {
+      console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'preload_model_error', error: e.message || String(e)}));
+    }
+  }
+  preloadFaceLandmarkerModel();
 
   // ===== Voice effects integration =====
   const voiceUi = {

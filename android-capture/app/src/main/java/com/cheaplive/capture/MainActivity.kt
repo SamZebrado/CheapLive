@@ -1700,6 +1700,10 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 android.util.Log.i("CheapLiveWebView", "onPageFinished: $url")
+                // capture 页面加载完成后立即初始化 AppState listener（不需要等待 viewer 连接）
+                if (url?.contains("capture") == true || url?.startsWith("file:///android_asset/") == true) {
+                    setupAppStateListener()
+                }
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -1812,6 +1816,88 @@ class MainActivity : AppCompatActivity() {
         webView?.loadUrl(url)
     }
 
+    private fun setupAppStateListener() {
+        // 防止重复注册
+        if (appStateListenerRegistered) return
+        appStateListenerRegistered = true
+
+        // 追踪上一次的 camera 需要状态，避免重复调用
+        var lastCameraNeeded = (appState?.faceCaptureEnabled ?: false) || (appState?.poseCaptureEnabled ?: false)
+        var lastVoiceEnabled = appState?.voiceChangerEnabled ?: false
+        var lastVoicePreset = appState?.voicePreset ?: "original"
+
+        appState?.addListener { snap ->
+            runOnUiThread {
+                updateStatePanel(snap)
+                updateAvatarDisplay()
+                updateVoiceStatus()
+                updateFaceCaptureStatus()
+                refreshAvatarButtons()
+                refreshExprButtons()
+                refreshActionButtons()
+                refreshPresetButtons()
+                // update server badge
+                tvServerBadge.text = if (snap.serverRunning) "ONLINE" else "OFFLINE"
+                tvServerBadge.setTextColor(if (snap.serverRunning) cAccent2 else cDanger)
+                tvServerBadge.setBackgroundColor(if (snap.serverRunning) Color.argb(30, 105, 219, 124) else Color.argb(30, 255, 107, 107))
+
+                // camera 需要状态：面捕或姿态捕捉任一启用就需要 camera
+                val cameraNeeded = snap.faceCaptureEnabled || snap.poseCaptureEnabled
+                if (cameraNeeded != lastCameraNeeded) {
+                    lastCameraNeeded = cameraNeeded
+                    if (cameraNeeded) {
+                        // 需要 camera → 启动
+                        webView?.evaluateJavascript(
+                            "(function() { if (window.CheapLiveCapture && window.CheapLiveCapture.startCamera) { window.CheapLiveCapture.startCamera('state-change'); return 'startCamera-dispatched'; } else { return 'api-not-ready'; } })()"
+                        ) { result ->
+                            android.util.Log.i("CheapLiveCapture", "startCamera (state-change) result: $result")
+                        }
+                    } else {
+                        // 都不需要 → 真正停止 camera 硬件
+                        webView?.evaluateJavascript(
+                            "(function() { if (window.CheapLiveCapture && window.CheapLiveCapture.stopCamera) { return JSON.stringify(window.CheapLiveCapture.stopCamera('all-stopped', true)); } else { return JSON.stringify({ok:false,error:'CheapLiveCapture API not ready'}); } })()"
+                        ) { result ->
+                            android.util.Log.i("CheapLiveCapture", "stopCamera (hardware) result: $result")
+                        }
+                    }
+                }
+
+                // voice 需要状态：voiceChangerEnabled 变化时联动 WebView
+                val voiceEnabled = snap.voiceChangerEnabled
+                if (voiceEnabled != lastVoiceEnabled) {
+                    lastVoiceEnabled = voiceEnabled
+                    if (voiceEnabled) {
+                        webView?.evaluateJavascript(
+                            "(function() { if (window.CheapLiveCapture && window.CheapLiveCapture.startVoiceCapture) { return JSON.stringify(window.CheapLiveCapture.startVoiceCapture('state-change')); } else { return JSON.stringify({ok:false,error:'CheapLiveCapture API not ready'}); } })()"
+                        ) { result ->
+                            android.util.Log.i("CheapLiveCapture", "startVoiceCapture (state-change) result: $result")
+                        }
+                    } else {
+                        webView?.evaluateJavascript(
+                            "(function() { if (window.CheapLiveCapture && window.CheapLiveCapture.stopVoiceCapture) { return JSON.stringify(window.CheapLiveCapture.stopVoiceCapture('state-change')); } else { return JSON.stringify({ok:false,error:'CheapLiveCapture API not ready'}); } })()"
+                        ) { result ->
+                            android.util.Log.i("CheapLiveCapture", "stopVoiceCapture (state-change) result: $result")
+                        }
+                    }
+                }
+
+                // voice preset 变化时联动 WebView
+                val voicePreset = snap.voicePreset
+                if (voicePreset != lastVoicePreset) {
+                    lastVoicePreset = voicePreset
+                    webView?.evaluateJavascript(
+                        "(function() { if (window.CheapLiveCapture && window.CheapLiveCapture.setVoicePreset) { return JSON.stringify(window.CheapLiveCapture.setVoicePreset('$voicePreset')); } else { return JSON.stringify({ok:false,error:'CheapLiveCapture API not ready'}); } })()"
+                    ) { result ->
+                        android.util.Log.i("CheapLiveCapture", "setVoicePreset (state-change) result: $result")
+                    }
+                }
+            }
+        }
+        android.util.Log.i("CheapLiveCapture", "AppState listener registered")
+    }
+
+    private var appStateListenerRegistered = false
+
     private fun startSession() {
         if (isServerRunning && server != null && appState != null && session != null) {
             // server 已由 ensureServerStarted 提前启动，补全 UI 和监听器
@@ -1822,21 +1908,7 @@ class MainActivity : AppCompatActivity() {
             val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
             appState?.setField("voicePermission", if (hasAudio) "granted" else "denied")
 
-            appState?.addListener { snap ->
-                runOnUiThread {
-                    updateStatePanel(snap)
-                    updateAvatarDisplay()
-                    updateVoiceStatus()
-                    updateFaceCaptureStatus()
-                    refreshAvatarButtons()
-                    refreshExprButtons()
-                    refreshActionButtons()
-                    refreshPresetButtons()
-                    tvServerBadge.text = if (snap.serverRunning) "ONLINE" else "OFFLINE"
-                    tvServerBadge.setTextColor(if (snap.serverRunning) cAccent2 else cDanger)
-                    tvServerBadge.setBackgroundColor(if (snap.serverRunning) Color.argb(30, 105, 219, 124) else Color.argb(30, 255, 107, 107))
-                }
-            }
+            // listener 已在 onPageFinished 中通过 setupAppStateListener() 注册，无需重复
 
             val b = bridge ?: CaptureBridge(finalSession, srv, { _, _ -> }).also { bridge = it }
             webView?.addJavascriptInterface(b, "CheapLiveBridge")
@@ -1893,47 +1965,7 @@ class MainActivity : AppCompatActivity() {
         appState?.setField("voicePermission", if (hasAudio) "granted" else "denied")
         isServerRunning = true
 
-        // 追踪上一次的 camera 需要状态，避免重复调用
-        var lastCameraNeeded = (appState?.faceCaptureEnabled ?: false) || (appState?.poseCaptureEnabled ?: false)
-
-        // 监听状态变更，更新 UI 面板 + 联动 WebView
-        appState?.addListener { snap ->
-            runOnUiThread {
-                updateStatePanel(snap)
-                updateAvatarDisplay()
-                updateVoiceStatus()
-                updateFaceCaptureStatus()
-                refreshAvatarButtons()
-                refreshExprButtons()
-                refreshActionButtons()
-                refreshPresetButtons()
-                // update server badge
-                tvServerBadge.text = if (snap.serverRunning) "ONLINE" else "OFFLINE"
-                tvServerBadge.setTextColor(if (snap.serverRunning) cAccent2 else cDanger)
-                tvServerBadge.setBackgroundColor(if (snap.serverRunning) Color.argb(30, 105, 219, 124) else Color.argb(30, 255, 107, 107))
-
-                // camera 需要状态：面捕或姿态捕捉任一启用就需要 camera
-                val cameraNeeded = snap.faceCaptureEnabled || snap.poseCaptureEnabled
-                if (cameraNeeded != lastCameraNeeded) {
-                    lastCameraNeeded = cameraNeeded
-                    if (cameraNeeded) {
-                        // 需要 camera → 启动
-                        webView?.evaluateJavascript(
-                            "(function() { if (window.CheapLiveCapture && window.CheapLiveCapture.startCamera) { window.CheapLiveCapture.startCamera('state-change'); return 'startCamera-dispatched'; } else { return 'api-not-ready'; } })()"
-                        ) { result ->
-                            android.util.Log.i("CheapLiveCapture", "startCamera (state-change) result: $result")
-                        }
-                    } else {
-                        // 都不需要 → 真正停止 camera 硬件
-                        webView?.evaluateJavascript(
-                            "(function() { if (window.CheapLiveCapture && window.CheapLiveCapture.stopCamera) { return JSON.stringify(window.CheapLiveCapture.stopCamera('all-stopped', true)); } else { return JSON.stringify({ok:false,error:'CheapLiveCapture API not ready'}); } })()"
-                        ) { result ->
-                            android.util.Log.i("CheapLiveCapture", "stopCamera (hardware) result: $result")
-                        }
-                    }
-                }
-            }
-        }
+        // listener 已在 onPageFinished 中通过 setupAppStateListener() 注册，无需重复
 
         val b = bridge ?: CaptureBridge(finalSession, srv, { _, _ -> }).also { bridge = it }
         webView?.addJavascriptInterface(b, "CheapLiveBridge")
