@@ -40,6 +40,23 @@ let _cameraLastDetectDiag = null; // { hasFaceLandmarks, hasFaceBlendshapes, fac
 const CAMERA_IDLE_FALLBACK_MS = 5000;
 const CAMERA_ERROR_LOG_INTERVAL_MS = 2000;
 
+// MediaPipe preload state (aligned with open demo: load on page init, not on camera click)
+let _loadMediapipePromise = null;
+let _mediapipeInitDiag = {
+  phase: 'idle',
+  filesetUrl: null,
+  modelUrl: null,
+  delegateTried: null,
+  delegateActive: null,
+  initStartedAt: 0,
+  filesetResolvedAt: 0,
+  createStartedAt: 0,
+  createResolvedAt: 0,
+  initElapsedMs: 0,
+  errorName: null,
+  errorMessage: null,
+};
+
 const VOICE_PRESETS = [
   { id: 'original', name: '原声' },
   { id: 'cute', name: '可爱' },
@@ -963,6 +980,9 @@ function simLoop(ts) {
     diag.cameraIdleFallbackMs = CAMERA_IDLE_FALLBACK_MS;
     diag.cameraVideoDiag = _cameraVideoDiag;
     diag.cameraLastDetectDiag = _cameraLastDetectDiag;
+    diag.mediapipeInitDiag = _mediapipeInitDiag;
+    const statusEl = document.getElementById('faceCamStatus');
+    diag.faceCamStatus = statusEl ? statusEl.textContent : null;
   }
 
   // Draw avatar on main canvas
@@ -1266,37 +1286,22 @@ let _faceLandmarker = null;
 let _faceVideoStream = null;
 let _faceDetectRAF = null;
 
-async function startFaceTracking() {
-  const btn = document.getElementById('faceCamBtn');
-  const status = document.getElementById('faceCamStatus');
-  const videoWrap = document.getElementById('faceVideoWrap');
+// Aligned with open demo: preload model on page init, not on camera click.
+// No CDN fallback — must be same-origin local.
+async function preloadMediapipeModel() {
+  if (_loadMediapipePromise) return _loadMediapipePromise;
+  _loadMediapipePromise = (async () => {
+    _mediapipeInitDiag.phase = 'loading';
+    _mediapipeInitDiag.initStartedAt = performance.now();
 
-  if (_faceLandmarker || _faceVideoStream) {
-    stopFaceTracking();
-    return;
-  }
-
-  btn.disabled = true;
-  status.style.display = 'block';
-  status.textContent = '请求摄像头权限...';
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' }
-    });
-    _faceVideoStream = stream;
-    const video = document.getElementById('faceVideo');
-    video.srcObject = stream;
-    await video.play();
-
-    status.textContent = '加载 MediaPipe 本地模型（same-origin）...';
-
-    // MediaPipe MUST be same-origin local. No CDN fallback allowed.
-    // On failure: show error with failed URL + retry button + manual 2D switch.
     const localBase = '../face-tracking/mediapipe';
     const localBundleUrl = `${localBase}/vision_bundle.mjs`;
     const localWasmUrl = `${localBase}/wasm`;
     const localModelUrl = `${localBase}/face_landmarker.task`;
+
+    _mediapipeInitDiag.filesetUrl = localWasmUrl;
+    _mediapipeInitDiag.modelUrl = localModelUrl;
+    _mediapipeInitDiag.delegateTried = 'GPU';
 
     const resolveMod = (mod) => {
       const m = mod || {};
@@ -1317,21 +1322,84 @@ async function startFaceTracking() {
         throw new Error(`本地模块 ${localBundleUrl} 缺少预期导出 (FaceLandmarker/FilesetResolver)`);
       }
     } catch (loadErr) {
+      _mediapipeInitDiag.phase = 'error';
+      _mediapipeInitDiag.errorName = loadErr.name || 'LoadError';
+      _mediapipeInitDiag.errorMessage = loadErr.message || String(loadErr);
+      _mediapipeInitDiag.initElapsedMs = performance.now() - _mediapipeInitDiag.initStartedAt;
       throw new Error(`本地 MediaPipe 加载失败: ${localBundleUrl} — ${loadErr.message || loadErr}`);
     }
 
+    _mediapipeInitDiag.createStartedAt = performance.now();
     const filesetResolver = await FilesetResolver.forVisionTasks(localWasmUrl);
+    _mediapipeInitDiag.filesetResolvedAt = performance.now();
 
     _faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
       baseOptions: {
         modelAssetPath: localModelUrl,
-        delegate: 'GPU'
+        delegate: 'GPU',
       },
       runningMode: 'VIDEO',
       numFaces: 1,
       outputFaceBlendshapes: true,
       outputFacialTransformationMatrixes: true,
+      refineLandmarks: true,
     });
+
+    _mediapipeInitDiag.delegateActive = 'GPU';
+    _mediapipeInitDiag.createResolvedAt = performance.now();
+    _mediapipeInitDiag.initElapsedMs = _mediapipeInitDiag.createResolvedAt - _mediapipeInitDiag.initStartedAt;
+    _mediapipeInitDiag.phase = 'ready';
+    return _faceLandmarker;
+  })();
+  return _loadMediapipePromise;
+}
+
+// Start preloading after a short delay so initial page render isn't blocked
+if (typeof window !== 'undefined' && window.requestIdleCallback) {
+  window.requestIdleCallback(() => preloadMediapipeModel().catch(() => {}));
+} else {
+  setTimeout(() => preloadMediapipeModel().catch(() => {}), 1000);
+}
+
+async function startFaceTracking() {
+  const btn = document.getElementById('faceCamBtn');
+  const status = document.getElementById('faceCamStatus');
+  const videoWrap = document.getElementById('faceVideoWrap');
+
+  // Toggle: if video stream is active, stop; otherwise start.
+  // Note: _faceLandmarker may exist from preload — don't use it as the running flag.
+  if (_faceVideoStream || _faceDetectRAF) {
+    stopFaceTracking();
+    return;
+  }
+
+  btn.disabled = true;
+  status.style.display = 'block';
+  status.textContent = '请求摄像头权限...';
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+    });
+    _faceVideoStream = stream;
+    const video = document.getElementById('faceVideo');
+    video.srcObject = stream;
+
+    // Align with open demo: wait for loadeddata before play
+    if (video.readyState < 2) {
+      await new Promise((resolve, reject) => {
+        video.onloadeddata = () => resolve();
+        video.onerror = () => reject(new Error('视频加载失败'));
+        setTimeout(() => reject(new Error('视频加载超时')), 5000);
+      });
+    }
+    await video.play();
+
+    // Ensure model is ready (preload may still be in progress on slow connections)
+    if (!_faceLandmarker) {
+      status.textContent = 'MediaPipe 模型加载中...';
+      await preloadMediapipeModel();
+    }
 
     status.textContent = '面捕运行中';
     videoWrap.style.display = 'block';
@@ -1360,12 +1428,11 @@ function startFaceDetectionLoop(video) {
   let lastTime = -1;
   let lastCameraFrameStatus = 'waiting';
   let _diagLogThrottle = 0;
+  let _detectCallCount = 0;
 
   function loop() {
     if (!_faceLandmarker || !_faceVideoStream) return;
 
-    // Real camera chain diagnostics: capture video state every frame
-    // to diagnose why realCameraFrameApplied might stay false
     const videoDiag = {
       currentTime: video.currentTime,
       videoWidth: video.videoWidth,
@@ -1381,6 +1448,7 @@ function startFaceDetectionLoop(video) {
 
     if (video.currentTime !== lastTime) {
       lastTime = video.currentTime;
+      _detectCallCount++;
       let detectResults = null;
       let detectError = null;
       try {
@@ -1389,23 +1457,32 @@ function startFaceDetectionLoop(video) {
         detectError = e;
       }
 
-      // Deep diagnostics of detectForVideo results structure
       if (detectResults) {
         const hasLandmarks = !!(detectResults.faceLandmarks && detectResults.faceLandmarks.length > 0);
         const hasBlendshapes = !!(detectResults.faceBlendshapes && detectResults.faceBlendshapes.length > 0);
+        const firstFace = hasLandmarks ? detectResults.faceLandmarks[0] : null;
+        const firstBlendshapes = hasBlendshapes ? detectResults.faceBlendshapes[0] : null;
         _cameraLastDetectDiag = {
+          detectLoopRunning: true,
+          detectCallCount: _detectCallCount,
           hasFaceLandmarks: hasLandmarks,
+          faceCount: detectResults.faceLandmarks ? detectResults.faceLandmarks.length : 0,
+          landmarkCountForFirstFace: firstFace ? firstFace.length : 0,
           hasFaceBlendshapes: hasBlendshapes,
-          faceLandmarkCount: detectResults.faceLandmarks ? detectResults.faceLandmarks.length : 0,
-          faceBlendshapeCount: detectResults.faceBlendshapes ? detectResults.faceBlendshapes.length : 0,
+          blendshapeSetCount: detectResults.faceBlendshapes ? detectResults.faceBlendshapes.length : 0,
+          blendshapeCategoryCount: firstBlendshapes ? (firstBlendshapes.categories ? firstBlendshapes.categories.length : 0) : 0,
           hasTransformationMatrices: !!(detectResults.facialTransformationMatrixes && detectResults.facialTransformationMatrixes.length > 0),
         };
       } else {
         _cameraLastDetectDiag = {
+          detectLoopRunning: true,
+          detectCallCount: _detectCallCount,
           hasFaceLandmarks: false,
+          faceCount: 0,
+          landmarkCountForFirstFace: 0,
           hasFaceBlendshapes: false,
-          faceLandmarkCount: 0,
-          faceBlendshapeCount: 0,
+          blendshapeSetCount: 0,
+          blendshapeCategoryCount: 0,
           hasTransformationMatrices: false,
           detectError: detectError ? (detectError.message || String(detectError)) : null,
         };
@@ -1563,7 +1640,8 @@ function stopFaceTracking() {
     _faceVideoStream.getTracks().forEach(t => t.stop());
     _faceVideoStream = null;
   }
-  _faceLandmarker = null;
+  // Aligned with open demo: keep FaceLandmarker instance for reuse on next start.
+  // Model loading is expensive; only stop video stream and detect loop.
   _cameraStartedAt = 0;
   _lastCameraFrameAt = 0;
   _cameraFrameErrorCount = 0;
