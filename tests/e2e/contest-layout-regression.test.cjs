@@ -198,4 +198,74 @@ test.describe('Contest Demo Layout Regression', () => {
     // Initial page load should not trigger any CDN requests
     expect(cdnRequests.length).toBe(0);
   });
+
+  test('辅助工具箱区域存在', async ({ page }) => {
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(1000);
+
+    const section = await page.$('.toolbox-section');
+    expect(section).toBeTruthy();
+
+    const header = await page.$eval('.toolbox-header h2', el => el.textContent);
+    expect(header).toContain('辅助工具箱');
+  });
+
+  test('辅助工具箱三张卡片存在且链接正确', async ({ page }) => {
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(1000);
+
+    const cards = await page.$$('.toolbox-card');
+    expect(cards.length).toBe(3);
+
+    // 字幕卡片
+    const subtitleCard = cards[0];
+    const subtitleTitle = await subtitleCard.$eval('.toolbox-card-title', el => el.textContent);
+    expect(subtitleTitle).toContain('字幕');
+    const subtitleBtn = await subtitleCard.$('.toolbox-card-btn');
+    const subtitleHref = await subtitleBtn.getAttribute('href');
+    expect(subtitleHref).toContain('subtitle.html');
+    const subtitleTarget = await subtitleBtn.getAttribute('target');
+    expect(subtitleTarget).toBe('_blank');
+
+    // 手写板卡片
+    const handwriteCard = cards[1];
+    const handwriteTitle = await handwriteCard.$eval('.toolbox-card-title', el => el.textContent);
+    expect(handwriteTitle).toContain('手写');
+    const handwriteBtn = await handwriteCard.$('.toolbox-card-btn');
+    const handwriteHref = await handwriteBtn.getAttribute('href');
+    expect(handwriteHref).toContain('accessibility-communication');
+    const handwriteTarget = await handwriteBtn.getAttribute('target');
+    expect(handwriteTarget).toBe('_blank');
+
+    // 慢慢倒卡片
+    const islandCard = cards[2];
+    const islandTitle = await islandCard.$eval('.toolbox-card-title', el => el.textContent);
+    expect(islandTitle).toContain('慢慢倒');
+    const islandBtn = await islandCard.$('.toolbox-card-btn');
+    const islandHref = await islandBtn.getAttribute('href');
+    expect(islandHref).toContain('IslandSlonelyFall');
+    const islandTarget = await islandBtn.getAttribute('target');
+    expect(islandTarget).toBe('_blank');
+  });
+
+  test('辅助工具箱不抢占主布局位置（在三栏下方）', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(1000);
+
+    const positions = await page.evaluate(() => {
+      const mainLayout = document.querySelector('.main-layout');
+      const toolbox = document.querySelector('.toolbox-section');
+      const mainRect = mainLayout.getBoundingClientRect();
+      const toolRect = toolbox.getBoundingClientRect();
+      return {
+        mainBottom: mainRect.bottom,
+        toolboxTop: toolRect.top,
+        toolboxBottom: toolRect.bottom,
+      };
+    });
+
+    // toolbox 应该在主布局下方
+    expect(positions.toolboxTop).toBeGreaterThan(positions.mainBottom - 10);
+  });
 });
