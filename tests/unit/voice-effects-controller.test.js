@@ -33,8 +33,39 @@ function makeAnalyserMock() {
   };
 }
 
+function makeMediaRecorderMock(stream, options) {
+  const chunks = [];
+  const recorder = {
+    stream,
+    options,
+    state: 'inactive',
+    start() { this.state = 'recording'; if (this.onstart) this.onstart(); },
+    stop() { this.state = 'inactive'; if (this.onstop) this.onstop(); },
+    pause() { this.state = 'paused'; },
+    resume() { this.state = 'recording'; },
+    requestData() {
+      if (this.ondataavailable) {
+        this.ondataavailable({ data: new Blob(['mock-audio-chunk'], { type: 'audio/webm' }) });
+      }
+    },
+    ondataavailable: null,
+    onerror: null,
+    onstart: null,
+    onstop: null,
+    _chunks: chunks
+  };
+  // 自动触发一次 dataavailable，模拟真实分片
+  setTimeout(() => {
+    if (recorder.state === 'recording' && recorder.ondataavailable) {
+      recorder.ondataavailable({ data: new Blob(['mock-audio-chunk'], { type: 'audio/webm' }) });
+    }
+  }, 10);
+  return recorder;
+}
+makeMediaRecorderMock.isTypeSupported = () => true;
+
 function makeAudioContextMock() {
-  const nodes = { gains: [], analysers: [], biquadFilters: [], waveShapers: [], oscillators: [], delays: [], mediaStreamSources: [] };
+  const nodes = { gains: [], analysers: [], biquadFilters: [], waveShapers: [], oscillators: [], delays: [], mediaStreamSources: [], mediaStreamDestinations: [] };
   const ctx = {
     state: 'running',
     sampleRate: 48000,
@@ -75,6 +106,11 @@ function makeAudioContextMock() {
       nodes.mediaStreamSources.push(s);
       return s;
     },
+    createMediaStreamDestination() {
+      const dest = { stream: makeFakeStream(), connect: (t) => t, disconnect: () => {} };
+      nodes.mediaStreamDestinations.push(dest);
+      return dest;
+    },
     destination: { _isDest: true },
     close() { this._closed = true; },
     resume() { return Promise.resolve(); },
@@ -86,6 +122,7 @@ function makeAudioContextMock() {
 function setupGlobals(opts = {}) {
   const origWindow = globalThis.window;
   const origNavigator = globalThis.navigator;
+  const origMediaRecorder = globalThis.MediaRecorder;
   const AudioContextClass = opts.AudioContext || (function () { return makeAudioContextMock(); });
   const fakeWindow = {
     AudioContext: AudioContextClass,
@@ -100,11 +137,14 @@ function setupGlobals(opts = {}) {
   };
   Object.defineProperty(globalThis, 'window', { value: fakeWindow, writable: true, configurable: true });
   Object.defineProperty(globalThis, 'navigator', { value: fakeNavigator, writable: true, configurable: true });
+  globalThis.MediaRecorder = makeMediaRecorderMock;
   return () => {
     if (origWindow === undefined) delete globalThis.window;
     else Object.defineProperty(globalThis, 'window', { value: origWindow, writable: true, configurable: true });
     if (origNavigator === undefined) delete globalThis.navigator;
     else Object.defineProperty(globalThis, 'navigator', { value: origNavigator, writable: true, configurable: true });
+    if (origMediaRecorder === undefined) delete globalThis.MediaRecorder;
+    else globalThis.MediaRecorder = origMediaRecorder;
   };
 }
 
