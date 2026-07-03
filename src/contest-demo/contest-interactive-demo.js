@@ -1329,6 +1329,8 @@ async function startFaceTracking() {
       },
       runningMode: 'VIDEO',
       numFaces: 1,
+      outputFaceBlendshapes: true,
+      outputFacialTransformationMatrixes: true,
     });
 
     status.textContent = '面捕运行中';
