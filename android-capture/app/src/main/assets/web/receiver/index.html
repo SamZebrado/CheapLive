@@ -810,6 +810,11 @@
   // 暴露 initProcRenderer 供测试调用
   window.__cheapLiveInitRenderer = initProcRenderer;
 
+  // 暴露镜像开关供测试调用（F 轨测试需要关闭镜像以直接断言左右眼几何）
+  window.__cheapLiveSetMirror = function(enabled) {
+    appState.mirrorEnabled = !!enabled;
+  };
+
   // 暴露面捕帧注入函数供测试调用（模拟 WebSocket face-frame 消息）
   window.__cheapLiveInjectFaceFrame = function(params, source) {
     lastFrameSeq = (lastFrameSeq || 0) + 1;
