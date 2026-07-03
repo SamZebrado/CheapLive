@@ -93,6 +93,11 @@
           <div class="mini-toggle" id="voiceToggle" onclick="toggleVoice()"></div>
         </div>
         <div class="field"><span>当前预设</span><span class="val" id="voicePresetDisplay" style="color:var(--cl-text-muted)">原声</span></div>
+        <div class="toggle-row" style="margin-top:6px;">
+          <label>本地监听</label>
+          <button class="btn btn-ghost btn-sm" id="monitorBtn" onclick="toggleMicMonitor()">监听麦克风</button>
+        </div>
+        <div style="font-size:10px;color:var(--cl-text-muted);padding-top:2px;" id="monitorStatus">监听已关闭</div>
         <div style="font-size:9px;color:var(--cl-text-muted);padding-top:4px">
           麦克风/变声链路为后续适配能力，本 demo 主要展示面捕与悬浮叠加流程。
         </div>
@@ -113,6 +118,15 @@
           <canvas id="avatarCanvas" width="360" height="360"></canvas>
         </div>
         <div class="avatar-watermark">CheapLive Receiver</div>
+      </div>
+      <div id="avatar3DError" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.85);flex-direction:column;align-items:center;justify-content:center;z-index:10;padding:16px;text-align:center;">
+        <div style="color:#ff6b6b;font-size:14px;font-weight:700;margin-bottom:8px;">3D 渲染器加载失败</div>
+        <div id="avatar3DErrorMsg" style="color:var(--cl-text-muted);font-size:11px;margin-bottom:12px;word-break:break-word;"></div>
+        <button class="btn btn-sm" style="background:var(--cl-blue);color:#fff;border:none;margin-bottom:6px;" onclick="retry3DRenderer()">重试加载 3D</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10px;" onclick="manualFallback2D()">手动切换到 2D 鱼</button>
+      </div>
+      <div id="avatar3DLoading" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;z-index:9;">
+        <div style="color:var(--cl-text-muted);font-size:12px;">3D 渲染器加载中...</div>
       </div>
     </div>
     <div class="ctrl-row">

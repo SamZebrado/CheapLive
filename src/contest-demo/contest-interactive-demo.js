@@ -197,6 +197,61 @@ function set3DRenderersVisible(visible) {
   }
 }
 
+// ====== 3D ERROR / LOADING OVERLAYS ======
+function _hide3DOverlays() {
+  const errEl = document.getElementById('avatar3DError');
+  const loadEl = document.getElementById('avatar3DLoading');
+  if (errEl) errEl.style.display = 'none';
+  if (loadEl) loadEl.style.display = 'none';
+}
+
+function _show3DErrorOverlay() {
+  const errEl = document.getElementById('avatar3DError');
+  const loadEl = document.getElementById('avatar3DLoading');
+  if (loadEl) loadEl.style.display = 'none';
+  if (errEl) {
+    errEl.style.display = 'flex';
+    const msgEl = document.getElementById('avatar3DErrorMsg');
+    if (msgEl) {
+      const diag = window.__cheapLiveContestAvatarDiag || {};
+      msgEl.textContent = diag.error || '未知错误';
+    }
+  }
+}
+
+function _show3DLoadingOverlay() {
+  const errEl = document.getElementById('avatar3DError');
+  const loadEl = document.getElementById('avatar3DLoading');
+  if (errEl) errEl.style.display = 'none';
+  if (loadEl) loadEl.style.display = 'flex';
+}
+
+function retry3DRenderer() {
+  _3dReady = false;
+  _3dFailed = false;
+  _3dLoadStarted = false;
+  _ensure3DPromise = null;
+  const diag = window.__cheapLiveContestAvatarDiag || {};
+  diag.fallbackActive = false;
+  diag.error = null;
+  _hide3DOverlays();
+  _show3DLoadingOverlay();
+  ensure3DRenderers().catch(() => {});
+}
+
+function manualFallback2D() {
+  // User explicitly chose to switch to 2D
+  _hide3DOverlays();
+  selectAvatar('sacabambaspis', null);
+  const avatarBtns = document.querySelectorAll('.avatar-btn');
+  avatarBtns.forEach(btn => {
+    btn.classList.toggle('selected', btn.dataset.avatar === 'sacabambaspis');
+  });
+  const diag = window.__cheapLiveContestAvatarDiag || {};
+  diag.fallbackActive = true;
+  diag.fallbackReason = 'user_manual';
+}
+
 // ====== FACE FRAME INJECTION ======
 // Frame fields: source, seq, headYaw (deg), headPitch (deg), headRoll (deg),
 //               mouthOpen (0-1), mouthSmile (0-1)
@@ -880,14 +935,15 @@ function simLoop(ts) {
       ensure3DRenderers().catch(() => {});
     }
     if (_3dReady) {
+      _hide3DOverlays();
       const rendererParams = faceParamsToRendererParams(state.faceParams);
       update3DRenderers(rendererParams);
     } else if (_3dFailed) {
-      drawAvatar(avatarCtx, avatarW, avatarH, 'sacabambaspis', state.faceParams, 1);
-      const fc = document.getElementById('fwAvatarCanvas');
-      if (fc && fwCtx) {
-        drawAvatar(fwCtx, fc.width, fc.height, 'sacabambaspis', state.faceParams, fc.width / 360);
-      }
+      // Do NOT auto-fallback to 2D. Show error overlay with retry/manual-2D buttons.
+      _show3DErrorOverlay();
+    } else {
+      // Loading in progress
+      _show3DLoadingOverlay();
     }
   } else {
     drawAvatar(avatarCtx, avatarW, avatarH, state.currentAvatar, state.faceParams, 1);
@@ -1175,18 +1231,42 @@ async function startFaceTracking() {
     video.srcObject = stream;
     await video.play();
 
-    status.textContent = '加载 MediaPipe 模型（约 3MB）...';
+    status.textContent = '加载 MediaPipe 本地模型（same-origin）...';
 
-    const mp = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/+esm');
-    const { FilesetResolver, FaceLandmarker } = mp;
+    // MediaPipe MUST be same-origin local. No CDN fallback allowed.
+    // On failure: show error with failed URL + retry button + manual 2D switch.
+    const localBase = '../face-tracking/mediapipe';
+    const localBundleUrl = `${localBase}/vision_bundle.mjs`;
+    const localWasmUrl = `${localBase}/wasm`;
+    const localModelUrl = `${localBase}/face_landmarker.task`;
 
-    const filesetResolver = await FilesetResolver.forVisionTasks(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/wasm'
-    );
+    const resolveMod = (mod) => {
+      const m = mod || {};
+      return {
+        FaceLandmarker: m.FaceLandmarker || (m.default && m.default.FaceLandmarker),
+        FilesetResolver: m.FilesetResolver || (m.default && m.default.FilesetResolver),
+      };
+    };
+
+    let FaceLandmarker = null;
+    let FilesetResolver = null;
+
+    try {
+      const mod = resolveMod(await import(localBundleUrl));
+      FaceLandmarker = mod.FaceLandmarker;
+      FilesetResolver = mod.FilesetResolver;
+      if (!FaceLandmarker || !FilesetResolver) {
+        throw new Error(`本地模块 ${localBundleUrl} 缺少预期导出 (FaceLandmarker/FilesetResolver)`);
+      }
+    } catch (loadErr) {
+      throw new Error(`本地 MediaPipe 加载失败: ${localBundleUrl} — ${loadErr.message || loadErr}`);
+    }
+
+    const filesetResolver = await FilesetResolver.forVisionTasks(localWasmUrl);
 
     _faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
       baseOptions: {
-        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        modelAssetPath: localModelUrl,
         delegate: 'GPU'
       },
       runningMode: 'VIDEO',
@@ -1397,6 +1477,45 @@ function stopMicLevel() {
   status.textContent = '点击开启麦克风';
   valEl.textContent = '—';
   valEl.style.color = 'var(--cl-text-muted)';
+}
+
+// ====== MIC MONITOR (音频监听) ======
+let _monitorAudioContext = null;
+let _monitorStream = null;
+let _monitorSource = null;
+
+function toggleMicMonitor() {
+  const btn = document.getElementById('monitorBtn');
+  const status = document.getElementById('monitorStatus');
+
+  if (_monitorAudioContext) {
+    // Stop monitoring
+    if (_monitorSource) { try { _monitorSource.disconnect(); } catch(e) {} _monitorSource = null; }
+    if (_monitorStream) { _monitorStream.getTracks().forEach(t => t.stop()); _monitorStream = null; }
+    if (_monitorAudioContext) { _monitorAudioContext.close(); _monitorAudioContext = null; }
+    btn.textContent = '监听麦克风';
+    status.textContent = '监听已关闭';
+    status.style.color = 'var(--cl-text-muted)';
+    return;
+  }
+
+  // Start monitoring - route mic input to speakers for local monitoring
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(stream => {
+      _monitorStream = stream;
+      _monitorAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+      _monitorSource = _monitorAudioContext.createMediaStreamSource(stream);
+      _monitorSource.connect(_monitorAudioContext.destination);
+      btn.textContent = '停止监听';
+      status.textContent = '监听中...';
+      status.style.color = 'var(--cl-green)';
+    })
+    .catch(err => {
+      status.textContent = '监听失败: ' + (err.message || '无法访问麦克风');
+      status.style.color = '#ff6b6b';
+      if (_monitorStream) { _monitorStream.getTracks().forEach(t => t.stop()); _monitorStream = null; }
+      if (_monitorAudioContext) { _monitorAudioContext.close(); _monitorAudioContext = null; }
+    });
 }
 
 // ============================================================
