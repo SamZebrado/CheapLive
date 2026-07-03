@@ -5,48 +5,50 @@
 
 // ====== STATE ======
 const state = {
-  currentAvatar: 'sacabambaspis3d',
+  currentAvatar: 'sacabambaspis-3d',
   showcaseMode: false,
   drawMode: false,
   captureOn: true,
   voiceOn: false,
   voicePreset: 'original',
   guideStep: 0,
-  appMode: false,
-  faceScale: 1.0,
-  mouthSensitivity: 1.0, 
-  blinkSensitivity: 1.0,
-  smileSensitivity: 1.0,
-  keyColor: '#00ff00',
   floatingMode: 'edit', // 'edit' | 'display'
   // Simulated face params
-  // Unified face state (updated by real tracker or simulated)
-  faceParams: {
-    mouthOpen: 0, blink: 0, yaw: 0.5, pitch: 0.5, smile: 0,
-    eyeLeft: 1, eyeRight: 1, faceDetected: false,
-  },
-  micLevel: 0,
-  micMonitorOn: false,
-  effectMode: 'off',
-  processedLevel: 0,
+  faceParams: { mouthOpen: 0, blink: 0, yaw: 0, pitch: 0, roll: 0, smile: 0 },
 };
 
+// ====== FACE FRAME STATE ======
+let _faceFrameActive = false;
+let _faceFrameSource = null;
+let _lastAppliedFrame = null;
+let _lastAppliedSeq = 0;
+let _lastAppliedValues = null;
+let _idleActive = true;
+let _frameTimeoutId = null;
+const FRAME_IDLE_TIMEOUT_MS = 3000;
+
 const VOICE_PRESETS = [
-  { id: 'off', name: '原声' },
+  { id: 'original', name: '原声' },
+  { id: 'cute', name: '可爱' },
   { id: 'robot', name: '机器人' },
-  { id: 'lowpass', name: '低通' },
-  { id: 'monster', name: '怪兽' },
+  { id: 'deep', name: '低沉' },
+  { id: 'radio', name: '电台' },
 ];
 
 const AVATAR_NAMES = {
-  sacabambaspis3d: '3D Sacabambaspis',
-  sacabambaspis: '2D 萨卡班',
+  sacabambaspis: '萨卡班 2D',
+  'sacabambaspis-3d': '3D 萨卡班',
   cat: '猫 Cat',
   dog: '狗 Dog',
   rabbit: '兔子 Rabbit',
   fox: '狐狸 Fox',
   bear: '小熊 Bear',
 };
+
+let _3dReady = false;
+let _3dFailed = false;
+let _3dLoadStarted = false;
+let _ensure3DPromise = null;
 
 // ====== GUIDE STEPS ======
 const GUIDE_STEPS = [
@@ -59,7 +61,7 @@ const GUIDE_STEPS = [
   {
     title: 'Step 2：Receiver · 虚拟主播',
     body: `<p>Receiver 接收面部/声音输入，选择虚拟形象，设置背景透明。</p>
-      <div class="info">中间面板显示 Receiver：选择动物形象（3D/2D 萨卡班甲鱼 / 猫 / 更多动物），点击"应用模式"将背景设为透明，准备作为网页小窗显示。</div>
+      <div class="info">中间面板显示 Receiver：选择动物形象（萨卡班甲鱼 / 猫 / 更多开发中），点击"应用模式"将背景设为透明，准备作为网页小窗显示。</div>
       <div class="note">用透明悬浮浏览器打开，可设置背景透明。</div>`
   },
   {
@@ -94,6 +96,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initFWAvatarCanvas();
   initFloatingWindow();
   startSimLoop();
+  if (state.currentAvatar === 'sacabambaspis-3d') {
+    ensure3DRenderers().catch(() => {});
+  }
 });
 
 // ====== AVATAR CANVAS (Middle Panel) ======
@@ -107,89 +112,183 @@ function initAvatarCanvas() {
 }
 
 function drawAvatar(ctx, w, h, avatar, params, scale) {
+  if (avatar === 'sacabambaspis-3d') {
+    return;
+  }
   scale = scale || 1;
+  ctx.clearRect(0, 0, w, h);
   const cx = w / 2;
   const cy = h / 2;
-  const isShowcase = state.showcaseMode;
 
-  if (avatar === 'sacabambaspis3d') {
-    if (isShowcase) {
-      // Transparent bg + draw 3D avatar
-      ctx.clearRect(0, 0, w, h);
-    } else {
-      ctx.fillStyle = '#0d1420';
-      ctx.fillRect(0, 0, w, h);
-    }
-    // Insert 3D draw function inline
-    drawSacabambaspis3D(ctx, cx, cy, params, scale);
-  } else if (avatar === 'sacabambaspis') {
-    if (isShowcase) {
-      ctx.clearRect(0, 0, w, h);
-    } else {
-      ctx.fillStyle = '#0d1420';
-      ctx.fillRect(0, 0, w, h);
-    }
-    ctx.clearRect(0, 0, w, h);
-    if (!isShowcase) {
-      ctx.fillStyle = '#0d1420';
-      ctx.fillRect(0, 0, w, h);
-    }
+  if (avatar === 'sacabambaspis') {
     drawSacabambaspis(ctx, cx, cy, params, scale);
   } else if (avatar === 'cat') {
-    ctx.clearRect(0, 0, w, h);
-    if (!isShowcase) {
-      ctx.fillStyle = '#0d1420';
-      ctx.fillRect(0, 0, w, h);
-    }
     drawCat(ctx, cx, cy, params, scale);
   } else {
-    ctx.clearRect(0, 0, w, h);
-    if (!isShowcase) {
-      ctx.fillStyle = '#0d1420';
-      ctx.fillRect(0, 0, w, h);
-    }
     drawPlaceholder(ctx, cx, cy, avatar, scale);
   }
 }
 
+function update3DRenderers(params) {
+  if (!_3dReady) return false;
+  if (typeof window.renderContestFishAvatar !== 'function') return false;
+  const okMain = window.renderContestFishAvatar('avatarCanvas', params);
+  const fwCanvas = document.getElementById('fwAvatarCanvas');
+  let okFw = true;
+  if (fwCanvas && fwCanvas.offsetParent !== null) {
+    okFw = window.renderContestFishAvatar('fwAvatarCanvas', params);
+  }
+  return okMain && okFw;
+}
+
+function faceParamsToRendererParams(fp) {
+  return {
+    mouthOpen: fp.mouthOpen ?? 0,
+    mouthSmile: fp.smile ?? 0,
+    eyeLeft: 1 - (fp.blink ?? 0),
+    eyeRight: 1 - (fp.blink ?? 0),
+    headYaw: (fp.yaw ?? 0) * 0.5 + 0.5,
+    headPitch: (fp.pitch ?? 0) * 0.5 + 0.5,
+    headRoll: (fp.roll ?? 0) * 0.5 + 0.5,
+    browLeft: 0,
+    browRight: 0,
+  };
+}
+
+function ensure3DRenderers() {
+  if (_3dReady) return Promise.resolve();
+  if (_3dFailed) return Promise.reject(new Error('3D renderer failed to load'));
+  if (_3dLoadStarted) return _ensure3DPromise;
+
+  _3dLoadStarted = true;
+
+  if (typeof window.createContestFishAvatar !== 'function') {
+    _3dFailed = true;
+    const diag = window.__cheapLiveContestAvatarDiag || {};
+    diag.fallbackActive = true;
+    diag.error = 'createContestFishAvatar not available (adapter not loaded)';
+    return Promise.reject(new Error('contest-avatar-adapter not loaded'));
+  }
+
+  _ensure3DPromise = Promise.all([
+    window.createContestFishAvatar('avatarCanvas'),
+    window.createContestFishAvatar('fwAvatarCanvas'),
+  ])
+    .then(() => {
+      _3dReady = true;
+    })
+    .catch((err) => {
+      _3dFailed = true;
+      const diag = window.__cheapLiveContestAvatarDiag || {};
+      diag.fallbackActive = true;
+      diag.error = String(err && err.message || err);
+      throw err;
+    });
+
+  return _ensure3DPromise;
+}
+
+function set3DRenderersVisible(visible) {
+  const mainCanvas = document.getElementById('avatarCanvas');
+  const fwCanvas = document.getElementById('fwAvatarCanvas');
+  if (visible) {
+    mainCanvas.style.display = '';
+    fwCanvas.style.display = '';
+  }
+}
+
+// ====== FACE FRAME INJECTION ======
+// Frame fields: source, seq, headYaw (deg), headPitch (deg), headRoll (deg),
+//               mouthOpen (0-1), mouthSmile (0-1)
+// Degrees range: yaw ±60, pitch ±45, roll ±40
+function _degToNorm(deg, maxDeg) {
+  const clamped = Math.max(-maxDeg, Math.min(maxDeg, deg));
+  return (clamped / maxDeg) * 0.5 + 0.5;
+}
+
+function _applyFaceFrameInternal(frame) {
+  if (!frame || typeof frame !== 'object') return false;
+
+  _faceFrameActive = true;
+  _faceFrameSource = frame.source || 'unknown';
+  _lastAppliedSeq = frame.seq || 0;
+  _lastAppliedFrame = { ...frame };
+
+  // Map frame fields to faceParams (yaw/pitch/roll in degrees → normalized -1..1 for state)
+  if (typeof frame.headYaw === 'number') {
+    state.faceParams.yaw = Math.max(-1, Math.min(1, frame.headYaw / 60));
+  }
+  if (typeof frame.headPitch === 'number') {
+    state.faceParams.pitch = Math.max(-1, Math.min(1, frame.headPitch / 45));
+  }
+  if (typeof frame.headRoll === 'number') {
+    state.faceParams.roll = Math.max(-1, Math.min(1, frame.headRoll / 40));
+  }
+  if (typeof frame.mouthOpen === 'number') {
+    state.faceParams.mouthOpen = Math.max(0, Math.min(1, frame.mouthOpen));
+  }
+  if (typeof frame.mouthSmile === 'number') {
+    state.faceParams.smile = Math.max(0, Math.min(1, frame.mouthSmile));
+  }
+
+  _lastAppliedValues = {
+    yaw: state.faceParams.yaw,
+    pitch: state.faceParams.pitch,
+    roll: state.faceParams.roll,
+    mouthOpen: state.faceParams.mouthOpen,
+    smile: state.faceParams.smile,
+  };
+
+  // Reset idle timeout
+  if (_frameTimeoutId) clearTimeout(_frameTimeoutId);
+  _frameTimeoutId = setTimeout(() => {
+    _faceFrameActive = false;
+    _faceFrameSource = null;
+  }, FRAME_IDLE_TIMEOUT_MS);
+
+  return true;
+}
+
+window.__cheapLiveContestAvatarApplyFrame = function (frame) {
+  return _applyFaceFrameInternal(frame);
+};
+
+window.__cheapLiveContestAvatarResetFrame = function () {
+  _faceFrameActive = false;
+  _faceFrameSource = null;
+  if (_frameTimeoutId) {
+    clearTimeout(_frameTimeoutId);
+    _frameTimeoutId = null;
+  }
+};
+
 function drawSacabambaspis(ctx, cx, cy, p, s) {
-  const mouth = Math.max(0, Math.min(1, p.mouthOpen || 0));
-  const blinkR = Math.max(0, Math.min(1, 1 - (p.eyeRight !== undefined ? p.eyeRight : (1 - (p.blink || 0)))));
-  const yawOffset = ((p.yaw || 0.5) - 0.5) * 40 * s;
-  const pitchOffset = ((p.pitch || 0.5) - 0.5) * 15 * s;
-  const smile = Math.max(0, Math.min(1, p.smile || 0));
-  const mouthH = (mouth + smile * 0.3) * 12 * s;
-  const eyeH = Math.max(1, (1 - blinkR) * 6 * s);
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
+  const blink = Math.max(0, Math.min(1, p.blink));
+  const yaw = p.yaw * 30 * s;
+  const mouthH = mouth * 12 * s;
+  const eyeH = (1 - blink) * 5 * s;
 
   ctx.save();
-  ctx.translate(cx + yawOffset * 0.4, cy + pitchOffset);
+  ctx.translate(cx + yaw * 0.3, cy);
 
-  // Body (ellipse)
+  // Body
   ctx.fillStyle = '#e4e1d3';
   ctx.beginPath();
   ctx.ellipse(0, 0, 70 * s, 35 * s, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Body outline
-  ctx.strokeStyle = 'rgba(120,115,100,0.3)';
-  ctx.lineWidth = 1.5 * s;
-  ctx.stroke();
-
   // Back shading
-  ctx.fillStyle = 'rgba(138,135,120,0.25)';
+  ctx.fillStyle = 'rgba(138,135,120,0.3)';
   ctx.beginPath();
   ctx.ellipse(-10 * s, 0, 55 * s, 25 * s, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Armor plates (decorative)
-  ctx.strokeStyle = 'rgba(160,155,135,0.2)';
-  ctx.lineWidth = 1 * s;
-  for (let i = -1; i <= 1; i++) {
-    ctx.beginPath();
-    ctx.moveTo(-30 * s, i * 18 * s);
-    ctx.quadraticCurveTo(-5 * s, i * 22 * s, 30 * s, i * 18 * s);
-    ctx.stroke();
-  }
+  // Spot
+  ctx.fillStyle = 'rgba(139,115,85,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(-25 * s, -5 * s, 15 * s, 8 * s, 0.3, 0, Math.PI * 2);
+  ctx.fill();
 
   // Dorsal fin
   ctx.fillStyle = '#c8c4b4';
@@ -200,43 +299,29 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
   ctx.closePath();
   ctx.fill();
 
-  // Mouth (triangular wedge style)
-  const mouthOpen = mouth + smile * 0.5;
-  if (mouthOpen > 0.02) {
-    const tipY = 12 * s * mouthOpen;
-    const hw = 10 * s;
-    ctx.fillStyle = '#2a1810';
+  // Mouth
+  if (mouthH > 1) {
+    ctx.fillStyle = '#8a7355';
     ctx.beginPath();
-    ctx.moveTo(55 * s - hw, 5 * s);
-    ctx.quadraticCurveTo(55 * s, 5 * s - tipY * 0.4, 55 * s + hw, 5 * s);
-    ctx.lineTo(55 * s, 5 * s + tipY);
-    ctx.closePath();
+    ctx.ellipse(55 * s, 5 * s, 8 * s, mouthH, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#1a0f08';
-    ctx.lineWidth = Math.max(1, 1.5 * s);
-    ctx.stroke();
   }
 
-  // Eyes (two separate eyes for independent blink)
-  const drawEye = (ex, ey) => {
-    const eh = Math.max(1, (1 - (1 - (p.eyeRight || 1))) * 6 * s);
+  // Eye
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(30 * s, -12 * s, 8 * s, Math.max(1, eyeH), 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (eyeH > 2) {
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.arc(32 * s, -12 * s, 4 * s, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.ellipse(ex * s, -12 * s, 7 * s, eh, 0, 0, Math.PI * 2);
+    ctx.arc(33 * s, -13 * s, 1.5 * s, 0, Math.PI * 2);
     ctx.fill();
-    if (eh > 2) {
-      ctx.fillStyle = '#1a1a2e';
-      ctx.beginPath();
-      ctx.arc(ex * s + 2 * s, -12 * s, 3.5 * s, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.arc(ex * s + 3 * s, -13 * s, 1.3 * s, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  };
-  drawEye(25, p.eyeLeft !== undefined ? p.eyeLeft : 1);
-  drawEye(40, p.eyeRight !== undefined ? p.eyeRight : 1);
+  }
 
   // Tail fin
   ctx.fillStyle = '#c8c4b4';
@@ -251,213 +336,15 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
   ctx.restore();
 }
 
-function drawSacabambaspis3D(ctx, cx, cy, p, s) {
-  const mouth = Math.max(0, Math.min(1, p.mouthOpen || 0));
-  const blinkL = 1 - Math.max(0, Math.min(1, 1 - (p.eyeLeft !== undefined ? p.eyeLeft : 1)));
-  const blinkR = 1 - Math.max(0, Math.min(1, 1 - (p.eyeRight !== undefined ? p.eyeRight : 1)));
-  const yawNorm = (p.yaw || 0.5) - 0.5;
-  const pitchNorm = (p.pitch || 0.5) - 0.5;
-  const smile = Math.max(0, Math.min(1, p.smile || 0));
-
-  ctx.save();
-  ctx.translate(cx, cy);
-
-  // ===== 3D Body: shadow -> base -> highlight layers =====
-  // Shadow drop
-  ctx.fillStyle = 'rgba(0,0,0,0.12)';
-  ctx.beginPath();
-  ctx.ellipse(4 * s, 6 * s, 68 * s, 34 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Main body gradient (top-bottom for 3D volume)
-  const bodyGrad = ctx.createLinearGradient(0, -35 * s, 0, 35 * s);
-  bodyGrad.addColorStop(0, '#dad5c4');
-  bodyGrad.addColorStop(0.35, '#e8e4d8');
-  bodyGrad.addColorStop(0.55, '#f2efe5');
-  bodyGrad.addColorStop(0.8, '#d4cfbc');
-  bodyGrad.addColorStop(1, '#b8b29a');
-  ctx.fillStyle = bodyGrad;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, 70 * s, 35 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Body outline
-  ctx.strokeStyle = 'rgba(100,95,80,0.35)';
-  ctx.lineWidth = 1.8 * s;
-  ctx.stroke();
-
-  // ===== Armor plates (3D perspective lines) =====
-  ctx.strokeStyle = 'rgba(140,130,105,0.3)';
-  ctx.lineWidth = 1.8 * s;
-  // Horizontal bands
-  for (let i = -1; i <= 1; i++) {
-    ctx.beginPath();
-    ctx.moveTo(-50 * s, i * 20 * s);
-    ctx.quadraticCurveTo(5 * s, i * 24 * s, 50 * s, i * 18 * s);
-    ctx.stroke();
-  }
-  // Vertical center line (dorsal ridge)
-  ctx.strokeStyle = 'rgba(160,150,120,0.25)';
-  ctx.lineWidth = 2 * s;
-  ctx.beginPath();
-  ctx.moveTo(0, -30 * s);
-  ctx.quadraticCurveTo(8 * s, 0, 0, 32 * s);
-  ctx.stroke();
-  // Side armor lines
-  ctx.strokeStyle = 'rgba(130,120,95,0.18)';
-  ctx.lineWidth = 1.2 * s;
-  for (let side = -1; side <= 1; side += 2) {
-    ctx.beginPath();
-    ctx.moveTo(side * 20 * s, -22 * s);
-    ctx.quadraticCurveTo(side * 25 * s, 5 * s, side * 15 * s, 28 * s);
-    ctx.stroke();
-  }
-
-  // ===== 3D rotation effect via yaw/pitch shading =====
-  if (Math.abs(yawNorm) > 0.02) {
-    const shadeAlpha = Math.min(0.35, Math.abs(yawNorm) * 0.5);
-    const shadeDir = yawNorm > 0 ? -1 : 1;
-    const shadeGrad = ctx.createLinearGradient(shadeDir * 60 * s, 0, shadeDir * -40 * s, 0);
-    shadeGrad.addColorStop(0, 'rgba(80,70,50,' + shadeAlpha + ')');
-    shadeGrad.addColorStop(0.5, 'rgba(80,70,50,0)');
-    shadeGrad.addColorStop(1, 'rgba(255,255,240,' + (shadeAlpha * 0.6) + ')');
-    ctx.fillStyle = shadeGrad;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 70 * s, 35 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // ===== Dorsal fin (3D) =====
-  ctx.fillStyle = '#c0baa8';
-  ctx.beginPath();
-  ctx.moveTo(-18 * s, -28 * s);
-  ctx.lineTo(-35 * s, -58 * s);
-  ctx.lineTo(-5 * s, -52 * s);
-  ctx.lineTo(5 * s, -28 * s);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(100,95,80,0.3)';
-  ctx.lineWidth = 1 * s;
-  ctx.stroke();
-  // Fin highlight
-  ctx.fillStyle = 'rgba(220,215,200,0.4)';
-  ctx.beginPath();
-  ctx.moveTo(-15 * s, -30 * s);
-  ctx.lineTo(-30 * s, -52 * s);
-  ctx.lineTo(-10 * s, -46 * s);
-  ctx.lineTo(2 * s, -30 * s);
-  ctx.closePath();
-  ctx.fill();
-
-  // ===== Mouth (triangular wedge, 3D depth) =====
-  const mouthOpen = mouth + smile * 0.5;
-  if (mouthOpen > 0.02) {
-    const tipY = 14 * s * mouthOpen;
-    const hw = 12 * s;
-    // Mouth cavity shadow
-    ctx.fillStyle = '#1a0f08';
-    ctx.beginPath();
-    ctx.moveTo(55 * s - hw, 3 * s);
-    ctx.quadraticCurveTo(55 * s, 3 * s - tipY * 0.3, 55 * s + hw, 3 * s);
-    ctx.lineTo(55 * s, 3 * s + tipY);
-    ctx.closePath();
-    ctx.fill();
-    // Mouth inner highlight
-    if (mouthOpen > 0.1) {
-      ctx.fillStyle = 'rgba(60,25,10,0.6)';
-      ctx.beginPath();
-      ctx.ellipse(55 * s, 3 * s + tipY * 0.5, 5 * s, tipY * 0.5, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.strokeStyle = '#0f0805';
-    ctx.lineWidth = Math.max(1.2, 2 * s);
-    ctx.stroke();
-  }
-
-  // ===== Eyes (two independent eyes with 3D sockets) =====
-  const drawEye3D = (ex, eyeOpen) => {
-    const eOpen = Math.max(0.05, eyeOpen);
-    const eh = eOpen * 6 * s;
-    // Eye socket shadow
-    ctx.fillStyle = 'rgba(60,50,40,0.25)';
-    ctx.beginPath();
-    ctx.ellipse(ex * s, -11 * s, 9 * s, eh + 1.5 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // Sclera (white)
-    ctx.fillStyle = '#fafaf7';
-    ctx.beginPath();
-    ctx.ellipse(ex * s, -11 * s, 7.5 * s, eh, 0, 0, Math.PI * 2);
-    ctx.fill();
-    if (eh > 1.5) {
-      // Iris
-      ctx.fillStyle = '#2a1a0e';
-      ctx.beginPath();
-      ctx.arc(ex * s + 1 * s, -11 * s, 3.8 * s, 0, Math.PI * 2);
-      ctx.fill();
-      // Pupil
-      ctx.fillStyle = '#0a0808';
-      ctx.beginPath();
-      ctx.arc(ex * s + 1.5 * s, -11 * s, 2.2 * s, 0, Math.PI * 2);
-      ctx.fill();
-      // Highlight
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.arc(ex * s + 2.5 * s, -12.5 * s, 1.4 * s, 0, Math.PI * 2);
-      ctx.fill();
-      // Small secondary highlight
-      ctx.beginPath();
-      ctx.arc(ex * s - 0.5 * s, -10 * s, 0.6 * s, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  };
-  drawEye3D(26, p.eyeLeft !== undefined ? p.eyeLeft : 1);
-  drawEye3D(42, p.eyeRight !== undefined ? p.eyeRight : 1);
-
-  // ===== Tail fin (3D layered) =====
-  const tailSway = Math.sin(Date.now() * 0.002) * 3 * s;
-  ctx.fillStyle = '#b8b298';
-  ctx.beginPath();
-  ctx.moveTo(-62 * s, -2 * s);
-  ctx.quadraticCurveTo(-78 * s, -24 * s + tailSway, -88 * s, -10 * s + tailSway);
-  ctx.quadraticCurveTo(-78 * s, 0, -62 * s, 4 * s);
-  ctx.quadraticCurveTo(-78 * s, 4 * s + tailSway, -88 * s, 16 * s + tailSway);
-  ctx.quadraticCurveTo(-78 * s, 24 * s + tailSway, -62 * s, 2 * s);
-  ctx.closePath();
-  ctx.fill();
-  // Tail highlight
-  ctx.fillStyle = 'rgba(210,200,180,0.5)';
-  ctx.beginPath();
-  ctx.moveTo(-62 * s, -1 * s);
-  ctx.quadraticCurveTo(-76 * s, -16 * s + tailSway, -82 * s, -6 * s + tailSway);
-  ctx.quadraticCurveTo(-76 * s, 0, -62 * s, 3 * s);
-  ctx.closePath();
-  ctx.fill();
-
-  // ===== Pectoral fins (side) =====
-  for (let side = -1; side <= 1; side += 2) {
-    ctx.fillStyle = 'rgba(180,175,155,0.7)';
-    ctx.beginPath();
-    ctx.moveTo(side * 30 * s, 20 * s);
-    ctx.quadraticCurveTo(side * 50 * s, 30 * s, side * 40 * s, 22 * s);
-    ctx.quadraticCurveTo(side * 35 * s, 15 * s, side * 28 * s, 18 * s);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  ctx.restore();
-}
-
 function drawCat(ctx, cx, cy, p, s) {
-  const mouth = Math.max(0, Math.min(1, p.mouthOpen || 0));
-  const blinkR = Math.max(0, Math.min(1, 1 - (p.eyeRight !== undefined ? p.eyeRight : (1 - (p.blink || 0)))));
-  const yawOffset = ((p.yaw || 0.5) - 0.5) * 30 * s;
-  const pitchOffset = ((p.pitch || 0.5) - 0.5) * 12 * s;
-  const smile = Math.max(0, Math.min(1, p.smile || 0));
-  const eyeH = Math.max(1, (1 - blinkR) * 7 * s);
-  const mouthOpen = (mouth + smile * 0.4) * 6 * s;
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
+  const blink = Math.max(0, Math.min(1, p.blink));
+  const yaw = p.yaw * 25 * s;
+  const eyeH = (1 - blink) * 6 * s;
+  const mouthOpen = mouth * 5 * s;
 
   ctx.save();
-  ctx.translate(cx + yawOffset * 0.35, cy + pitchOffset);
+  ctx.translate(cx + yaw * 0.3, cy);
 
   // Head
   ctx.fillStyle = '#ffb347';
@@ -578,7 +465,7 @@ function drawPlaceholder(ctx, cx, cy, avatar, s) {
   ctx.fillText(AVATAR_NAMES[avatar] || avatar, cx, cy - 5 * s);
   ctx.font = `${10 * s}px sans-serif`;
   ctx.fillStyle = '#718096';
-  ctx.fillText('（' + (AVATAR_NAMES[avatar] || avatar) + ' 开发中)', cx, cy + 14 * s);
+  ctx.fillText('开发中', cx, cy + 12 * s);
 }
 
 // ====== GAME CANVAS (Snackabambaspis Snake) ======
@@ -882,7 +769,6 @@ function onModeBtnMove(e) {
   const newTop = Math.max(8, Math.min(maxTop, modeBtnStartTop + e.clientY - modeBtnStartY));
   btn.style.top = newTop + 'px';
   btn.style.bottom = 'auto';
-  btn.style.transform = 'none';
 }
 
 function onModeBtnMoveTouch(e) {
@@ -898,7 +784,6 @@ function onModeBtnMoveTouch(e) {
   const newTop = Math.max(8, Math.min(maxTop, modeBtnStartTop + e.touches[0].clientY - modeBtnStartY));
   btn.style.top = newTop + 'px';
   btn.style.bottom = 'auto';
-  btn.style.transform = 'none';
 }
 
 // Extend onFWEnd to also handle mode button
@@ -956,21 +841,29 @@ function startSimLoop() {
 function simLoop(ts) {
   simTime = ts * 0.001;
 
-  // Simulate face params (only when real face tracking is NOT running)
-  if (!_faceLandmarker) {
+  // Simulate face params (only when real face tracking is NOT running
+  // AND no mock/real face frame is active)
+  if (!_faceLandmarker && !_faceFrameActive) {
+    _idleActive = true;
     state.faceParams.mouthOpen = 0.5 + 0.5 * Math.sin(simTime * 1.2);
     state.faceParams.blink = Math.max(0, Math.sin(simTime * 3) > 0.95 ? 1 : 0);
-    state.faceParams.yaw = 0.5 + 0.5 * Math.sin(simTime * 0.5);
-    state.faceParams.pitch = 0.5 + 0.3 * Math.sin(simTime * 0.7);
+    state.faceParams.yaw = Math.sin(simTime * 0.5);
+    state.faceParams.pitch = Math.sin(simTime * 0.4) * 0.3;
+    state.faceParams.roll = Math.sin(simTime * 0.3) * 0.2;
     state.faceParams.smile = 0.3 + 0.3 * Math.sin(simTime * 0.8);
-    state.faceParams.eyeLeft = 1 - state.faceParams.blink * 0.8;
-    state.faceParams.eyeRight = 1 - state.faceParams.blink * 0.8;
+  } else {
+    _idleActive = false;
   }
 
-  // MicLevel-assisted mouthOpen fallback when no face detected
-  if (_faceLandmarker && !state.faceParams.faceDetected && state.micLevel > 0.02) {
-    const micMouth = Math.min(1, state.micLevel * 2.5);
-    state.faceParams.mouthOpen = Math.max(state.faceParams.mouthOpen || 0, micMouth * 0.6);
+  // Sync diagnostic
+  const diag = window.__cheapLiveContestAvatarDiag;
+  if (diag) {
+    diag.idleActive = _idleActive;
+    diag.faceFrameActive = _faceFrameActive;
+    diag.frameSource = _faceFrameSource;
+    diag.lastAppliedSeq = _lastAppliedSeq;
+    diag.lastAppliedFrame = _lastAppliedFrame;
+    diag.lastAppliedValues = _lastAppliedValues;
   }
 
   // Draw avatar on main canvas
@@ -981,16 +874,24 @@ function simLoop(ts) {
   } else {
     panelBody.style.background = '';
   }
-  drawAvatar(avatarCtx, avatarW, avatarH, state.currentAvatar, state.faceParams, 1);
 
-  // Draw avatar on floating window
-  const fc = document.getElementById('fwAvatarCanvas');
-  const fwContent = document.getElementById('fwContent');
-  // Always use keyColor when showcaseMode is on (both edit and display)
-  if (fwContent) {
-    fwContent.style.background = state.showcaseMode ? state.keyColor : '';
-  }
-  if (fwCtx && fc) {
+  if (state.currentAvatar === 'sacabambaspis-3d') {
+    if (!_3dLoadStarted && !_3dFailed) {
+      ensure3DRenderers().catch(() => {});
+    }
+    if (_3dReady) {
+      const rendererParams = faceParamsToRendererParams(state.faceParams);
+      update3DRenderers(rendererParams);
+    } else if (_3dFailed) {
+      drawAvatar(avatarCtx, avatarW, avatarH, 'sacabambaspis', state.faceParams, 1);
+      const fc = document.getElementById('fwAvatarCanvas');
+      if (fc && fwCtx) {
+        drawAvatar(fwCtx, fc.width, fc.height, 'sacabambaspis', state.faceParams, fc.width / 360);
+      }
+    }
+  } else {
+    drawAvatar(avatarCtx, avatarW, avatarH, state.currentAvatar, state.faceParams, 1);
+    const fc = document.getElementById('fwAvatarCanvas');
     drawAvatar(fwCtx, fc.width, fc.height, state.currentAvatar, state.faceParams, fc.width / 360);
   }
 
@@ -1001,18 +902,6 @@ function simLoop(ts) {
   if (gb) gb.textContent = state.faceParams.blink.toFixed(2);
   const gy = document.getElementById('guideYaw');
   if (gy) gy.textContent = state.faceParams.yaw.toFixed(2);
-
-  // Update face params live display
-  const fd = document.getElementById('fpDetected');
-  if (fd) fd.textContent = _faceLandmarker ? '已检测' : '—';
-  const fpm = document.getElementById('fpMouth');
-  if (fpm) fpm.textContent = state.faceParams.mouthOpen.toFixed(2);
-  const fpb = document.getElementById('fpBlink');
-  if (fpb) fpb.textContent = state.faceParams.blink.toFixed(2);
-  const fps = document.getElementById('fpSmile');
-  if (fps) fps.textContent = state.faceParams.smile.toFixed(2);
-  const fpy = document.getElementById('fpYaw');
-  if (fpy) fpy.textContent = state.faceParams.yaw.toFixed(2);
 
   // Update sender panel params
   const hd = document.getElementById('headYawVal');
@@ -1026,20 +915,18 @@ function simLoop(ts) {
 }
 
 // ====== UI HANDLERS ======
-async function toggleCapture() {
-  if (_faceLandmarker || _faceVideoStream) {
-    stopFaceTracking();
-  } else {
-    await startFaceTracking();
-  }
+function toggleCapture() {
+  state.captureOn = !state.captureOn;
+  const el = document.getElementById('captureToggle');
+  el.classList.toggle('on', state.captureOn);
+  document.getElementById('cameraPerm').textContent = state.captureOn ? '已授权' : '未授权';
+  document.getElementById('cameraPerm').style.color = state.captureOn ? 'var(--cl-green)' : 'var(--cl-text-muted)';
 }
 
-async function toggleVoice() {
-  if (_micAudioContext) {
-    stopMicLevel();
-  } else {
-    await startMicLevel();
-  }
+function toggleVoice() {
+  state.voiceOn = !state.voiceOn;
+  document.getElementById('voiceToggle').classList.toggle('on', state.voiceOn);
+  document.getElementById('voicePresetDisplay').textContent = state.voiceOn ? VOICE_PRESETS.find(v => v.id === state.voicePreset).name : '原声';
 }
 
 function selectAvatar(avatar, el) {
@@ -1047,23 +934,21 @@ function selectAvatar(avatar, el) {
   document.querySelectorAll('#avatarGrid .avatar-btn').forEach(b => b.classList.remove('selected'));
   if (el) el.classList.add('selected');
   document.getElementById('avatarLabel').textContent = AVATAR_NAMES[avatar] || avatar;
+
+  if (avatar === 'sacabambaspis-3d') {
+    ensure3DRenderers()
+      .then(() => {
+        const rendererParams = faceParamsToRendererParams(state.faceParams);
+        update3DRenderers(rendererParams);
+      })
+      .catch(() => {});
+  }
 }
 
 function toggleShowcase() {
   state.showcaseMode = !state.showcaseMode;
   const body = document.getElementById('avatarPanelBody');
-  const btn = document.body.querySelector('button[onclick*="toggleShowcase"]');
   body.classList.toggle('showcase-mode', state.showcaseMode);
-  if (btn) btn.textContent = state.showcaseMode ? '返回设置模式' : '应用模式（透明背景）';
-  // In app mode on floating window: use key color background
-  const fwContent = document.getElementById('fwContent');
-  if (fwContent) {
-    fwContent.style.background = state.showcaseMode ? state.keyColor : '';
-  }
-  // Also update main receiver canvas bg
-  if (avatarCtx) {
-    // redraw will happen in simLoop
-  }
 }
 
 function toggleDrawMode() {
@@ -1101,9 +986,6 @@ function toggleFloatingMode() {
     btn.textContent = '显示';
     status.textContent = '悬浮窗：显示模式 · 触摸穿透 · 底层可触控';
   }
-  if (document.getElementById('guideOverlay').classList.contains('open')) {
-    updateGuideHighlights();
-  }
 }
 
 // ====== GUIDE ======
@@ -1112,51 +994,14 @@ function openGuide() {
   renderGuide();
   document.getElementById('guideOverlay').classList.add('open');
   updateGuideHighlights();
-  _startGuideDynamicListeners();
-}
-
-function _startGuideDynamicListeners() {
-  window.addEventListener('resize', _onGuideDynamicChange);
-  window.addEventListener('scroll', _onGuideDynamicChange, { passive: true });
-  // Observe floating window for size changes
-  const fw = document.getElementById('floatingWindow');
-  if (fw && !_guideResizeObserver) {
-    _guideResizeObserver = new ResizeObserver(() => {
-      if (document.getElementById('guideOverlay').classList.contains('open')) {
-        updateGuideHighlights();
-      }
-    });
-    _guideResizeObserver.observe(fw);
-  }
-  // Observe mode button
-  const mb = document.getElementById('fwModeBtn');
-  if (mb && _guideResizeObserver) {
-    _guideResizeObserver.observe(mb);
-  }
-}
-
-function _onGuideDynamicChange() {
-  if (document.getElementById('guideOverlay').classList.contains('open')) {
-    updateGuideHighlights();
-  }
-}
-
-function _stopGuideDynamicListeners() {
-  window.removeEventListener('resize', _onGuideDynamicChange);
-  window.removeEventListener('scroll', _onGuideDynamicChange);
 }
 
 function closeGuide() {
   document.getElementById('guideOverlay').classList.remove('open');
   clearGuideHighlights();
-  _stopGuideDynamicListeners();
 }
 
 function guideNav(dir) {
-  if (state.guideStep === GUIDE_STEPS.length - 1 && dir === 1) {
-    closeGuide();
-    return;
-  }
   state.guideStep = Math.max(0, Math.min(GUIDE_STEPS.length - 1, state.guideStep + dir));
   renderGuide();
   if (state.guideStep === GUIDE_STEPS.length - 1) {
@@ -1195,17 +1040,7 @@ const GUIDE_TARGETS = [
   { el: '#gamePanel', bubble: '直播端应用场景', pos: 'left' },
 ];
 
-let _guideResizeRAF = null, _guideResizeObserver = null;
-
 function updateGuideHighlights() {
-  // Use rAF to ensure layout is settled
-  if (_guideResizeRAF) cancelAnimationFrame(_guideResizeRAF);
-  _guideResizeRAF = requestAnimationFrame(() => {
-    _updateGuideHighlightsNow();
-  });
-}
-
-function _updateGuideHighlightsNow() {
   clearGuideHighlights();
   const cfg = GUIDE_TARGETS[state.guideStep];
   if (!cfg) return;
@@ -1318,16 +1153,18 @@ let _faceVideoStream = null;
 let _faceDetectRAF = null;
 
 async function startFaceTracking() {
+  const btn = document.getElementById('faceCamBtn');
+  const status = document.getElementById('faceCamStatus');
+  const videoWrap = document.getElementById('faceVideoWrap');
+
   if (_faceLandmarker || _faceVideoStream) {
     stopFaceTracking();
     return;
   }
 
-  const toggle = document.getElementById('captureToggle');
-  const perm = document.getElementById('cameraPerm');
-  toggle.classList.add('on');
-  perm.textContent = '请求摄像头权限...';
-  perm.style.color = 'var(--cl-blue)';
+  btn.disabled = true;
+  status.style.display = 'block';
+  status.textContent = '请求摄像头权限...';
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -1338,14 +1175,9 @@ async function startFaceTracking() {
     video.srcObject = stream;
     await video.play();
 
-    perm.textContent = '加载模型（约 3MB）...';
+    status.textContent = '加载 MediaPipe 模型（约 3MB）...';
 
-    let mp;
-    try {
-      mp = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/+esm');
-    } catch {
-      mp = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm');
-    }
+    const mp = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/+esm');
     const { FilesetResolver, FaceLandmarker } = mp;
 
     const filesetResolver = await FilesetResolver.forVisionTasks(
@@ -1357,27 +1189,21 @@ async function startFaceTracking() {
         modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
         delegate: 'GPU'
       },
-      outputFaceBlendshapes: true,
-      outputFacialTransformationMatrixes: true,
       runningMode: 'VIDEO',
       numFaces: 1,
     });
 
-    perm.textContent = '已授权 · 面捕运行中';
-    perm.style.color = 'var(--cl-green)';
+    status.textContent = '面捕运行中';
+    videoWrap.style.display = 'block';
+    btn.textContent = '停止面捕';
+    btn.disabled = false;
 
     startFaceDetectionLoop(video);
 
   } catch (err) {
     console.error('Face tracking error:', err);
-    const msg = err.name === 'NotAllowedError' ? '权限被拒绝' :
-      err.name === 'NotFoundError' ? '未找到摄像头' :
-      err.name === 'NotReadableError' ? '摄像头被占用' :
-      (err.message || '无法启动摄像头');
-    perm.textContent = '错误: ' + msg.slice(0, 40);
-    perm.style.color = 'var(--cl-orange)';
-    toggle.classList.remove('on');
-    document.getElementById('fpDetected').textContent = '—';
+    status.textContent = '错误: ' + (err.message || '无法启动摄像头或加载模型');
+    btn.disabled = false;
     if (_faceVideoStream) {
       _faceVideoStream.getTracks().forEach(t => t.stop());
       _faceVideoStream = null;
@@ -1419,25 +1245,20 @@ function updateFaceParamsFromBlendshapes(blendshapes, matrices) {
   state.faceParams.mouthOpen = mouthOpen;
   state.faceParams.blink = Math.max(blinkLeft, blinkRight);
   state.faceParams.smile = (smileLeft + smileRight) / 2;
-  state.faceParams.eyeLeft = 1 - blinkLeft;
-  state.faceParams.eyeRight = 1 - blinkRight;
   state.faceParams.faceDetected = true;
 
+  // Extract yaw from transformation matrix if available
   if (matrices && matrices.length > 0) {
     const m = matrices[0].data;
-    const sy = Math.sqrt(m[0] * m[0] + m[4] * m[4]);
+    // 4x4 matrix: extract yaw from rotation
     const yaw = Math.atan2(m[8], m[10]);
-    state.faceParams.yaw = (yaw / Math.PI + 1) / 2;
-    if (sy > 0.001) {
-      const pitch = Math.atan2(-m[9], sy);
-      state.faceParams.pitch = 1 - ((pitch / (Math.PI / 2) + 1) / 2);
-    }
+    state.faceParams.yaw = (yaw / Math.PI + 1) / 2; // normalize to 0-1
   }
 
-  applyFaceParamsToAvatars(state.faceParams);
-
-  document.getElementById('cameraPerm').textContent = '已授权 · 面捕运行中';
-  document.getElementById('cameraPerm').style.color = 'var(--cl-green)';
+  document.getElementById('faceDetectedVal').textContent = 'true';
+  document.getElementById('mouthOpenVal').textContent = mouthOpen.toFixed(2);
+  document.getElementById('blinkVal').textContent = Math.max(blinkLeft, blinkRight).toFixed(2);
+  document.getElementById('smileVal').textContent = state.faceParams.smile.toFixed(2);
 }
 
 function stopFaceTracking() {
@@ -1450,30 +1271,13 @@ function stopFaceTracking() {
     _faceVideoStream = null;
   }
   _faceLandmarker = null;
-  const toggle = document.getElementById('captureToggle');
-  const perm = document.getElementById('cameraPerm');
-  toggle.classList.remove('on');
-  perm.textContent = '未开启';
-  perm.style.color = 'var(--cl-text-muted)';
-}
-
-// ====== APPLY FACE PARAMS TO AVATARS ======
-function applyFaceParamsToAvatars(fp) {
-  state.faceParams.faceDetected = fp.faceDetected;
-  // Both avatars share the same faceParams object, drawn in simLoop
-  // This function also handles micLevel-assisted mouthOpen fallback
-}
-
-function applyFaceParamsToState(fp) {
-  // Called by face tracker with raw params — normalizes and stores
-  state.faceParams.mouthOpen = fp.mouthOpen || 0;
-  state.faceParams.blink = fp.blink || 0;
-  state.faceParams.yaw = fp.yaw !== undefined ? fp.yaw : 0.5;
-  state.faceParams.pitch = fp.pitch !== undefined ? fp.pitch : 0.5;
-  state.faceParams.smile = fp.smile || 0;
-  state.faceParams.eyeLeft = fp.eyeLeft !== undefined ? fp.eyeLeft : 1;
-  state.faceParams.eyeRight = fp.eyeRight !== undefined ? fp.eyeRight : 1;
-  state.faceParams.faceDetected = fp.faceDetected || false;
+  const btn = document.getElementById('faceCamBtn');
+  const status = document.getElementById('faceCamStatus');
+  const videoWrap = document.getElementById('faceVideoWrap');
+  btn.textContent = '开启摄像头';
+  status.style.display = 'none';
+  videoWrap.style.display = 'none';
+  document.getElementById('faceDetectedVal').textContent = 'false';
 }
 
 // ====== MIC LEVEL (Web Audio API) ======
@@ -1481,239 +1285,43 @@ let _micAudioContext = null;
 let _micAnalyser = null;
 let _micStream = null;
 let _micInterval = null;
-let _micSource = null;
-let _micGain = null;
-let _micDestinationConnected = false;
-
-
-// ====== VOICE EFFECT CHAIN ======
-let _voiceEffectNodes = null;
-let _micProcessedAnalyser = null;
-
-function buildEffectChain() {
-  const ctx = _micAudioContext;
-  // Create nodes
-  const input = ctx.createGain();
-  input.gain.value = 1.0;
-
-  // Low-pass filter (shared, used by lowpass/monster)
-  const lowpass = ctx.createBiquadFilter();
-  lowpass.type = 'lowpass';
-  lowpass.frequency.value = 2000;
-  lowpass.Q.value = 1;
-
-  // High-pass for robot
-  const highpass = ctx.createBiquadFilter();
-  highpass.type = 'highpass';
-  highpass.frequency.value = 800;
-  highpass.Q.value = 0.7;
-
-  // Distortion for monster/robot
-  const distortion = ctx.createWaveShaper();
-  distortion.curve = makeDistortionCurve(50);
-  distortion.oversample = '2x';
-
-  const output = ctx.createGain();
-  output.gain.value = 1.0;
-
-  // Connect: input → [effect chain depending on mode] → output
-  // For 'off': input → output
-  // For 'robot': input → highpass → distortion → output
-  // For 'lowpass': input → lowpass → output
-  // For 'monster': input → lowpass → distortion → output
-  input.connect(output); // default dry path
-
-  return { input, lowpass, highpass, distortion, output };
-}
-
-function makeDistortionCurve(amount) {
-  const samples = 256;
-  const curve = new Float32Array(samples);
-  for (let i = 0; i < samples; i++) {
-    const x = (i * 2) / samples - 1;
-    curve[i] = ((Math.PI + amount) * x) / (Math.PI + amount * Math.abs(x));
-  }
-  return curve;
-}
-
-function applyEffectMode(mode) {
-  if (!_voiceEffectNodes) return;
-  const n = _voiceEffectNodes;
-  const ctx = _micAudioContext;
-
-  // Disconnect all
-  try { n.input.disconnect(); } catch(e) {}
-  try { n.lowpass.disconnect(); } catch(e) {}
-  try { n.highpass.disconnect(); } catch(e) {}
-  try { n.distortion.disconnect(); } catch(e) {}
-
-  switch (mode) {
-    case 'off':
-      n.input.connect(n.output);
-      break;
-    case 'lowpass':
-      n.lowpass.frequency.value = 1200;
-      n.input.connect(n.lowpass);
-      n.lowpass.connect(n.output);
-      break;
-    case 'monster':
-      n.lowpass.frequency.value = 800;
-      n.input.connect(n.lowpass);
-      n.lowpass.connect(n.distortion);
-      n.distortion.connect(n.output);
-      n.output.gain.value = 0.7;
-      break;
-    case 'robot':
-      n.highpass.frequency.value = 900;
-      n.input.connect(n.highpass);
-      n.highpass.connect(n.distortion);
-      n.distortion.connect(n.output);
-      n.output.gain.value = 0.6;
-      break;
-    default:
-      n.input.connect(n.output);
-      break;
-  }
-  state.effectMode = mode;
-}
-
-function setVoiceEffect(mode) {
-  if (!_voiceEffectNodes) {
-    document.getElementById('effectStatus').textContent = '请先开启麦克风';
-    return;
-  }
-  applyEffectMode(mode);
-  const preset = VOICE_PRESETS.find(v => v.id === mode);
-  document.getElementById('voicePresetDisplay').textContent = preset ? preset.name : mode;
-  document.getElementById('effectStatus').textContent = mode === 'off' ? '无效果' : '效果: ' + (preset ? preset.name : mode);
-  document.getElementById('effectStatus').style.color = mode === 'off' ? 'var(--cl-text-muted)' : 'var(--cl-accent)';
-  // Rebuild monitor connection with new effect chain if monitor is on
-  if (_micDestinationConnected) {
-    stopMicMonitor();
-    startMicMonitor();
-  }
-}
-
-function toggleMicMonitor() {
-  if (!_micAudioContext || !_micAnalyser) {
-    alert('请先开启麦克风');
-    return;
-  }
-  if (_micDestinationConnected) {
-    stopMicMonitor();
-    return;
-  }
-  startMicMonitor();
-}
-
-function startMicMonitor() {
-  if (_micDestinationConnected) return;
-  try {
-    if (_micAudioContext.state === 'suspended') {
-      _micAudioContext.resume();
-    }
-    if (!_micGain) {
-      _micGain = _micAudioContext.createGain();
-      _micGain.gain.value = 0.8;
-    }
-    // Connect effect chain output → micGain → destination
-    if (_voiceEffectNodes) {
-      _voiceEffectNodes.output.connect(_micGain);
-      _micGain.connect(_micAudioContext.destination);
-      _micDestinationConnected = true;
-      state.micMonitorOn = true;
-      document.getElementById('monitorBtn').textContent = '关闭监听';
-      document.getElementById('monitorStatus').textContent = '监听中';
-      document.getElementById('monitorStatus').style.color = 'var(--cl-green)';
-    }
-  } catch(e) {
-    console.error('Monitor error:', e);
-    document.getElementById('monitorStatus').textContent = '启动失败: ' + (e.message || '');
-  }
-}
-
-function stopMicMonitor() {
-  if (!_micDestinationConnected) return;
-  try {
-    if (_micGain) {
-      _micGain.disconnect();
-    }
-    if (_voiceEffectNodes) {
-      try { _voiceEffectNodes.output.disconnect(); } catch(e) {}
-    }
-    _micDestinationConnected = false;
-    state.micMonitorOn = false;
-    document.getElementById('monitorBtn').textContent = '监听变声';
-    document.getElementById('monitorStatus').textContent = '监听已关闭';
-    document.getElementById('monitorStatus').style.color = 'var(--cl-text-muted)';
-  } catch(e) {}
-}
 
 async function startMicLevel() {
+  const btn = document.getElementById('micBtn');
+  const status = document.getElementById('micStatus');
+  const valEl = document.getElementById('micLevelVal');
+
   if (_micAudioContext) {
     stopMicLevel();
     return;
   }
 
-  const toggle = document.getElementById('voiceToggle');
-  const perm = document.getElementById('micPerm');
-  toggle.classList.add('on');
-  perm.textContent = '请求麦克风权限...';
-  perm.style.color = 'var(--cl-blue)';
-
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     _micStream = stream;
     _micAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-    _micSource = _micAudioContext.createMediaStreamSource(stream);
-    // Raw analyser (before effects)
+    const source = _micAudioContext.createMediaStreamSource(stream);
     _micAnalyser = _micAudioContext.createAnalyser();
     _micAnalyser.fftSize = 256;
-    _micSource.connect(_micAnalyser);
-    // NOTE: source is NOT connected to destination by default
-    // User must click "监听变声" to hear processed audio output
-
-    // ===== Effect chain =====
-    _voiceEffectNodes = buildEffectChain();
-    // Wire: source → effect chain → processed analyser → (monitor later connects to destination)
-    _micProcessedAnalyser = _micAudioContext.createAnalyser();
-    _micProcessedAnalyser.fftSize = 256;
-    _micSource.connect(_voiceEffectNodes.input);
-    _voiceEffectNodes.output.connect(_micProcessedAnalyser);
+    source.connect(_micAnalyser);
 
     const dataArray = new Uint8Array(_micAnalyser.frequencyBinCount);
-    const processedArray = new Uint8Array(_micProcessedAnalyser.frequencyBinCount);
 
     _micInterval = setInterval(() => {
       _micAnalyser.getByteFrequencyData(dataArray);
       let sum = 0;
       for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-      const normalized = Math.min(1, sum / dataArray.length / 128);
-      state.micLevel = normalized;
-
-      _micProcessedAnalyser.getByteFrequencyData(processedArray);
-      let psum = 0;
-      for (let i = 0; i < processedArray.length; i++) psum += processedArray[i];
-      state.processedLevel = Math.min(1, psum / processedArray.length / 128);
-
-      const valEl = document.getElementById('micLevelVal');
-      if (valEl) valEl.textContent = normalized.toFixed(2);
-      const pValEl = document.getElementById('processedLevelVal');
-      if (pValEl) pValEl.textContent = state.processedLevel.toFixed(2);
-      perm.textContent = '已授权 · 音量: ' + (normalized * 100).toFixed(0) + '%';
-      perm.style.color = normalized > 0.05 ? 'var(--cl-green)' : 'var(--cl-text-muted)';
+      const avg = sum / dataArray.length;
+      const normalized = Math.min(1, avg / 128);
+      valEl.textContent = normalized.toFixed(2);
+      valEl.style.color = normalized > 0.05 ? 'var(--cl-green)' : 'var(--cl-text-muted)';
     }, 100);
 
-    document.getElementById('voicePresetDisplay').textContent = '原声（可切换效果）';
-  document.getElementById('effectStatus').textContent = '无效果';
+    btn.textContent = '停止麦克风';
+    status.textContent = '麦克风运行中';
 
   } catch (err) {
-    const msg = err.name === 'NotAllowedError' ? '权限被拒绝' :
-      err.name === 'NotFoundError' ? '未找到麦克风' :
-      (err.message || '无法访问麦克风');
-    perm.textContent = '错误: ' + msg.slice(0, 40);
-    perm.style.color = 'var(--cl-orange)';
-    toggle.classList.remove('on');
+    status.textContent = '错误: ' + (err.message || '无法访问麦克风');
     console.error('Mic error:', err);
   }
 }
@@ -1731,24 +1339,972 @@ function stopMicLevel() {
     _micStream.getTracks().forEach(t => t.stop());
     _micStream = null;
   }
-  if (_micGain) {
-    try { _micGain.disconnect(); } catch(e) {}
-    _micGain = null;
-  }
-  _micSource = null;
-  _voiceEffectNodes = null;
-  _micProcessedAnalyser = null;
-  _micDestinationConnected = false;
-  state.micMonitorOn = false;
-  state.micLevel = 0;
-  state.processedLevel = 0;
-  state.effectMode = 'off';
-  const toggle = document.getElementById('voiceToggle');
-  const perm = document.getElementById('micPerm');
+  const btn = document.getElementById('micBtn');
+  const status = document.getElementById('micStatus');
   const valEl = document.getElementById('micLevelVal');
-  toggle.classList.remove('on');
-  perm.textContent = '未开启';
-  perm.style.color = 'var(--cl-text-muted)';
-  document.getElementById('voicePresetDisplay').textContent = '原声';
-  if (valEl) valEl.textContent = '—';
+  btn.textContent = '开启麦克风';
+  status.textContent = '点击开启麦克风';
+  valEl.textContent = '—';
+  valEl.style.color = 'var(--cl-text-muted)';
+}
+
+// ============================================================
+// 3D 萨卡班甲鱼渲染器（来自开源 face-tracking 模块）
+// ============================================================
+
+// ---------- 工具函数 ----------
+function _clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+function _lerp(a, b, t) { return a + (b - a) * t; }
+
+function _parseHex(hex) {
+  const h = hex.replace('#', '');
+  if (h.length === 3) {
+    return { r: parseInt(h[0] + h[0], 16), g: parseInt(h[1] + h[1], 16), b: parseInt(h[2] + h[2], 16) };
+  }
+  return { r: parseInt(h.substring(0, 2), 16), g: parseInt(h.substring(2, 4), 16), b: parseInt(h.substring(4, 6), 16) };
+}
+
+function _parseRGB(c) {
+  if (!c) return { r: 0, g: 0, b: 0 };
+  if (c.startsWith('#')) return _parseHex(c);
+  const m = c.match(/rgb\(\s*(\d+),\s*(\d+),\s*(\d+)\s*\)/);
+  if (m) return { r: parseInt(m[1], 10), g: parseInt(m[2], 10), b: parseInt(m[3], 10) };
+  return { r: 0, g: 0, b: 0 };
+}
+
+function _lerpColor(c1, c2, t) {
+  const p1 = _parseHex(c1);
+  const p2 = _parseHex(c2);
+  const r = Math.round(_lerp(p1.r, p2.r, t));
+  const g = Math.round(_lerp(p1.g, p2.g, t));
+  const b = Math.round(_lerp(p1.b, p2.b, t));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function _applyLight(faceCenterNormal, lightDir, baseColor, ambient) {
+  const dot = (faceCenterNormal.x || 0) * lightDir.x + (faceCenterNormal.y || 0) * lightDir.y + (faceCenterNormal.z || 0) * lightDir.z;
+  const a = Number.isFinite(ambient) && ambient >= 0 && ambient <= 1 ? ambient : 0.55;
+  const factor = a + (1 - a) * _clamp(dot, -0.2, 1.0);
+  const rgb = _parseRGB(baseColor);
+  const r = Math.round(_clamp(rgb.r * factor, 0, 255));
+  const g = Math.round(_clamp(rgb.g * factor, 0, 255));
+  const b = Math.round(_clamp(rgb.b * factor, 0, 255));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+const _BASIS_EPSILON = 1e-10;
+
+function _normVec3(v, fallback) {
+  const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  if (!Number.isFinite(len) || len < _BASIS_EPSILON) {
+    return { x: fallback.x, y: fallback.y, z: fallback.z };
+  }
+  return { x: v.x / len, y: v.y / len, z: v.z / len };
+}
+
+function _dotVec3(a, b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+
+function _crossVec3(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+function _buildFaceBasis(local) {
+  const rawN = { x: local.nx, y: local.ny, z: local.nz };
+  const n = _normVec3((rawN.x !== undefined && rawN.y !== undefined && rawN.z !== undefined) ? rawN : { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: 1 });
+
+  let rawT = { x: local.tx, y: local.ty, z: local.tz };
+  if (rawT.x === undefined || rawT.y === undefined || rawT.z === undefined) {
+    rawT = { x: 1 - n.x * n.x, y: -n.x * n.y, z: -n.x * n.z };
+    if (Math.sqrt(rawT.x * rawT.x + rawT.y * rawT.y + rawT.z * rawT.z) < _BASIS_EPSILON) {
+      rawT = { x: -n.y * n.x, y: 1 - n.y * n.y, z: -n.y * n.z };
+    }
+  }
+
+  const tDotN = _dotVec3(rawT, n);
+  let t = { x: rawT.x - tDotN * n.x, y: rawT.y - tDotN * n.y, z: rawT.z - tDotN * n.z };
+  const tLen = Math.sqrt(t.x * t.x + t.y * t.y + t.z * t.z);
+  if (tLen < _BASIS_EPSILON) {
+    let ref;
+    if (Math.abs(n.x) <= Math.abs(n.y) && Math.abs(n.x) <= Math.abs(n.z)) {
+      ref = { x: 1, y: 0, z: 0 };
+    } else if (Math.abs(n.y) <= Math.abs(n.z)) {
+      ref = { x: 0, y: 1, z: 0 };
+    } else {
+      ref = { x: 0, y: 0, z: 1 };
+    }
+    const refDotN = _dotVec3(ref, n);
+    t = { x: ref.x - refDotN * n.x, y: ref.y - refDotN * n.y, z: ref.z - refDotN * n.z };
+  }
+
+  t = _normVec3(t, { x: 1, y: 0, z: 0 });
+  let b = _normVec3(_crossVec3(n, t), { x: 0, y: 1, z: 0 });
+  t = _normVec3(_crossVec3(b, n), { x: 1, y: 0, z: 0 });
+  b = _normVec3(_crossVec3(n, t), { x: 0, y: 1, z: 0 });
+
+  return { n, t, b };
+}
+
+function _computeProjectedEllipse(rx, ry, bx, by, halfWidth, halfHeight) {
+  const ax = rx * halfWidth;
+  const ay = ry * halfWidth;
+  const bxx = bx * halfHeight;
+  const byy = by * halfHeight;
+  const cxx = ax * ax + bxx * bxx;
+  const cxy = ax * ay + bxx * byy;
+  const cyy = ay * ay + byy * byy;
+  const trace = cxx + cyy;
+  const delta = Math.sqrt((cxx - cyy) * (cxx - cyy) + 4 * cxy * cxy);
+  const lambdaMajor = Math.max(0, (trace + delta) * 0.5);
+  const lambdaMinor = Math.max(0, (trace - delta) * 0.5);
+  let angle;
+  if (delta < 1e-10) { angle = Math.atan2(ry, rx); }
+  else { angle = 0.5 * Math.atan2(2 * cxy, cxx - cyy); }
+  return { radiusX: Math.sqrt(lambdaMajor), radiusY: Math.sqrt(lambdaMinor), angle };
+}
+
+function _mapFaceLocalPoint(anchor, u, v) {
+  return {
+    x: anchor.screenX + anchor.rightVec.x * u + anchor.downVec.x * v,
+    y: anchor.screenY + anchor.rightVec.y * u + anchor.downVec.y * v,
+  };
+}
+
+// ---------- 形状曲线 ----------
+const _SPHERE_END = 0.26;
+
+function _smoothstep01(t) {
+  t = Math.max(0, Math.min(1, t));
+  return t * t * (3 - 2 * t);
+}
+
+function _radiusScale(s) {
+  if (s <= _SPHERE_END) {
+    const rel = _SPHERE_END - s;
+    const r2 = _SPHERE_END * _SPHERE_END - rel * rel;
+    return Math.sqrt(Math.max(0, r2)) / _SPHERE_END;
+  }
+  const TAIL_RATIO = 0.035;
+  const t = (s - _SPHERE_END) / (1 - _SPHERE_END) * (Math.PI / 2);
+  return TAIL_RATIO + (1 - TAIL_RATIO) * Math.cos(t);
+}
+
+function _radiusScaleDeriv(s) {
+  const h = 0.002;
+  if (s <= h) return (_radiusScale(s + h) - _radiusScale(s)) / h;
+  if (s >= 1 - h) return (_radiusScale(s) - _radiusScale(s - h)) / h;
+  return (_radiusScale(s + h) - _radiusScale(s - h)) / (2 * h);
+}
+
+const _TAIL_BEND_START = 0.72;
+function _spineYOffset(s, headY) {
+  if (s < _TAIL_BEND_START) return 0;
+  const u = (s - _TAIL_BEND_START) / (1 - _TAIL_BEND_START);
+  const eased = _smoothstep01(u);
+  return -headY * 0.40 * eased * eased;
+}
+function _spineYOffsetDeriv(s, headY) {
+  if (s < _TAIL_BEND_START - 0.01) return 0;
+  const h = 0.003;
+  const s0 = Math.max(0, s - h);
+  const s1 = Math.min(1, s + h);
+  return (_spineYOffset(s1, headY) - _spineYOffset(s0, headY)) / (s1 - s0);
+}
+
+function _getSection(s, headX, headY, headZ, bodyLength) {
+  const sc = _radiusScale(s);
+  const scDeriv = _radiusScaleDeriv(s);
+  const spineZ = headZ - s * (headZ + bodyLength);
+  const spineZDeriv = -(headZ + bodyLength);
+  const rx = headX * sc;
+  const ry = headY * sc * (0.88 + 0.12 * sc);
+  const rxDeriv = headX * scDeriv;
+  const ryDeriv = headY * (scDeriv * (0.88 + 0.12 * sc) + sc * (0.12 * scDeriv));
+  const spineY = _spineYOffset(s, headY);
+  const spineYDeriv = _spineYOffsetDeriv(s, headY);
+  return {
+    xPos: 0, yPos: spineY, zPos: spineZ,
+    rx, ry, rxDeriv, ryDeriv,
+    spineZDeriv, spineYDeriv,
+    isHead: s <= _SPHERE_END + 0.02,
+  };
+}
+
+function _getFaceWeight(s, angle) {
+  if (s > _SPHERE_END + 0.04) return 0;
+  const u = s / _SPHERE_END;
+  const distFromFront = u;
+  const lat = Math.max(0, Math.cos(angle));
+  const falloff = Math.exp(-distFromFront * distFromFront * 2.5) * (0.4 + 0.6 * lat);
+  return falloff;
+}
+
+// ---------- 主网格生成 ----------
+function _createSpindleMesh(options = {}) {
+  const {
+    headX = 52, headY = 46, headZ = 50, bodyLength = 180,
+    columns = 34, rows = 24, flukeEnabled = true, flukeSize = 1.2,
+    topColor = '#bdb8aa', bottomColor = '#f2f1ea',
+    faceTopColor = '#c8c2b4', faceBottomColor = '#fff8ee',
+  } = options;
+
+  const vertices = [];
+  const faces = [];
+
+  vertices.push({
+    x: 0, y: 0, z: headZ, nx: 0, ny: 0, nz: 1,
+    t: 0, angle: 0, col: 0, row: 0,
+    isTop: false, isBottom: false, faceWeight: 1.0, isHead: true,
+  });
+  const APEX_IDX = 0;
+
+  for (let col = 1; col <= columns; col++) {
+    const s = col / columns;
+    const sec = _getSection(s, headX, headY, headZ, bodyLength);
+    const rx = sec.rx, ry = sec.ry;
+    const rxDeriv = sec.rxDeriv, ryDeriv = sec.ryDeriv;
+    const zDeriv = sec.spineZDeriv, yBendDeriv = sec.spineYDeriv;
+
+    for (let row = 0; row <= rows; row++) {
+      const angle = -Math.PI + (row / rows) * 2 * Math.PI;
+      const cosA = Math.cos(angle), sinA = Math.sin(angle);
+      const x = sec.xPos + rx * cosA;
+      const y = sec.yPos + ry * sinA;
+      const z = sec.zPos;
+
+      const tthX = -rx * sinA, tthY = ry * cosA, tthZ = 0;
+      const tsX = rxDeriv * cosA, tsY = yBendDeriv + ryDeriv * sinA, tsZ = zDeriv;
+
+      let nx = tsY * tthZ - tsZ * tthY;
+      let ny = tsZ * tthX - tsX * tthZ;
+      let nz = tsX * tthY - tsY * tthX;
+
+      if (s < 0.02) { nx = 0; ny = 0; nz = 1; }
+
+      const nLenRaw = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (nLenRaw > 1e-6) { nx /= nLenRaw; ny /= nLenRaw; nz /= nLenRaw; }
+      else { nx = 0; ny = 0; nz = 1; }
+
+      const fw = _getFaceWeight(s, angle);
+      const isTop = sinA < 0;
+
+      vertices.push({
+        x, y, z, nx, ny, nz, t: s, angle, col, row,
+        isTop, isBottom: !isTop, faceWeight: fw, isHead: sec.isHead,
+      });
+    }
+  }
+
+  for (let col = 1; col < columns; col++) {
+    const colA = 1 + (col - 1) * (rows + 1);
+    const colB = colA + (rows + 1);
+    for (let row = 0; row < rows; row++) {
+      const a = colA + row, b = a + 1, c = colB + row, d = c + 1;
+      const va = vertices[a], vb = vertices[b], vc = vertices[c], vd = vertices[d];
+      const avgSin = (Math.sin(va.angle) + Math.sin(vb.angle) + Math.sin(vc.angle) + Math.sin(vd.angle)) * 0.25;
+      faces.push({
+        indices: [a, b, d, c],
+        vertices: [va, vb, vd, vc],
+        isTop: avgSin < 0, isBottom: avgSin >= 0,
+        column: col, row,
+      });
+    }
+  }
+
+  {
+    const ringStart = 1;
+    for (let row = 0; row < rows; row++) {
+      const a = ringStart + row, b = ringStart + row + 1;
+      const va = vertices[a], vb = vertices[b], vApex = vertices[APEX_IDX];
+      const avgSin = (Math.sin(va.angle) + Math.sin(vb.angle)) * 0.5;
+      faces.push({
+        indices: [APEX_IDX, a, b],
+        vertices: [vApex, va, vb],
+        isTop: avgSin < 0, isBottom: avgSin >= 0,
+        column: 0, row,
+      });
+    }
+  }
+
+  if (flukeEnabled) {
+    const flukeStartIdx = vertices.length;
+    const flukeHalfHeight = headY * 0.35 * flukeSize;
+    const flukeThickness = headX * 0.08 * flukeSize;
+    const tailExtensionZ = 40;
+    const flukeTipBackZ = -bodyLength - headZ * 0.2 - tailExtensionZ;
+
+    const lastRingStart = 1 + (columns - 1) * (rows + 1);
+    let bodyEndCenterX = 0, bodyEndCenterY = 0, bodyEndCenterZ = 0;
+    for (let row = 0; row < rows; row++) {
+      bodyEndCenterX += vertices[lastRingStart + row].x;
+      bodyEndCenterY += vertices[lastRingStart + row].y;
+      bodyEndCenterZ += vertices[lastRingStart + row].z;
+    }
+    bodyEndCenterX /= rows; bodyEndCenterY /= rows; bodyEndCenterZ /= rows;
+    const flukeBaseZ = bodyEndCenterZ - 3;
+
+    const vBase = { x: bodyEndCenterX, y: bodyEndCenterY, z: flukeBaseZ, nx: 0, ny: 0, nz: -1, t: 1.02, angle: 0, col: columns + 1, row: 0, isTop: false, isBottom: false, faceWeight: 0, isHead: false };
+    const vTop = { x: bodyEndCenterX, y: bodyEndCenterY - flukeHalfHeight, z: flukeBaseZ - 15, nx: 0, ny: -1, nz: 0, t: 1.05, angle: -Math.PI / 2, col: columns + 1, row: 0, isTop: true, isBottom: false, faceWeight: 0, isHead: false };
+    const vBottom = { x: bodyEndCenterX, y: bodyEndCenterY + flukeHalfHeight, z: flukeBaseZ - 15, nx: 0, ny: 1, nz: 0, t: 1.05, angle: Math.PI / 2, col: columns + 1, row: 0, isTop: false, isBottom: true, faceWeight: 0, isHead: false };
+    const vTip = { x: bodyEndCenterX, y: bodyEndCenterY - headY * 0.05, z: flukeTipBackZ, nx: 0, ny: 0, nz: -1, t: 1.1, angle: 0, col: columns + 2, row: 0, isTop: true, isBottom: false, faceWeight: 0, isHead: false };
+    const vBaseThick = { x: bodyEndCenterX + flukeThickness, y: bodyEndCenterY, z: flukeBaseZ, nx: 1, ny: 0, nz: 0, t: 1.02, angle: 0, col: columns + 1, row: 0, isTop: false, isBottom: false, faceWeight: 0, isHead: false };
+    const vTopThick = { x: bodyEndCenterX + flukeThickness * 0.5, y: bodyEndCenterY - flukeHalfHeight, z: flukeBaseZ - 15, nx: 1, ny: 0, nz: 0, t: 1.05, angle: 0, col: columns + 1, row: 0, isTop: true, isBottom: false, faceWeight: 0, isHead: false };
+    const vBottomThick = { x: bodyEndCenterX + flukeThickness * 0.5, y: bodyEndCenterY + flukeHalfHeight, z: flukeBaseZ - 15, nx: 1, ny: 0, nz: 0, t: 1.05, angle: 0, col: columns + 1, row: 0, isTop: false, isBottom: true, faceWeight: 0, isHead: false };
+    const vTipThick = { x: bodyEndCenterX + flukeThickness * 0.3, y: bodyEndCenterY - headY * 0.05, z: flukeTipBackZ, nx: 1, ny: 0, nz: 0, t: 1.1, angle: 0, col: columns + 2, row: 0, isTop: true, isBottom: false, faceWeight: 0, isHead: false };
+
+    vertices.push(vBase, vTop, vBottom, vTip, vBaseThick, vTopThick, vBottomThick, vTipThick);
+    const iBase = flukeStartIdx + 0, iTop = flukeStartIdx + 1, iBottom = flukeStartIdx + 2, iTip = flukeStartIdx + 3;
+    const iBaseT = flukeStartIdx + 4, iTopT = flukeStartIdx + 5, iBottomT = flukeStartIdx + 6, iTipT = flukeStartIdx + 7;
+
+    faces.push({ indices: [iBase, iTop, iTip], vertices: [vBase, vTop, vTip], isTop: true, isBottom: false, column: columns + 1, row: 0, doubleSided: true });
+    faces.push({ indices: [iBaseT, iTipT, iTopT], vertices: [vBaseThick, vTipThick, vTopThick], isTop: true, isBottom: false, column: columns + 1, row: 0, doubleSided: true });
+    faces.push({ indices: [iBase, iTip, iBottom], vertices: [vBase, vTip, vBottom], isTop: false, isBottom: true, column: columns + 1, row: 0, doubleSided: true });
+    faces.push({ indices: [iBaseT, iBottomT, iTipT], vertices: [vBaseThick, vBottomThick, vTipThick], isTop: false, isBottom: true, column: columns + 1, row: 0, doubleSided: true });
+
+    let topIdx = lastRingStart, bottomIdx = lastRingStart;
+    let topDiff = Infinity, bottomDiff = Infinity;
+    for (let row = 0; row < rows; row++) {
+      const v = vertices[lastRingStart + row];
+      const d1 = Math.abs(v.angle - (-Math.PI / 2));
+      const d2 = Math.abs(v.angle - Math.PI / 2);
+      if (d1 < topDiff) { topDiff = d1; topIdx = lastRingStart + row; }
+      if (d2 < bottomDiff) { bottomDiff = d2; bottomIdx = lastRingStart + row; }
+    }
+    faces.push({ indices: [topIdx, iBase, iTop], vertices: [vertices[topIdx], vBase, vTop], isTop: true, isBottom: false, column: columns, row: 0 });
+    faces.push({ indices: [bottomIdx, iBottom, iBase], vertices: [vertices[bottomIdx], vBottom, vBase], isTop: false, isBottom: true, column: columns, row: 0 });
+  }
+
+  return {
+    vertices, faces, headX, headY, headZ, headR: headX, bodyLength,
+    columns, rows, topColor, bottomColor, faceTopColor, faceBottomColor,
+    type: 'spindle',
+  };
+}
+
+// ---------- 面部锚点 ----------
+function _normalizeVec3XYZ(x, y, z, fallback) {
+  const len = Math.sqrt(x * x + y * y + z * z);
+  if (!Number.isFinite(len) || len < _BASIS_EPSILON) {
+    return { x: fallback.x, y: fallback.y, z: fallback.z };
+  }
+  return { x: x / len, y: y / len, z: z / len };
+}
+
+function _crossVec3XYZ(ax, ay, az, bx, by, bz) {
+  return { x: ay * bz - az * by, y: az * bx - ax * bz, z: ax * by - ay * bx };
+}
+
+function _computeFaceAnchorXYZ(mesh, _, horizOffset, vertOffset, depthOffset = 0.5) {
+  const hx = mesh.headX, hy = mesh.headY, hz = mesh.headZ;
+  const x = horizOffset, y = vertOffset;
+  const invHx2 = 1 / (hx * hx), invHy2 = 1 / (hy * hy), invHz2 = 1 / (hz * hz);
+  const inside = 1 - x * x * invHx2 - y * y * invHy2;
+  const zSurface = hz * Math.sqrt(Math.max(0.02, inside));
+  const z = zSurface + depthOffset;
+
+  const n = _normalizeVec3XYZ(x * invHx2, y * invHy2, zSurface * invHz2, { x: 0, y: 0, z: 1 });
+  let t = _normalizeVec3XYZ(zSurface * invHz2, 0, -x * invHx2, { x: 1, y: 0, z: 0 });
+  const rawB = _crossVec3XYZ(n.x, n.y, n.z, t.x, t.y, t.z);
+  let b = _normalizeVec3XYZ(rawB.x, rawB.y, rawB.z, { x: 0, y: 1, z: 0 });
+  const rawT2 = _crossVec3XYZ(b.x, b.y, b.z, n.x, n.y, n.z);
+  t = _normalizeVec3XYZ(rawT2.x, rawT2.y, rawT2.z, { x: 1, y: 0, z: 0 });
+  const rawB2 = _crossVec3XYZ(n.x, n.y, n.z, t.x, t.y, t.z);
+  b = _normalizeVec3XYZ(rawB2.x, rawB2.y, rawB2.z, { x: 0, y: 1, z: 0 });
+
+  return { x, y, z, nx: n.x, ny: n.y, nz: n.z, tx: t.x, ty: t.y, tz: t.z, bx: b.x, by: b.y, bz: b.z, faceWeight: 1.0 };
+}
+
+function _computeNostrilSize(headX) {
+  return Math.max(2.0, headX * 0.045);
+}
+
+// ---------- 变形与旋转 ----------
+const _BEND_COEF_YAW = 0.80;
+const _BEND_COEF_PITCH = 0.60;
+
+function _bendProfile(s) {
+  const t = Math.max(0, Math.min(1, s));
+  const faceEnd = 0.08, headEnd = 0.28, tailStart = 0.80;
+  if (t <= faceEnd) return 0;
+  if (t <= headEnd) {
+    const u = (t - faceEnd) / (headEnd - faceEnd);
+    return 0.30 * u * u * (3 - 2 * u);
+  }
+  if (t <= tailStart) {
+    const u = (t - headEnd) / (tailStart - headEnd);
+    return 0.30 + 0.70 * u * u * (3 - 2 * u);
+  }
+  return 1;
+}
+
+function _applySoftRotation(x, y, z, nx, ny, nz, s, params) {
+  const { angleY = 0, angleX = 0, angleZ = 0, tailSway = 0 } = params;
+  const bend = _bendProfile(s);
+  const effectiveYaw = angleY * (1 - _BEND_COEF_YAW * bend);
+  const effectivePitch = angleX * (1 - _BEND_COEF_PITCH * bend);
+  const effectiveRoll = angleZ * (1 - 0.6 * bend);
+
+  const radY = effectiveYaw * Math.PI / 180;
+  const radX = effectivePitch * Math.PI / 180;
+  const radZ = effectiveRoll * Math.PI / 180;
+  const cosY = Math.cos(radY), sinY = Math.sin(radY);
+  const cosX = Math.cos(radX), sinX = Math.sin(radX);
+  const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
+
+  let x1 = x * cosZ - y * sinZ;
+  let y1 = x * sinZ + y * cosZ;
+  let z1 = z;
+  let nx1 = nx * cosZ - ny * sinZ;
+  let ny1 = nx * sinZ + ny * cosZ;
+  let nz1 = nz;
+
+  let y2 = y1 * cosX - z1 * sinX;
+  let z2 = y1 * sinX + z1 * cosX;
+  let x2 = x1;
+  let ny2 = ny1 * cosX - nz1 * sinX;
+  let nz2 = ny1 * sinX + nz1 * cosX;
+  let nx2 = nx1;
+
+  let x3 = x2 * cosY + z2 * sinY;
+  let z3 = -x2 * sinY + z2 * cosY;
+  let y3 = y2;
+  let nx3 = nx2 * cosY + nz2 * sinY;
+  let nz3 = -nx2 * sinY + nz2 * cosY;
+  let ny3 = ny2;
+
+  if (tailSway !== 0) {
+    const swayStart = 0.45;
+    const t = s < swayStart ? 0 : Math.max(0, Math.min(1, (s - swayStart) / (1.0 - swayStart)));
+    const swayWeight = t * t * (3 - 2 * t);
+    const x4 = x3 + tailSway * swayWeight;
+    return { x: x4, y: y3, z: z3, nx: nx3, ny: ny3, nz: nz3 };
+  }
+  return { x: x3, y: y3, z: z3, nx: nx3, ny: ny3, nz: nz3 };
+}
+
+function _deformSpindle(mesh, params = {}) {
+  const transformed = mesh.vertices.map((v) => {
+    const s = v.t !== undefined ? v.t : 0;
+    const r = _applySoftRotation(v.x, v.y, v.z, v.nx, v.ny, v.nz, s, params);
+    const newIsTop = r.y < 0;
+    const newIsBottom = r.y >= 0;
+    return { ...v, tx: r.x, ty: r.y, tz: r.z, nx: r.nx, ny: r.ny, nz: r.nz, isTop: newIsTop, isBottom: newIsBottom };
+  });
+
+  const rows = mesh.rows;
+  const ringStart = 1;
+  let ringCenterX = 0, ringCenterY = 0, ringCenterZ = 0;
+  for (let row = 0; row <= rows; row++) {
+    ringCenterX += transformed[ringStart + row].tx;
+    ringCenterY += transformed[ringStart + row].ty;
+    ringCenterZ += transformed[ringStart + row].tz;
+  }
+  ringCenterX /= (rows + 1); ringCenterY /= (rows + 1); ringCenterZ /= (rows + 1);
+  const BLEND = 0.15;
+  transformed[0].tx = transformed[0].tx * (1 - BLEND) + ringCenterX * BLEND;
+  transformed[0].ty = transformed[0].ty * (1 - BLEND) + ringCenterY * BLEND;
+  transformed[0].tz = transformed[0].tz * (1 - BLEND) + ringCenterZ * BLEND;
+
+  const transformedFaces = mesh.faces.map((f) => ({
+    ...f,
+    vertices: f.indices.map((idx) => transformed[idx]),
+  }));
+  return { ...mesh, vertices: transformed, faces: transformedFaces };
+}
+
+// ---------- 参数归一化 ----------
+function _normalizeParams(p) {
+  return {
+    eyeLeft: _clamp(p.eyeLeft ?? 1, 0, 1),
+    eyeRight: _clamp(p.eyeRight ?? 1, 0, 1),
+    eyeWideLeft: _clamp(p.eyeWideLeft ?? 0, 0, 1),
+    eyeWideRight: _clamp(p.eyeWideRight ?? 0, 0, 1),
+    eyeSquintLeft: _clamp(p.eyeSquintLeft ?? 0, 0, 1),
+    eyeSquintRight: _clamp(p.eyeSquintRight ?? 0, 0, 1),
+    mouthOpen: _clamp(p.mouthOpen ?? 0, 0, 1),
+    mouthSmile: _clamp(p.mouthSmile ?? 0, 0, 1),
+    mouthFunnel: _clamp(p.mouthFunnel ?? 0, 0, 1),
+    mouthPress: _clamp(p.mouthPress ?? 0, 0, 1),
+    browLeft: _clamp(p.browLeft ?? 0, 0, 1),
+    browRight: _clamp(p.browRight ?? 0, 0, 1),
+    headYaw: (_clamp(p.headYaw ?? 0.5, 0, 1) - 0.5) * 120,
+    headPitch: (_clamp(p.headPitch ?? 0.5, 0, 1) - 0.5) * 90,
+    headRoll: (_clamp(p.headRoll ?? 0.5, 0, 1) - 0.5) * 80,
+    headX: _clamp(p.headX ?? 0.5, 0, 1),
+    headY: _clamp(p.headY ?? 0.5, 0, 1),
+    gazeLeftX: _clamp(p.gazeLeftX ?? 0, -1, 1),
+    gazeLeftY: _clamp(p.gazeLeftY ?? 0, -1, 1),
+    gazeRightX: _clamp(p.gazeRightX ?? 0, -1, 1),
+    gazeRightY: _clamp(p.gazeRightY ?? 0, -1, 1),
+    lightDir: p.lightDir,
+    ambient: p.ambient,
+  };
+}
+
+// ---------- 3D 渲染器基类 ----------
+class _ProceduralMeshRenderer {
+  constructor(canvasId) {
+    this.canvas = document.getElementById(canvasId);
+    if (!this.canvas) throw new Error(`Canvas "${canvasId}" not found`);
+    this.ctx = this.canvas.getContext('2d');
+    this.params = {
+      eyeLeft: 1, eyeRight: 1, mouthOpen: 0, mouthSmile: 0,
+      browLeft: 0, browRight: 0, headYaw: 0.5, headPitch: 0.5, headRoll: 0.5,
+      headX: 0.5, headY: 0.5,
+    };
+    this.mirror = true;
+    this.appMode = false;
+    this.debugMesh = false;
+    this._resizeHandler = () => this.resize();
+    window.addEventListener('resize', this._resizeHandler);
+  }
+
+  updateParams(newParams) {
+    Object.assign(this.params, newParams);
+    this.draw();
+  }
+
+  setAppMode(enabled) {
+    this.appMode = !!enabled;
+    this.draw();
+  }
+
+  resize() {
+    if (!this.canvas || !this.canvas.parentElement) return;
+    const parent = this.canvas.parentElement;
+    const cssW = Math.max(100, parent.clientWidth);
+    const cssH = Math.max(100, parent.clientHeight);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const newW = Math.round(cssW * dpr);
+    const newH = Math.round(cssH * dpr);
+    if (this.canvas.width !== newW || this.canvas.height !== newH) {
+      this.canvas.width = newW;
+      this.canvas.height = newH;
+    }
+  }
+
+  draw() {
+    this.resize();
+    const ctx = this.ctx;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    if (!this.appMode) {
+      ctx.fillStyle = '#0d1420';
+      ctx.fillRect(0, 0, w, h);
+    } else {
+      ctx.fillStyle = 'transparent';
+      ctx.clearRect(0, 0, w, h);
+    }
+
+    this._render(ctx, w, h);
+  }
+
+  _render(ctx, w, h) { /* noop */ }
+
+  _drawMesh(ctx, mesh, options) {
+    const { w, h, scale, originX, originY, baseColorTop, baseColorBottom, faceTopColor, faceBottomColor, lightDir, ambient } = options;
+    const vertices = mesh.vertices;
+    const faces = mesh.faces;
+    if (!vertices || !faces || faces.length === 0) return;
+
+    const cullThreshold = options.cullThreshold !== undefined ? options.cullThreshold : -0.05;
+
+    const projected = new Array(vertices.length);
+    for (let i = 0; i < vertices.length; i++) {
+      const v = vertices[i];
+      const tx = (v.tx !== undefined ? v.tx : v.x);
+      const ty = (v.ty !== undefined ? v.ty : v.y);
+      const tz = (v.tz !== undefined ? v.tz : v.z);
+      projected[i] = { sx: originX + tx * scale, sy: originY + ty * scale, sz: tz, nx: v.nx ?? 0, ny: v.ny ?? 0, nz: v.nz ?? 0, v };
+    }
+
+    const drawList = [];
+    for (let i = 0; i < faces.length; i++) {
+      const f = faces[i];
+      const idxs = f.indices;
+      const nPoints = idxs.length;
+      let avgSz = 0, avgNx = 0, avgNy = 0, avgNz = 0;
+      for (let k = 0; k < nPoints; k++) {
+        const p = projected[idxs[k]];
+        avgSz += p.sz; avgNx += p.nx; avgNy += p.ny; avgNz += p.nz;
+      }
+      avgSz /= nPoints; avgNx /= nPoints; avgNy /= nPoints; avgNz /= nPoints;
+      const nLen = Math.sqrt(avgNx * avgNx + avgNy * avgNy + avgNz * avgNz) || 1;
+
+      if (!f.doubleSided) {
+        const facing = avgNz / nLen;
+        if (facing < cullThreshold) continue;
+      }
+
+      let isTop = false;
+      if (f.isTop !== undefined) { isTop = f.isTop; }
+      else {
+        let origYSum = 0;
+        for (let k = 0; k < nPoints; k++) origYSum += f.vertices[k].y;
+        isTop = (origYSum / nPoints) < 0;
+      }
+
+      let faceWeight = 0;
+      for (let k = 0; k < nPoints; k++) {
+        const vv = f.vertices[k];
+        if (vv && typeof vv.faceWeight === 'number') faceWeight += vv.faceWeight;
+      }
+      faceWeight /= nPoints;
+
+      let base = (isTop ? baseColorTop : baseColorBottom);
+      if (faceWeight > 0.01 && faceTopColor && faceBottomColor) {
+        const faceBase = isTop ? faceTopColor : faceBottomColor;
+        base = _lerpColor(base, faceBase, faceWeight);
+      }
+
+      const lit = _applyLight({ x: avgNx / nLen, y: avgNy / nLen, z: avgNz / nLen }, lightDir, base, ambient);
+
+      const polyPoints = new Array(nPoints);
+      for (let k = 0; k < nPoints; k++) {
+        const p = projected[idxs[k]];
+        polyPoints[k] = [p.sx, p.sy];
+      }
+
+      drawList.push({
+        points: polyPoints, avgZ: avgSz, fill: lit,
+        stroke: this.debugMesh ? 'rgba(255,255,255,0.4)' : null,
+      });
+    }
+
+    drawList.sort((a, b) => a.avgZ - b.avgZ);
+
+    for (let i = 0; i < drawList.length; i++) {
+      const d = drawList[i];
+      ctx.beginPath();
+      const points = d.points;
+      ctx.moveTo(points[0][0], points[0][1]);
+      for (let k = 1; k < points.length; k++) ctx.lineTo(points[k][0], points[k][1]);
+      ctx.closePath();
+      ctx.fillStyle = d.fill;
+      ctx.fill();
+      if (d.stroke) {
+        ctx.strokeStyle = d.stroke;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+    return { projected };
+  }
+
+  _transformVec(x, y, z, rotParams) {
+    const radY = rotParams.angleY * Math.PI / 180;
+    const radX = rotParams.angleX * Math.PI / 180;
+    const radZ = rotParams.angleZ * Math.PI / 180;
+    const cosY = Math.cos(radY), sinY = Math.sin(radY);
+    const cosX = Math.cos(radX), sinX = Math.sin(radX);
+    const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
+
+    let x1 = x * cosZ - y * sinZ;
+    let y1 = x * sinZ + y * cosZ;
+    let z1 = z;
+    let y2 = y1 * cosX - z1 * sinX;
+    let z2 = y1 * sinX + z1 * cosX;
+    let x2 = x1;
+    let x3 = x2 * cosY + z2 * sinY;
+    let z3 = -x2 * sinY + z2 * cosY;
+    let y3 = y2;
+    return { x: x3, y: y3, z: z3 };
+  }
+
+  _transformAnchor(local, rotParams, originX, originY, scale) {
+    const p = this._transformVec(local.x, local.y, local.z, rotParams);
+    const basis = _buildFaceBasis(local);
+    const n = this._transformVec(basis.n.x, basis.n.y, basis.n.z, rotParams);
+    const t = this._transformVec(basis.t.x, basis.t.y, basis.t.z, rotParams);
+    const b = this._transformVec(basis.b.x, basis.b.y, basis.b.z, rotParams);
+    return {
+      worldX: p.x, worldY: p.y, worldZ: p.z,
+      screenX: originX + p.x * scale, screenY: originY + p.y * scale,
+      nx: n.x, ny: n.y, nz: n.z,
+      rightVec: { x: t.x, y: t.y, z: t.z },
+      downVec: { x: b.x, y: b.y, z: b.z },
+      rightLen: Math.sqrt(t.x * t.x + t.y * t.y),
+      downLen: Math.sqrt(b.x * b.x + b.y * b.y),
+    };
+  }
+}
+
+// ---------- 3D 萨卡班甲鱼渲染器 ----------
+const _SPINDLE_DEFAULT_LIGHT_DIR = { x: -0.3, y: -0.5, z: 0.8 };
+const _SPINDLE_DEFAULT_AMBIENT = 0.58;
+
+class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
+  constructor(canvasId, options = {}) {
+    super(canvasId);
+    this._modelOptions = {
+      headX: 70, headY: 58, headZ: 54,
+      bodyLength: 210, bodyEndX: 9, bodyEndY: 5,
+      tailLength: 35, columns: 42, rows: 35,
+      topColor: '#c3b681', bottomColor: '#eee1bc',
+      faceTopColor: '#d1c394', faceBottomColor: '#f4e8c8',
+    };
+    this.spindleMesh = _createSpindleMesh(this._modelOptions);
+    this.baseYaw = 0; this.basePitch = 0; this.baseRoll = 0;
+    this.lightDir = options.lightDir ?? { ..._SPINDLE_DEFAULT_LIGHT_DIR };
+    this.ambient = options.ambient ?? _SPINDLE_DEFAULT_AMBIENT;
+    this._lastYaw = 0; this._yawVelocity = 0; this._tailSway = 0;
+    this._tailSwayDecay = 0.92;
+    this.draw();
+  }
+
+  getAnchors(params) {
+    const mesh = this.spindleMesh;
+    const hx = mesh.headX, hy = mesh.headY;
+    const eyeSpacing = hx * 0.30;
+    const eyeHeight = -hy * 0.28;
+    const mouthHeight = hy * 0.06;
+    const mouthHalfWidth = hx * 0.20;
+    const browOffset = -hy * 0.62;
+    const browSpacing = hx * 0.30;
+    return {
+      leftEye: { bodyT: 0, horizOffset: -eyeSpacing, vertOffset: eyeHeight, surfaceOffset: 0.5 },
+      rightEye: { bodyT: 0, horizOffset: eyeSpacing, vertOffset: eyeHeight, surfaceOffset: 0.5 },
+      mouth: { bodyT: 0, horizOffset: 0, vertOffset: mouthHeight, surfaceOffset: 0.5, mouthWidth: mouthHalfWidth },
+      browLeft: { bodyT: 0, horizOffset: -browSpacing, vertOffset: browOffset, surfaceOffset: 0.8 },
+      browRight: { bodyT: 0, horizOffset: browSpacing, vertOffset: browOffset, surfaceOffset: 0.8 },
+    };
+  }
+
+  _render(ctx, w, h) {
+    const np = _normalizeParams(this.params);
+    const rot = {
+      angleY: np.headYaw + this.baseYaw,
+      angleX: np.headPitch + this.basePitch,
+      angleZ: np.headRoll + this.baseRoll,
+    };
+
+    const currentYaw = np.headYaw;
+    this._yawVelocity = currentYaw - this._lastYaw;
+    this._lastYaw = currentYaw;
+    const maxSway = 15;
+    const swayTarget = -this._yawVelocity * 40;
+    this._tailSway = this._tailSway * this._tailSwayDecay + swayTarget * (1 - this._tailSwayDecay);
+    this._tailSway = Math.max(-maxSway, Math.min(maxSway, this._tailSway));
+    rot.tailSway = this._tailSway;
+
+    const minSide = Math.min(w, h);
+    const headDiameter = this.spindleMesh.headX * 2;
+    const margin = 0.18;
+    const scale = (minSide * (1 - margin * 2)) / headDiameter;
+    const originX = w * 0.5 + (np.headX - 0.5) * minSide * 0.22;
+    const originY = h * 0.48 + (np.headY - 0.5) * minSide * 0.18;
+
+    const renderLightDir = np.lightDir ?? this.lightDir;
+    const renderAmbient = np.ambient ?? this.ambient;
+
+    const deformedBody = _deformSpindle(this.spindleMesh, rot);
+    this._drawMesh(ctx, deformedBody, {
+      w, h, scale, originX, originY,
+      baseColorTop: this.spindleMesh.topColor,
+      baseColorBottom: this.spindleMesh.bottomColor,
+      faceTopColor: this.spindleMesh.faceTopColor,
+      faceBottomColor: this.spindleMesh.bottomColor,
+      lightDir: renderLightDir,
+      cullThreshold: -0.15,
+      ambient: renderAmbient,
+    });
+
+    this._drawFaceFeatures(ctx, np, rot, originX, originY, scale);
+  }
+
+  _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
+    const anchors = this.getAnchors(np);
+    const mesh = this.spindleMesh;
+    const eyeBase = Math.max(8, mesh.headX * 0.25);
+
+    const drawEye = (anchor, openness, eyeWide, eyeSquint, gazeX, gazeY) => {
+      const local = _computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
+      const t = this._transformAnchor(local, rot, originX, originY, scale);
+      const facing = _clamp(t.nz, -0.2, 1.0);
+      if (facing <= 0) return;
+
+      const eyeHalfW = eyeBase * scale;
+      const eyeHalfH = eyeBase * scale;
+      const proj = _computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
+      let rx = Math.max(0.1, proj.radiusX);
+      let ry = Math.max(0.1, proj.radiusY);
+
+      const wideScale = 1 + (eyeWide || 0) * 0.47;
+      rx *= wideScale; ry *= wideScale;
+      const squintScaleY = 1 - (eyeSquint || 0) * 0.55;
+      const squintScaleX = 1 + (eyeSquint || 0) * 0.08;
+      rx *= squintScaleX; ry *= squintScaleY;
+      const ang = proj.angle;
+
+      const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
+      const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
+      const easedClosed = 1 - easedOpen;
+
+      const irisScale = 0.50;
+      const pupilScale = 0.28;
+      const irisR = Math.min(rx, ry) * irisScale;
+      const pupilR2 = Math.min(rx, ry) * pupilScale;
+
+      const maxOffsetX = Math.max(0, rx - irisR) * 0.55;
+      const maxOffsetY = Math.max(0, ry - irisR) * 0.55;
+      const gazeOffsetX = (gazeX || 0) * maxOffsetX;
+      const gazeOffsetY = (gazeY || 0) * maxOffsetY;
+      const irisCX = t.screenX + gazeOffsetX;
+      const irisCY = t.screenY + gazeOffsetY;
+
+      ctx.save();
+      ctx.globalAlpha = facing;
+
+      if (easedOpen < 0.12) {
+        const closedH = ry * 0.08;
+        ctx.beginPath();
+        ctx.moveTo(t.screenX - rx * 0.85, t.screenY);
+        ctx.quadraticCurveTo(t.screenX, t.screenY + closedH, t.screenX + rx * 0.85, t.screenY);
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = Math.max(1.5, 2.5 * scale);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.lineWidth = Math.max(1, 2.0 * scale);
+        ctx.strokeStyle = '#222';
+        ctx.stroke();
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(t.screenX, t.screenY, rx - 1, ry - 1, ang, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.beginPath();
+        ctx.ellipse(irisCX, irisCY, irisR, irisR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#7a6b5c';
+        ctx.globalAlpha = Math.max(0.4, facing) * easedOpen;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(irisCX, irisCY, pupilR2, pupilR2 * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fill();
+        if (easedOpen > 0.5) {
+          const hlX = irisCX + irisR * 0.3;
+          const hlY = irisCY - irisR * 0.3;
+          ctx.beginPath();
+          ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = Math.max(0.3, facing) * 0.7;
+          ctx.fill();
+        }
+        ctx.restore();
+        ctx.globalAlpha = facing;
+      }
+      ctx.restore();
+    };
+
+    const drawBrow = (anchor, raise) => {
+      const local = _computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
+      const t = this._transformAnchor(local, rot, originX, originY, scale);
+      const facing = _clamp(t.nz, 0, 1);
+      if (facing <= 0.05) return;
+      const len = mesh.headX * 0.26 * scale;
+      const upAmt = raise * 8 * scale;
+      ctx.save();
+      ctx.globalAlpha = facing;
+      ctx.strokeStyle = '#2b2b2b';
+      ctx.lineWidth = Math.max(1.5, 2.5 * scale);
+      ctx.beginPath();
+      const left = _mapFaceLocalPoint(t, -len * 0.5, -upAmt);
+      const peak = _mapFaceLocalPoint(t, 0, -upAmt * 1.2);
+      const right = _mapFaceLocalPoint(t, len * 0.5, -upAmt);
+      ctx.moveTo(left.x, left.y);
+      ctx.quadraticCurveTo(peak.x, peak.y, right.x, right.y);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const drawMouth = (anchor, open, smile, mouthFunnel, mouthPress) => {
+      const local = _computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
+      const t = this._transformAnchor(local, rot, originX, originY, scale);
+      const facing = _clamp(t.nz, 0, 1);
+      if (facing <= 0.05) return;
+      const smileWiden = 1 + smile * 0.40;
+      const effectiveOpen = Math.max(0, open - (mouthPress || 0) * 0.3);
+      const funnelNarrow = 1 - (mouthFunnel || 0) * 0.5;
+      const funnelTall = 1 + (mouthFunnel || 0) * 0.8;
+      const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * funnelNarrow;
+      const openH = (3 * scale + 12 * scale * effectiveOpen) * funnelTall;
+      const cornerUp = smile * 3 * scale;
+      const centerDown = smile * 5 * scale + effectiveOpen * openH * 0.5;
+      ctx.save();
+      ctx.globalAlpha = facing;
+      ctx.strokeStyle = '#2b2b2b';
+      ctx.lineWidth = Math.max(1.5, 2.5 * scale);
+
+      if (effectiveOpen < 0.05 && smile < 0.1) {
+        const left = _mapFaceLocalPoint(t, -halfW, cornerUp);
+        const right = _mapFaceLocalPoint(t, halfW, cornerUp);
+        ctx.beginPath();
+        ctx.moveTo(left.x, left.y);
+        ctx.lineTo(right.x, right.y);
+        ctx.stroke();
+      } else if (effectiveOpen < 0.05) {
+        const left = _mapFaceLocalPoint(t, -halfW, cornerUp);
+        const mid = _mapFaceLocalPoint(t, 0, centerDown - 2 * scale);
+        const right = _mapFaceLocalPoint(t, halfW, cornerUp);
+        ctx.beginPath();
+        ctx.moveTo(left.x, left.y);
+        ctx.quadraticCurveTo(mid.x, mid.y, right.x, right.y);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = '#4a2020';
+        const left = _mapFaceLocalPoint(t, -halfW, cornerUp);
+        const topMid = _mapFaceLocalPoint(t, 0, centerDown - openH * 0.85);
+        const right = _mapFaceLocalPoint(t, halfW, cornerUp);
+        const botMid = _mapFaceLocalPoint(t, 0, centerDown + openH * 0.15);
+        ctx.beginPath();
+        ctx.moveTo(left.x, left.y);
+        ctx.quadraticCurveTo(topMid.x, topMid.y, right.x, right.y);
+        ctx.quadraticCurveTo(botMid.x, botMid.y, left.x, left.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    };
+
+    const hx = mesh.headX, hy = mesh.headY;
+    const nostrilHoriz = hx * 0.06;
+    const nostrilVert = -hy * 0.06;
+    const nostrilSize = _computeNostrilSize(hx);
+    const drawNostril = (hSign) => {
+      const local = _computeFaceAnchorXYZ(mesh, 0, nostrilHoriz * hSign, nostrilVert, 0.2);
+      const t = this._transformAnchor(local, rot, originX, originY, scale);
+      const facing = _clamp(t.nz, 0, 1);
+      if (facing <= 0.05) return;
+      ctx.save();
+      ctx.globalAlpha = 0.8 * facing;
+      ctx.beginPath();
+      const halfW = nostrilSize * scale;
+      const halfH = nostrilSize * scale;
+      const proj = _computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, halfW, halfH);
+      ctx.ellipse(t.screenX, t.screenY,
+        Math.max(0.1, proj.radiusX), Math.max(0.1, proj.radiusY),
+        proj.angle, 0, Math.PI * 2);
+      ctx.fillStyle = '#8a7a4a';
+      ctx.fill();
+      ctx.restore();
+    };
+
+    drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY);
+    drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY);
+    drawBrow(anchors.browLeft, np.browLeft);
+    drawBrow(anchors.browRight, np.browRight);
+    drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile, np.mouthFunnel, np.mouthPress);
+    drawNostril(-1);
+    drawNostril(+1);
+  }
 }

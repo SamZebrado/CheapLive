@@ -33,7 +33,7 @@
     <header>
       <h1>CheapLive 面部捕捉原型</h1>
       <p class="subtitle">基于 MediaPipe Face Landmarker - 纯浏览器端运行</p>
-<a href="../contest-demo/contest-interactive-demo.html" class="multi-device-link contest-demo-link">🏆 CheapLive 参赛 Demo / 多端面部捕捉演示</a>
+<a href="../contest-demo/contest-interactive-demo.html" class="multi-device-link contest-demo-link">🏆 CheapLive 参赛 Demo / 3D 互动演示</a>
       <a href="../accessibility-communication/index.html" class="multi-device-link accessibility-link">📝 辅助沟通：字幕 / 手写板</a>
     </header>
 
@@ -453,5 +453,33 @@
         <div id="helpModalBody"></div>
       </div>
     </div>
+
+    <!-- visual history 入口 -->
+    <a href="../visual-history/index.html" class="visual-history-link" target="_blank" rel="noopener">visual history</a>
+    <style>
+      .visual-history-link {
+        position: fixed;
+        left: 10px;
+        bottom: 8px;
+        font-size: 11px;
+        opacity: 0.35;
+        z-index: 999;
+        color: #888;
+        text-decoration: none;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        transition: opacity 0.3s ease;
+        pointer-events: auto;
+      }
+      .visual-history-link:hover {
+        opacity: 0.8;
+      }
+      @media (max-width: 600px) {
+        .visual-history-link {
+          font-size: 10px;
+          left: 8px;
+          bottom: 6px;
+        }
+      }
+    </style>
   </body>
 </html>
