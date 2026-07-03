@@ -1247,18 +1247,69 @@ function updateFaceParamsFromBlendshapes(blendshapes, matrices) {
   state.faceParams.smile = (smileLeft + smileRight) / 2;
   state.faceParams.faceDetected = true;
 
-  // Extract yaw from transformation matrix if available
+  let yawDeg = 0, pitchDeg = 0, rollDeg = 0;
   if (matrices && matrices.length > 0) {
     const m = matrices[0].data;
-    // 4x4 matrix: extract yaw from rotation
-    const yaw = Math.atan2(m[8], m[10]);
-    state.faceParams.yaw = (yaw / Math.PI + 1) / 2; // normalize to 0-1
+    yawDeg = Math.atan2(m[8], m[10]) * 180 / Math.PI;
+    pitchDeg = Math.atan2(-m[9], Math.sqrt(m[1] * m[1] + m[5] * m[5])) * 180 / Math.PI;
+    rollDeg = Math.atan2(m[2], m[10]) * 180 / Math.PI;
   }
+
+  state.faceParams.yaw = Math.max(-1, Math.min(1, yawDeg / 60));
+  state.faceParams.pitch = Math.max(-1, Math.min(1, pitchDeg / 45));
+  state.faceParams.roll = Math.max(-1, Math.min(1, rollDeg / 40));
+
+  _faceFrameActive = true;
+  _faceFrameSource = 'camera';
+  _lastAppliedSeq++;
+  _lastAppliedValues = {
+    yaw: state.faceParams.yaw,
+    pitch: state.faceParams.pitch,
+    roll: state.faceParams.roll,
+    mouthOpen: state.faceParams.mouthOpen,
+    smile: state.faceParams.smile,
+    blink: state.faceParams.blink,
+  };
+
+  const diag = window.__cheapLiveContestAvatarDiag;
+  if (diag) {
+    diag.faceFrameActive = true;
+    diag.frameSource = 'camera';
+    diag.lastAppliedSeq = _lastAppliedSeq;
+    diag.lastCameraFrame = {
+      timestamp: performance.now(),
+      hasFace: true,
+      appliedToAvatar: true,
+      source: 'camera',
+      headYaw: yawDeg,
+      headPitch: pitchDeg,
+      headRoll: rollDeg,
+      mouthOpen: mouthOpen,
+      mouthSmile: state.faceParams.smile,
+      eyeLeft: 1 - blinkLeft,
+      eyeRight: 1 - blinkRight,
+    };
+  }
+
+  if (_frameTimeoutId) clearTimeout(_frameTimeoutId);
+  _frameTimeoutId = setTimeout(() => {
+    _faceFrameActive = false;
+    _faceFrameSource = null;
+    state.faceParams.faceDetected = false;
+    const d = window.__cheapLiveContestAvatarDiag;
+    if (d) {
+      d.faceFrameActive = false;
+      d.frameSource = null;
+    }
+    document.getElementById('faceDetectedVal').textContent = 'false';
+  }, FRAME_IDLE_TIMEOUT_MS);
 
   document.getElementById('faceDetectedVal').textContent = 'true';
   document.getElementById('mouthOpenVal').textContent = mouthOpen.toFixed(2);
   document.getElementById('blinkVal').textContent = Math.max(blinkLeft, blinkRight).toFixed(2);
   document.getElementById('smileVal').textContent = state.faceParams.smile.toFixed(2);
+  const yv = document.getElementById('headYawVal');
+  if (yv) yv.textContent = state.faceParams.yaw.toFixed(2);
 }
 
 function stopFaceTracking() {

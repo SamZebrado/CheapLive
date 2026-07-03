@@ -206,6 +206,7 @@ body {
   flex-direction: column;
   min-height: 400px;
   position: relative;
+  min-width: 0;
 }
 .panel-header {
   padding: 10px 14px;
@@ -241,13 +242,11 @@ body {
   position: relative;
 }
 .avatar-canvas-wrap-inner {
-  /* 强制 1:1：在父容器宽/高中的较小一边内取正方形 */
   aspect-ratio: 1 / 1;
   width: 100%;
-  max-width: min(100%, var(--av-h, 100vh));
+  max-width: min(100%, 520px);
   max-height: 100%;
   position: relative;
-  /* 兜底：父容器高度为 0 时仍能渲染 */
   min-width: 0;
   min-height: 0;
 }
@@ -603,6 +602,23 @@ body {
 .transparent-toggle .check.on {
   border-color: var(--cl-green);
   color: var(--cl-green);
+}
+
+/* ====== Camera Video Hidden ======
+   摄像头视频只用于 MediaPipe 面捕计算，不作为 UI 可见画面显示。
+   保持 video 元素存在但移出屏幕，不占布局空间。 */
+#faceVideo,
+#faceVideoWrap,
+.camera-preview,
+video[data-cheaplive-camera] {
+  position: fixed !important;
+  width: 1px !important;
+  height: 1px !important;
+  left: -9999px !important;
+  top: -9999px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
 }
 
 /* ====== Footer ====== */
