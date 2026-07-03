@@ -33,6 +33,10 @@ let _lastCameraError = null;
 let _lastCameraErrorAt = 0;
 let _realCameraFrameApplied = false;
 let _cameraErrorLogThrottle = 0;
+let _cameraStartedAt = 0;
+let _cameraIdleFallbackReason = null; // 'never-detected' | 'stale-frame' | 'error'
+let _cameraVideoDiag = null; // { currentTime, videoWidth, videoHeight, readyState, tracksLive }
+let _cameraLastDetectDiag = null; // { hasFaceLandmarks, hasFaceBlendshapes, faceBlendshapeCount, faceLandmarkCount }
 const CAMERA_IDLE_FALLBACK_MS = 5000;
 const CAMERA_ERROR_LOG_INTERVAL_MS = 2000;
 
@@ -911,8 +915,20 @@ function simLoop(ts) {
   const _now = ts;
   let _cameraIdleFallback = false;
   if (_faceLandmarker && !_faceFrameActive) {
-    if (_lastCameraFrameAt > 0 && _now - _lastCameraFrameAt > CAMERA_IDLE_FALLBACK_MS) {
+    const elapsed = _cameraStartedAt > 0 ? (_now - _cameraStartedAt) : 0;
+    const staleElapsed = _lastCameraFrameAt > 0 ? (_now - _lastCameraFrameAt) : 0;
+    if (_cameraFrameErrorCount > 0 && _lastCameraError && elapsed > CAMERA_IDLE_FALLBACK_MS) {
+      // Case 3: detectForVideo repeatedly errors (use elapsed since camera start)
       _cameraIdleFallback = true;
+      _cameraIdleFallbackReason = 'error';
+    } else if (_lastCameraFrameAt > 0 && staleElapsed > CAMERA_IDLE_FALLBACK_MS) {
+      // Case 2: previously detected face, but now stale
+      _cameraIdleFallback = true;
+      _cameraIdleFallbackReason = 'stale-frame';
+    } else if (_lastCameraFrameAt === 0 && elapsed > CAMERA_IDLE_FALLBACK_MS) {
+      // Case 1: camera opened but never detected any face
+      _cameraIdleFallback = true;
+      _cameraIdleFallbackReason = 'never-detected';
     }
   }
   if ((!_faceLandmarker && !_faceFrameActive) || _cameraIdleFallback) {
@@ -936,13 +952,17 @@ function simLoop(ts) {
     diag.lastAppliedSeq = _lastAppliedSeq;
     diag.lastAppliedFrame = _lastAppliedFrame;
     diag.lastAppliedValues = _lastAppliedValues;
+    diag.cameraStartedAt = _cameraStartedAt;
     diag.lastCameraFrameAt = _lastCameraFrameAt;
     diag.cameraFrameErrorCount = _cameraFrameErrorCount;
     diag.lastCameraError = _lastCameraError;
     diag.lastCameraErrorAt = _lastCameraErrorAt;
     diag.realCameraFrameApplied = _realCameraFrameApplied;
     diag.cameraIdleFallback = _cameraIdleFallback;
+    diag.cameraIdleFallbackReason = _cameraIdleFallbackReason;
     diag.cameraIdleFallbackMs = CAMERA_IDLE_FALLBACK_MS;
+    diag.cameraVideoDiag = _cameraVideoDiag;
+    diag.cameraLastDetectDiag = _cameraLastDetectDiag;
   }
 
   // Draw avatar on main canvas
@@ -1316,6 +1336,11 @@ async function startFaceTracking() {
     btn.textContent = '停止面捕';
     btn.disabled = false;
 
+    _cameraStartedAt = performance.now();
+    _cameraIdleFallbackReason = null;
+    _realCameraFrameApplied = false;
+    _lastCameraFrameAt = 0;
+
     startFaceDetectionLoop(video);
 
   } catch (err) {
@@ -1332,37 +1357,111 @@ async function startFaceTracking() {
 function startFaceDetectionLoop(video) {
   let lastTime = -1;
   let lastCameraFrameStatus = 'waiting';
+  let _diagLogThrottle = 0;
+
   function loop() {
     if (!_faceLandmarker || !_faceVideoStream) return;
+
+    // Real camera chain diagnostics: capture video state every frame
+    // to diagnose why realCameraFrameApplied might stay false
+    const videoDiag = {
+      currentTime: video.currentTime,
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      readyState: video.readyState,
+      networkState: video.networkState,
+      paused: video.paused,
+      ended: video.ended,
+      tracksLive: _faceVideoStream ? _faceVideoStream.getVideoTracks().map(t => t.readyState) : [],
+      tracksEnabled: _faceVideoStream ? _faceVideoStream.getVideoTracks().map(t => t.enabled) : [],
+    };
+    _cameraVideoDiag = videoDiag;
+
     if (video.currentTime !== lastTime) {
       lastTime = video.currentTime;
+      let detectResults = null;
+      let detectError = null;
       try {
-        const results = _faceLandmarker.detectForVideo(video, performance.now());
-        if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
-          updateFaceParamsFromBlendshapes(results.faceBlendshapes[0], results.facialTransformationMatrixes);
-          _lastCameraFrameAt = performance.now();
-          _realCameraFrameApplied = true;
-          _cameraFrameErrorCount = 0;
-          lastCameraFrameStatus = 'ok';
-        } else {
-          lastCameraFrameStatus = 'no-face';
-        }
+        detectResults = _faceLandmarker.detectForVideo(video, performance.now());
       } catch (e) {
+        detectError = e;
+      }
+
+      // Deep diagnostics of detectForVideo results structure
+      if (detectResults) {
+        const hasLandmarks = !!(detectResults.faceLandmarks && detectResults.faceLandmarks.length > 0);
+        const hasBlendshapes = !!(detectResults.faceBlendshapes && detectResults.faceBlendshapes.length > 0);
+        _cameraLastDetectDiag = {
+          hasFaceLandmarks: hasLandmarks,
+          hasFaceBlendshapes: hasBlendshapes,
+          faceLandmarkCount: detectResults.faceLandmarks ? detectResults.faceLandmarks.length : 0,
+          faceBlendshapeCount: detectResults.faceBlendshapes ? detectResults.faceBlendshapes.length : 0,
+          hasTransformationMatrices: !!(detectResults.facialTransformationMatrixes && detectResults.facialTransformationMatrixes.length > 0),
+        };
+      } else {
+        _cameraLastDetectDiag = {
+          hasFaceLandmarks: false,
+          hasFaceBlendshapes: false,
+          faceLandmarkCount: 0,
+          faceBlendshapeCount: 0,
+          hasTransformationMatrices: false,
+          detectError: detectError ? (detectError.message || String(detectError)) : null,
+        };
+      }
+
+      if (detectError) {
         const now = performance.now();
         _cameraFrameErrorCount++;
-        _lastCameraError = (e && e.message) ? e.message : String(e);
+        _lastCameraError = (detectError && detectError.message) ? detectError.message : String(detectError);
         _lastCameraErrorAt = now;
         if (now - _cameraErrorLogThrottle > CAMERA_ERROR_LOG_INTERVAL_MS) {
           _cameraErrorLogThrottle = now;
           console.warn('[CheapLiveFaceTracking] detectForVideo error (x' + _cameraFrameErrorCount + '):', _lastCameraError);
         }
         lastCameraFrameStatus = 'error';
+      } else if (detectResults.faceBlendshapes && detectResults.faceBlendshapes.length > 0) {
+        updateFaceParamsFromBlendshapes(detectResults.faceBlendshapes[0], detectResults.facialTransformationMatrixes);
+        _lastCameraFrameAt = performance.now();
+        _realCameraFrameApplied = true;
+        _cameraFrameErrorCount = 0;
+        _cameraIdleFallbackReason = null;
+        lastCameraFrameStatus = 'ok';
+      } else {
+        lastCameraFrameStatus = 'no-face';
       }
+
+      // Update status text with honest, specific messaging
       const statusEl = document.getElementById('faceCamStatus');
-      if (statusEl && lastCameraFrameStatus === 'error') {
-        statusEl.textContent = '面捕帧错误（x' + _cameraFrameErrorCount + '）/ 正在重试...';
-      } else if (statusEl && lastCameraFrameStatus === 'no-face') {
-        statusEl.textContent = '面捕运行中（未检测到人脸）';
+      if (statusEl) {
+        if (lastCameraFrameStatus === 'ok') {
+          statusEl.textContent = '面捕运行中 · 已检测到人脸';
+        } else if (lastCameraFrameStatus === 'no-face') {
+          // Check if video actually has frames
+          const hasVideo = videoDiag.videoWidth > 0 && videoDiag.videoHeight > 0 && videoDiag.currentTime > 0;
+          if (!hasVideo) {
+            statusEl.textContent = '摄像头已打开 · 等待视频画面（videoWidth=' + videoDiag.videoWidth + '）';
+          } else if (!videoDiag.tracksLive.includes('live')) {
+            statusEl.textContent = '摄像头 track 未 live（' + JSON.stringify(videoDiag.tracksLive) + '）';
+          } else {
+            statusEl.textContent = '面捕运行中 · 未检测到人脸（视频正常，请对准人脸）';
+          }
+        } else if (lastCameraFrameStatus === 'error') {
+          statusEl.textContent = '面捕帧错误（x' + _cameraFrameErrorCount + '）：' + (_lastCameraError || '').slice(0, 60);
+        }
+      }
+
+      // Log full diagnostics every 3s
+      const now = performance.now();
+      if (now - _diagLogThrottle > 3000) {
+        _diagLogThrottle = now;
+        console.log('[CheapLiveFaceTracking diag]', {
+          video: videoDiag,
+          detect: _cameraLastDetectDiag,
+          realCameraFrameApplied: _realCameraFrameApplied,
+          lastCameraFrameAt: _lastCameraFrameAt,
+          cameraStartedAt: _cameraStartedAt,
+          cameraFrameErrorCount: _cameraFrameErrorCount,
+        });
       }
     }
     _faceDetectRAF = requestAnimationFrame(loop);
@@ -1463,6 +1562,15 @@ function stopFaceTracking() {
     _faceVideoStream = null;
   }
   _faceLandmarker = null;
+  _cameraStartedAt = 0;
+  _lastCameraFrameAt = 0;
+  _cameraFrameErrorCount = 0;
+  _lastCameraError = null;
+  _lastCameraErrorAt = 0;
+  _realCameraFrameApplied = false;
+  _cameraIdleFallbackReason = null;
+  _cameraVideoDiag = null;
+  _cameraLastDetectDiag = null;
   const btn = document.getElementById('faceCamBtn');
   const status = document.getElementById('faceCamStatus');
   const videoWrap = document.getElementById('faceVideoWrap');
