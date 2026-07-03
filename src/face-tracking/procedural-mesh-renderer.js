@@ -1127,9 +1127,14 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
 
       const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * funnelNarrow;
       const openH = (3 * scale + 12 * scale * effectiveOpen) * funnelTall;
-      // 微笑：嘴角上扬但上边缘不上升，只向下延伸
+      // 微笑：嘴角上扬（cornerUp），整体微下移（centerDown）
+      // centerDown 不再包含 openH 分量，避免张嘴时整体下移
       const cornerUp = smile * 3 * scale;
-      const centerDown = smile * 5 * scale + effectiveOpen * openH * 0.5;
+      const centerDown = smile * 2 * scale;
+      // 上唇几乎不动（<= openH 的 12%），下唇主导（>= openH 的 80%）
+      // 要求：上唇位移 <= 下唇位移的 15-20%
+      const upperLift = openH * 0.12;
+      const lowerDrop = openH * 0.80;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
@@ -1144,7 +1149,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.stroke();
       } else if (effectiveOpen < 0.05) {
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
-        const mid = mapFaceLocalPoint(t, 0, centerDown - 2 * scale);
+        const mid = mapFaceLocalPoint(t, 0, centerDown + openH * 0.3);
         const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
@@ -1153,9 +1158,9 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       } else {
         ctx.fillStyle = '#4a2020';
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
-        const topMid = mapFaceLocalPoint(t, 0, centerDown - openH * 0.85);
+        const topMid = mapFaceLocalPoint(t, 0, centerDown - upperLift);
         const right = mapFaceLocalPoint(t, halfW, cornerUp);
-        const botMid = mapFaceLocalPoint(t, 0, centerDown + openH * 0.15);
+        const botMid = mapFaceLocalPoint(t, 0, centerDown + lowerDrop);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
         ctx.quadraticCurveTo(topMid.x, topMid.y, right.x, right.y);
