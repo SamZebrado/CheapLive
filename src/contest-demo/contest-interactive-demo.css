@@ -466,6 +466,10 @@ body {
 .btn-ghost { background: transparent; color: var(--cl-text-dim); border: 1px solid var(--cl-border); }
 .btn-ghost:hover { background: var(--cl-bg3); }
 .btn-sm { padding: 5px 12px; font-size: 11px; }
+.btn-xs { padding: 3px 8px; font-size: 10px; }
+.voice-preset-btn { background: var(--cl-bg2); color: var(--cl-text-dim); border: 1px solid var(--cl-border); border-radius: 4px; cursor: pointer; transition: all 0.15s; }
+.voice-preset-btn:hover { background: var(--cl-bg3); color: var(--cl-text); }
+.voice-preset-btn.selected { background: var(--cl-blue); color: #fff; border-color: var(--cl-blue); }
 .btn-close {
   position: absolute;
   top: 12px; right: 12px;

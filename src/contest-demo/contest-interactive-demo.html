@@ -93,6 +93,14 @@
           <div class="mini-toggle" id="voiceToggle" onclick="toggleVoice()"></div>
         </div>
         <div class="field"><span>当前预设</span><span class="val" id="voicePresetDisplay" style="color:var(--cl-text-muted)">原声</span></div>
+        <div style="font-size:10px;color:var(--cl-text-muted);padding-bottom:4px;">演示预设（变声端到端待接入）</div>
+        <div id="voicePresetBtns" style="display:flex;flex-wrap:wrap;gap:4px;padding-bottom:6px;">
+          <button class="btn btn-xs voice-preset-btn selected" data-preset="original" onclick="selectVoicePreset('original', this)">原声</button>
+          <button class="btn btn-xs voice-preset-btn" data-preset="cute" onclick="selectVoicePreset('cute', this)">可爱</button>
+          <button class="btn btn-xs voice-preset-btn" data-preset="robot" onclick="selectVoicePreset('robot', this)">机器人</button>
+          <button class="btn btn-xs voice-preset-btn" data-preset="deep" onclick="selectVoicePreset('deep', this)">低沉</button>
+          <button class="btn btn-xs voice-preset-btn" data-preset="radio" onclick="selectVoicePreset('radio', this)">电台</button>
+        </div>
         <div class="toggle-row" style="margin-top:6px;">
           <label>本地监听</label>
           <button class="btn btn-ghost btn-sm" id="monitorBtn" onclick="toggleMicMonitor()">监听麦克风</button>

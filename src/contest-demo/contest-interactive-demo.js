@@ -27,6 +27,15 @@ let _idleActive = true;
 let _frameTimeoutId = null;
 const FRAME_IDLE_TIMEOUT_MS = 3000;
 
+let _lastCameraFrameAt = 0;
+let _cameraFrameErrorCount = 0;
+let _lastCameraError = null;
+let _lastCameraErrorAt = 0;
+let _realCameraFrameApplied = false;
+let _cameraErrorLogThrottle = 0;
+const CAMERA_IDLE_FALLBACK_MS = 5000;
+const CAMERA_ERROR_LOG_INTERVAL_MS = 2000;
+
 const VOICE_PRESETS = [
   { id: 'original', name: '原声' },
   { id: 'cute', name: '可爱' },
@@ -898,7 +907,15 @@ function simLoop(ts) {
 
   // Simulate face params (only when real face tracking is NOT running
   // AND no mock/real face frame is active)
-  if (!_faceLandmarker && !_faceFrameActive) {
+  // If camera was opened but no real frame in CAMERA_IDLE_FALLBACK_MS, fall back to idle
+  const _now = ts;
+  let _cameraIdleFallback = false;
+  if (_faceLandmarker && !_faceFrameActive) {
+    if (_lastCameraFrameAt > 0 && _now - _lastCameraFrameAt > CAMERA_IDLE_FALLBACK_MS) {
+      _cameraIdleFallback = true;
+    }
+  }
+  if ((!_faceLandmarker && !_faceFrameActive) || _cameraIdleFallback) {
     _idleActive = true;
     state.faceParams.mouthOpen = 0.5 + 0.5 * Math.sin(simTime * 1.2);
     state.faceParams.blink = Math.max(0, Math.sin(simTime * 3) > 0.95 ? 1 : 0);
@@ -919,6 +936,13 @@ function simLoop(ts) {
     diag.lastAppliedSeq = _lastAppliedSeq;
     diag.lastAppliedFrame = _lastAppliedFrame;
     diag.lastAppliedValues = _lastAppliedValues;
+    diag.lastCameraFrameAt = _lastCameraFrameAt;
+    diag.cameraFrameErrorCount = _cameraFrameErrorCount;
+    diag.lastCameraError = _lastCameraError;
+    diag.lastCameraErrorAt = _lastCameraErrorAt;
+    diag.realCameraFrameApplied = _realCameraFrameApplied;
+    diag.cameraIdleFallback = _cameraIdleFallback;
+    diag.cameraIdleFallbackMs = CAMERA_IDLE_FALLBACK_MS;
   }
 
   // Draw avatar on main canvas
@@ -983,6 +1007,20 @@ function toggleVoice() {
   state.voiceOn = !state.voiceOn;
   document.getElementById('voiceToggle').classList.toggle('on', state.voiceOn);
   document.getElementById('voicePresetDisplay').textContent = state.voiceOn ? VOICE_PRESETS.find(v => v.id === state.voicePreset).name : '原声';
+}
+
+function selectVoicePreset(presetId, el) {
+  if (!VOICE_PRESETS.find(v => v.id === presetId)) return;
+  state.voicePreset = presetId;
+  document.getElementById('voicePresetDisplay').textContent = state.voiceOn ? VOICE_PRESETS.find(v => v.id === presetId).name : '原声';
+  document.querySelectorAll('.voice-preset-btn').forEach(b => b.classList.remove('selected'));
+  if (el) el.classList.add('selected');
+  document.querySelectorAll('.voice-preset-btn').forEach(b => {
+    b.classList.toggle('selected', b.dataset.preset === presetId);
+  });
+  if (typeof _voiceAdapter !== 'undefined' && _voiceAdapter && _voiceAdapter.setPreset) {
+    try { _voiceAdapter.setPreset(presetId); } catch (_) {}
+  }
 }
 
 function selectAvatar(avatar, el) {
@@ -1293,6 +1331,7 @@ async function startFaceTracking() {
 
 function startFaceDetectionLoop(video) {
   let lastTime = -1;
+  let lastCameraFrameStatus = 'waiting';
   function loop() {
     if (!_faceLandmarker || !_faceVideoStream) return;
     if (video.currentTime !== lastTime) {
@@ -1301,8 +1340,30 @@ function startFaceDetectionLoop(video) {
         const results = _faceLandmarker.detectForVideo(video, performance.now());
         if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
           updateFaceParamsFromBlendshapes(results.faceBlendshapes[0], results.facialTransformationMatrixes);
+          _lastCameraFrameAt = performance.now();
+          _realCameraFrameApplied = true;
+          _cameraFrameErrorCount = 0;
+          lastCameraFrameStatus = 'ok';
+        } else {
+          lastCameraFrameStatus = 'no-face';
         }
-      } catch (e) { /* ignore per-frame errors */ }
+      } catch (e) {
+        const now = performance.now();
+        _cameraFrameErrorCount++;
+        _lastCameraError = (e && e.message) ? e.message : String(e);
+        _lastCameraErrorAt = now;
+        if (now - _cameraErrorLogThrottle > CAMERA_ERROR_LOG_INTERVAL_MS) {
+          _cameraErrorLogThrottle = now;
+          console.warn('[CheapLiveFaceTracking] detectForVideo error (x' + _cameraFrameErrorCount + '):', _lastCameraError);
+        }
+        lastCameraFrameStatus = 'error';
+      }
+      const statusEl = document.getElementById('faceCamStatus');
+      if (statusEl && lastCameraFrameStatus === 'error') {
+        statusEl.textContent = '面捕帧错误（x' + _cameraFrameErrorCount + '）/ 正在重试...';
+      } else if (statusEl && lastCameraFrameStatus === 'no-face') {
+        statusEl.textContent = '面捕运行中（未检测到人脸）';
+      }
     }
     _faceDetectRAF = requestAnimationFrame(loop);
   }
