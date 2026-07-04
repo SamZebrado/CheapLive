@@ -119,6 +119,17 @@
     return true;
   };
 
+  window.setContestFishAvatarTransparentMode = function setContestFishAvatarTransparentMode(canvasIdOrCanvas, enabled) {
+    const canvasId =
+      typeof canvasIdOrCanvas === 'string' ? canvasIdOrCanvas : canvasIdOrCanvas.id;
+    const inst = _instances.get(canvasId);
+    if (!inst) return false;
+    if (typeof inst.setTransparentMode === 'function') {
+      inst.setTransparentMode(enabled);
+    }
+    return true;
+  };
+
   window.destroyContestFishAvatar = function destroyContestFishAvatar(canvasIdOrCanvas) {
     const canvasId =
       typeof canvasIdOrCanvas === 'string' ? canvasIdOrCanvas : canvasIdOrCanvas.id;

@@ -330,7 +330,9 @@ body {
 }
 /* Floating window mode states */
 .floating-window.fw-display-mode {
-  opacity: 0.6;
+  opacity: 0.85;
+}
+.floating-window.fw-display-mode .fw-content {
   pointer-events: none;
 }
 .floating-window.fw-display-mode .fw-top-bar {

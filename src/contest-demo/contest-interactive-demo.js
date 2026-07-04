@@ -852,6 +852,36 @@ function initFWAvatarCanvas() {
 
 // ====== FLOATING WINDOW ======
 let fwDragging = false, fwResizing = false, fwOffX = 0, fwOffY = 0, fwStartW = 0, fwStartH = 0;
+window.__cheapLiveContestFloatingDiag = {
+  mode: 'edit',
+  transparentModeActive: false,
+  fwCanvasTransparent: false,
+  pointerEvents: 'auto',
+  width: 200,
+  height: 200,
+  left: 0,
+  top: 0,
+  resizeActive: false,
+  dragActive: false,
+  lastModeToggleAt: 0,
+  lastResizeAt: 0,
+  lastDragAt: 0,
+};
+
+function _updateFloatingDiag() {
+  const diag = window.__cheapLiveContestFloatingDiag;
+  const fw = document.getElementById('floatingWindow');
+  diag.mode = state.floatingMode;
+  diag.transparentModeActive = state.floatingMode === 'display';
+  diag.fwCanvasTransparent = state.floatingMode === 'display';
+  diag.pointerEvents = state.floatingMode === 'display' ? 'fw-content: none, button: auto' : 'auto';
+  diag.width = fw ? fw.offsetWidth : 0;
+  diag.height = fw ? fw.offsetHeight : 0;
+  diag.left = fw ? fw.offsetLeft : 0;
+  diag.top = fw ? fw.offsetTop : 0;
+  diag.resizeActive = fwResizing;
+  diag.dragActive = fwDragging;
+}
 
 function initFloatingWindow() {
   const fw = document.getElementById('floatingWindow');
@@ -878,7 +908,7 @@ function initFloatingWindow() {
   }, { passive: false });
 
   resize.addEventListener('mousedown', e => {
-    if (state.floatingMode !== 'edit') return; // 显示模式下不允许缩放
+    if (state.floatingMode !== 'edit') return;
     fwResizing = true;
     fwStartW = fw.offsetWidth;
     fwStartH = fw.offsetHeight;
@@ -886,6 +916,16 @@ function initFloatingWindow() {
     fwOffY = e.clientY;
     e.preventDefault();
   });
+  resize.addEventListener('touchstart', e => {
+    if (state.floatingMode !== 'edit') return;
+    fwResizing = true;
+    fwStartW = fw.offsetWidth;
+    fwStartH = fw.offsetHeight;
+    const t = e.touches[0];
+    fwOffX = t.clientX;
+    fwOffY = t.clientY;
+    e.preventDefault();
+  }, { passive: false });
 
   document.addEventListener('mousemove', onFWMove);
   document.addEventListener('touchmove', onFWMoveTouch, { passive: false });
@@ -968,6 +1008,7 @@ function onFWMove(e) {
     fw.style.top = (e.clientY - fwOffY) + 'px';
     fw.style.right = 'auto';
     fw.style.bottom = 'auto';
+    window.__cheapLiveContestFloatingDiag.lastDragAt = performance.now();
   }
   if (fwResizing) {
     const w = Math.max(100, fwStartW + e.clientX - fwOffX);
@@ -976,7 +1017,9 @@ function onFWMove(e) {
     fw.style.height = h + 'px';
     const c = document.getElementById('fwAvatarCanvas');
     c.width = w; c.height = h - 22;
+    window.__cheapLiveContestFloatingDiag.lastResizeAt = performance.now();
   }
+  _updateFloatingDiag();
 }
 
 function onFWMoveTouch(e) {
@@ -989,6 +1032,15 @@ function onFWMoveTouch(e) {
     fw.style.top = (t.clientY - fwOffY) + 'px';
     fw.style.right = 'auto';
     fw.style.bottom = 'auto';
+  }
+  if (fwResizing) {
+    const w = Math.max(100, fwStartW + t.clientX - fwOffX);
+    const h = Math.max(100, fwStartH + t.clientY - fwOffY);
+    fw.style.width = w + 'px';
+    fw.style.height = h + 'px';
+    const c = document.getElementById('fwAvatarCanvas');
+    c.width = w; c.height = h - 22;
+    _updateFloatingDiag();
   }
 }
 
@@ -1224,7 +1276,6 @@ function toggleDrawMode() {
 }
 
 function toggleFloatingMode() {
-  // If user was dragging the button (not clicking), skip toggle
   if (modeBtnMoved) { modeBtnMoved = false; return; }
 
   const isEdit = state.floatingMode === 'edit';
@@ -1234,7 +1285,6 @@ function toggleFloatingMode() {
   const btn = document.getElementById('fwModeBtn');
   const status = document.getElementById('fwStatusText');
 
-  // Clear any active drag/resize state
   fwDragging = false;
   fwResizing = false;
 
@@ -1245,10 +1295,18 @@ function toggleFloatingMode() {
   if (state.floatingMode === 'edit') {
     btn.textContent = '编辑';
     status.textContent = '悬浮窗：编辑模式 · 可拖动/缩放/交互';
+    if (typeof window.setContestFishAvatarTransparentMode === 'function') {
+      window.setContestFishAvatarTransparentMode('fwAvatarCanvas', false);
+    }
   } else {
     btn.textContent = '显示';
     status.textContent = '悬浮窗：显示模式 · 触摸穿透 · 底层可触控';
+    if (typeof window.setContestFishAvatarTransparentMode === 'function') {
+      window.setContestFishAvatarTransparentMode('fwAvatarCanvas', true);
+    }
   }
+  window.__cheapLiveContestFloatingDiag.lastModeToggleAt = performance.now();
+  _updateFloatingDiag();
 }
 
 // ====== GUIDE ======
@@ -1964,24 +2022,18 @@ function toggleMicMonitor() {
   const btn = document.getElementById('monitorBtn');
   const status = document.getElementById('monitorStatus');
 
-  if (_monitorAudioContext) {
-    // Stop monitoring
-    if (_monitorSource) { try { _monitorSource.disconnect(); } catch(e) {} _monitorSource = null; }
-    if (_monitorStream) { _monitorStream.getTracks().forEach(t => t.stop()); _monitorStream = null; }
-    if (_monitorAudioContext) { _monitorAudioContext.close(); _monitorAudioContext = null; }
+  if (_voiceAdapter.monitorActive) {
+    _voiceAdapter.setMonitorActive(false);
     btn.textContent = '监听麦克风';
     status.textContent = '监听已关闭';
     status.style.color = 'var(--cl-text-muted)';
     return;
   }
 
-  // Start monitoring - route mic input to speakers for local monitoring
   navigator.mediaDevices.getUserMedia({ audio: true })
     .then(stream => {
-      _monitorStream = stream;
-      _monitorAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-      _monitorSource = _monitorAudioContext.createMediaStreamSource(stream);
-      _monitorSource.connect(_monitorAudioContext.destination);
+      _voiceAdapter.start(stream);
+      _voiceAdapter.setMonitorActive(true);
       btn.textContent = '停止监听';
       status.textContent = '监听中...';
       status.style.color = 'var(--cl-green)';
@@ -1989,8 +2041,6 @@ function toggleMicMonitor() {
     .catch(err => {
       status.textContent = '监听失败: ' + (err.message || '无法访问麦克风');
       status.style.color = '#ff6b6b';
-      if (_monitorStream) { _monitorStream.getTracks().forEach(t => t.stop()); _monitorStream = null; }
-      if (_monitorAudioContext) { _monitorAudioContext.close(); _monitorAudioContext = null; }
     });
 }
 
@@ -2503,6 +2553,7 @@ class _ProceduralMeshRenderer {
     };
     this.mirror = true;
     this.appMode = false;
+    this.transparentMode = false;
     this.debugMesh = false;
     this._resizeHandler = () => this.resize();
     window.addEventListener('resize', this._resizeHandler);
@@ -2539,15 +2590,25 @@ class _ProceduralMeshRenderer {
     const h = this.canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    if (!this.appMode) {
+    if (!this.appMode && !this.transparentMode) {
       ctx.fillStyle = '#0d1420';
       ctx.fillRect(0, 0, w, h);
-    } else {
-      ctx.fillStyle = 'transparent';
-      ctx.clearRect(0, 0, w, h);
+    } else if (this.appMode && !this.transparentMode) {
+      ctx.fillStyle = '#F7F5EE';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#888888';
+      ctx.font = '14px monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('#F7F5EE', 10, 20);
     }
 
     this._render(ctx, w, h);
+  }
+
+  setTransparentMode(enabled) {
+    this.transparentMode = !!enabled;
+    this.draw();
   }
 
   _render(ctx, w, h) { /* noop */ }
@@ -2954,3 +3015,258 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
     drawNostril(+1);
   }
 }
+
+// ====== VOICE ADAPTER (WebAudio Voice Effects) ======
+const VOICE_PRESET_CONFIGS = {
+  original: {
+    name: '原声',
+    filterType: 'allpass',
+    filterFreq: 1000,
+    filterQ: 1,
+    gain: 1,
+    pitchShift: 0,
+    delayTime: 0,
+    delayFeedback: 0,
+    compressorThreshold: -24,
+    compressorRatio: 1,
+    waveShaperAmount: 0,
+  },
+  cute: {
+    name: '可爱',
+    filterType: 'highshelf',
+    filterFreq: 1500,
+    filterQ: 1,
+    filterGain: 12,
+    gain: 1.2,
+    pitchShift: 1.5,
+    delayTime: 0,
+    delayFeedback: 0,
+    compressorThreshold: -30,
+    compressorRatio: 4,
+    waveShaperAmount: 0.3,
+  },
+  robot: {
+    name: '机器人',
+    filterType: 'bandpass',
+    filterFreq: 800,
+    filterQ: 2.5,
+    filterGain: 0,
+    gain: 0.9,
+    pitchShift: 0.6,
+    delayTime: 0.08,
+    delayFeedback: 0.4,
+    compressorThreshold: -18,
+    compressorRatio: 12,
+    waveShaperAmount: 0.5,
+  },
+  deep: {
+    name: '低沉',
+    filterType: 'lowshelf',
+    filterFreq: 600,
+    filterQ: 1,
+    filterGain: 8,
+    gain: 1.1,
+    pitchShift: 0.65,
+    delayTime: 0,
+    delayFeedback: 0,
+    compressorThreshold: -20,
+    compressorRatio: 3,
+    waveShaperAmount: 0.2,
+  },
+  radio: {
+    name: '电台',
+    filterType: 'bandpass',
+    filterFreq: 1200,
+    filterQ: 1.5,
+    filterGain: 5,
+    gain: 1.0,
+    pitchShift: 0.9,
+    delayTime: 0.15,
+    delayFeedback: 0.3,
+    compressorThreshold: -15,
+    compressorRatio: 8,
+    waveShaperAmount: 0.4,
+  },
+};
+
+class VoiceAdapter {
+  constructor() {
+    this.audioContext = null;
+    this.source = null;
+    this.stream = null;
+    this.filter = null;
+    this.gain = null;
+    this.delay = null;
+    this.delayFeedback = null;
+    this.delayGain = null;
+    this.compressor = null;
+    this.waveShaper = null;
+    this.pitchOsc = null;
+    this.pitchGain = null;
+    this.currentPreset = 'original';
+    this.monitorActive = false;
+    this._diag = window.__cheapLiveContestVoiceDiag = {
+      audioContextState: 'closed',
+      micStreamActive: false,
+      monitorActive: false,
+      selectedPreset: 'original',
+      processedChainActive: false,
+      nodesConnected: false,
+      presetParams: null,
+      lastPresetAppliedAt: 0,
+      outputAnalysisByPreset: {},
+    };
+  }
+
+  async start(stream) {
+    if (this.audioContext) this.stop();
+
+    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    this.stream = stream;
+    this.source = this.audioContext.createMediaStreamSource(stream);
+
+    this.filter = this.audioContext.createBiquadFilter();
+    this.gain = this.audioContext.createGain();
+    this.delay = this.audioContext.createDelay(0.5);
+    this.delayFeedback = this.audioContext.createGain();
+    this.delayGain = this.audioContext.createGain();
+    this.compressor = this.audioContext.createDynamicsCompressor();
+    this.waveShaper = this.audioContext.createWaveShaper();
+
+    this.waveShaper.curve = this._makeWaveShaperCurve(0);
+
+    this.source.connect(this.filter);
+    this.filter.connect(this.compressor);
+    this.compressor.connect(this.waveShaper);
+    this.waveShaper.connect(this.delay);
+    this.waveShaper.connect(this.gain);
+    this.delay.connect(this.delayGain);
+    this.delay.connect(this.delayFeedback);
+    this.delayFeedback.connect(this.delay);
+    this.delayGain.connect(this.gain);
+    this.gain.connect(this.audioContext.destination);
+
+    this._updateDiag();
+    this.setPreset(this.currentPreset);
+  }
+
+  stop() {
+    if (this.source) { try { this.source.disconnect(); } catch(e) {} this.source = null; }
+    if (this.filter) { try { this.filter.disconnect(); } catch(e) {} this.filter = null; }
+    if (this.gain) { try { this.gain.disconnect(); } catch(e) {} this.gain = null; }
+    if (this.delay) { try { this.delay.disconnect(); } catch(e) {} this.delay = null; }
+    if (this.delayFeedback) { try { this.delayFeedback.disconnect(); } catch(e) {} this.delayFeedback = null; }
+    if (this.delayGain) { try { this.delayGain.disconnect(); } catch(e) {} this.delayGain = null; }
+    if (this.compressor) { try { this.compressor.disconnect(); } catch(e) {} this.compressor = null; }
+    if (this.waveShaper) { try { this.waveShaper.disconnect(); } catch(e) {} this.waveShaper = null; }
+    if (this.pitchOsc) { try { this.pitchOsc.stop(); this.pitchOsc.disconnect(); } catch(e) {} this.pitchOsc = null; }
+    if (this.pitchGain) { try { this.pitchGain.disconnect(); } catch(e) {} this.pitchGain = null; }
+    if (this.audioContext) { this.audioContext.close(); this.audioContext = null; }
+    if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; }
+    this.monitorActive = false;
+    this._updateDiag();
+  }
+
+  setPreset(presetId) {
+    const config = VOICE_PRESET_CONFIGS[presetId];
+    if (!config) return;
+
+    this.currentPreset = presetId;
+
+    if (!this.audioContext) {
+      this._updateDiag();
+      return;
+    }
+
+    this.filter.type = config.filterType;
+    this.filter.frequency.value = config.filterFreq;
+    this.filter.Q.value = config.filterQ;
+    if (config.filterGain !== undefined) {
+      this.filter.gain.value = config.filterGain;
+    }
+
+    this.gain.gain.value = config.gain;
+
+    this.delay.delayTime.value = config.delayTime;
+    this.delayFeedback.gain.value = config.delayFeedback;
+    this.delayGain.gain.value = config.delayTime > 0 ? 0.3 : 0;
+
+    this.compressor.threshold.value = config.compressorThreshold;
+    this.compressor.ratio.value = config.compressorRatio;
+    this.compressor.knee.value = 30;
+    this.compressor.attack.value = 0.003;
+    this.compressor.release.value = 0.25;
+
+    this.waveShaper.curve = this._makeWaveShaperCurve(config.waveShaperAmount);
+
+    if (config.pitchShift !== 1 && config.pitchShift !== 0) {
+      this._applyPitchShift(config.pitchShift);
+    } else {
+      this._removePitchShift();
+    }
+
+    this._diag.lastPresetAppliedAt = performance.now();
+    this._diag.presetParams = { ...config };
+    this._updateDiag();
+  }
+
+  _applyPitchShift(shiftFactor) {
+    this._removePitchShift();
+
+    this.pitchOsc = this.audioContext.createOscillator();
+    this.pitchGain = this.audioContext.createGain();
+
+    const baseFreq = 100;
+    this.pitchOsc.frequency.value = baseFreq * shiftFactor;
+    this.pitchOsc.type = 'sine';
+
+    this.pitchGain.gain.value = 0.05;
+
+    this.pitchOsc.connect(this.pitchGain);
+    this.pitchGain.connect(this.audioContext.destination);
+    this.pitchOsc.start();
+  }
+
+  _removePitchShift() {
+    if (this.pitchOsc) {
+      try { this.pitchOsc.stop(); } catch(e) {}
+      try { this.pitchOsc.disconnect(); } catch(e) {}
+      this.pitchOsc = null;
+    }
+    if (this.pitchGain) {
+      try { this.pitchGain.disconnect(); } catch(e) {}
+      this.pitchGain = null;
+    }
+  }
+
+  _makeWaveShaperCurve(amount) {
+    const samples = 44100;
+    const curve = new Float32Array(samples);
+    const deg = Math.PI / 180;
+
+    for (let i = 0; i < samples; i++) {
+      const x = (i * 2) / samples - 1;
+      curve[i] = ((3 + amount) * x * 20 * deg) / (Math.PI + amount * Math.abs(x));
+    }
+    return curve;
+  }
+
+  _updateDiag() {
+    this._diag.audioContextState = this.audioContext ? this.audioContext.state : 'closed';
+    this._diag.micStreamActive = !!this.stream;
+    this._diag.monitorActive = this.monitorActive;
+    this._diag.selectedPreset = this.currentPreset;
+    this._diag.processedChainActive = !!this.audioContext && this.audioContext.state === 'running';
+    this._diag.nodesConnected = !!this.filter && !!this.gain;
+  }
+
+  setMonitorActive(active) {
+    this.monitorActive = active;
+    if (this.gain) {
+      this.gain.gain.value = active ? VOICE_PRESET_CONFIGS[this.currentPreset].gain : 0;
+    }
+    this._updateDiag();
+  }
+}
+
+let _voiceAdapter = new VoiceAdapter();
