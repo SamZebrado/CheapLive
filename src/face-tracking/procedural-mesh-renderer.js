@@ -270,6 +270,7 @@ class ProceduralMeshRenderer {
     };
     this.mirror = true;
     this.appMode = false;
+    this.transparentMode = false;
 
     // 调试网格显示（默认关闭，不展示给用户）
     this.debugMesh = false;
@@ -294,6 +295,11 @@ class ProceduralMeshRenderer {
 
   setAppMode(enabled) {
     this.appMode = !!enabled;
+    this.draw();
+  }
+
+  setTransparentMode(enabled) {
+    this.transparentMode = !!enabled;
     this.draw();
   }
 
@@ -324,19 +330,21 @@ class ProceduralMeshRenderer {
     const h = this.canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    if (!this.appMode) {
-      ctx.fillStyle = '#1A1A2E';
-      ctx.fillRect(0, 0, w, h);
-    } else {
-      // 应用模式下用浅色背景，保证面部灰度对比明显
-      ctx.fillStyle = '#F7F5EE';
-      ctx.fillRect(0, 0, w, h);
-      // 显示背景色16进制编号，方便抠图
-      ctx.fillStyle = '#888888';
-      ctx.font = '14px monospace';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      ctx.fillText('#F7F5EE', 10, 20);
+    if (!this.transparentMode) {
+      if (!this.appMode) {
+        ctx.fillStyle = '#1A1A2E';
+        ctx.fillRect(0, 0, w, h);
+      } else {
+        // 应用模式下用浅色背景，保证面部灰度对比明显
+        ctx.fillStyle = '#F7F5EE';
+        ctx.fillRect(0, 0, w, h);
+        // 显示背景色16进制编号，方便抠图
+        ctx.fillStyle = '#888888';
+        ctx.font = '14px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText('#F7F5EE', 10, 20);
+      }
     }
 
     this._render(ctx, w, h);
@@ -1085,11 +1093,11 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
-      // Iris/pupil: size based on eyeBase (stable across head rotation),
-      // not on projected ellipse axes. Only overall scale affects iris size.
+      // Iris/pupil: size based on eyeHalfW (screen-space, stable across head rotation),
+      // not on projected ellipse axes. eyeHalfW already includes overall scale.
       // eyeWide slightly increases iris; squint/blink does not shrink it.
-      const irisBaseR = eyeBase * 0.50;
-      const pupilBaseR = eyeBase * 0.28;
+      const irisBaseR = eyeHalfW * 0.50;
+      const pupilBaseR = eyeHalfW * 0.28;
       const wideBoost = 1 + Math.max(0, (eyeWide || 0)) * 0.15;
       const irisR = Math.min(irisBaseR * wideBoost, Math.min(localRx, localRy) * 0.85);
       const pupilR2 = Math.min(pupilBaseR * wideBoost, Math.min(localRx, localRy) * 0.55);
