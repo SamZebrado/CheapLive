@@ -14,7 +14,14 @@ const state = {
   guideStep: 0,
   floatingMode: 'edit', // 'edit' | 'display'
   // Simulated face params
-  faceParams: { mouthOpen: 0, blink: 0, blinkLeft: 0, blinkRight: 0, eyeLeft: 1, eyeRight: 1, yaw: 0, pitch: 0, roll: 0, smile: 0 },
+  faceParams: {
+    mouthOpen: 0, blink: 0, blinkLeft: 0, blinkRight: 0, eyeLeft: 1, eyeRight: 1,
+    yaw: 0, pitch: 0, roll: 0, smile: 0,
+    // Head pan (headX/headY in 0-1, 0.5=center) — ported from open demo
+    headX: 0.5, headY: 0.5,
+    // Iris gaze tracking (per-eye normalized x/y in [-1, 1]) — ported from open demo
+    gazeLeftX: 0, gazeLeftY: 0, gazeRightX: 0, gazeRightY: 0,
+  },
 };
 
 // ====== FACE FRAME STATE ======
@@ -172,21 +179,25 @@ function update3DRenderers(params) {
 }
 
 function faceParamsToRendererParams(fp) {
-  // Aligned with open demo mapping conventions:
-  // - yaw: negative = left, positive = right; mirrored for selfie view
-  // - pitch: negative = down (nod), positive = up
-  // - roll: negative = left tilt, positive = right tilt; negated for visual match
+  // Aligned with open demo mapping conventions (mirror mode):
+  // - yaw: state.yaw in [-1,1]; negated for selfie mirror, then mapped to 0..1 (0.5=center)
+  // - pitch: state.pitch in [-1,1]; negated to match intuitive direction (down=down)
+  // - roll: state.roll in [-1,1]; negated to match intuitive direction (left tilt=left tilt)
   // - eyeLeft/eyeRight: 0 = closed, 1 = fully open (derived from blink values)
+  // - headX/headY: 0..1, 0.5=center (nose position, mirrored for selfie)
+  // - gazeLeftX/Y, gazeRightX/Y: [-1,1] (iris position, mirrored for selfie)
   const blinkLeft = fp.blinkLeft ?? fp.blink ?? 0;
   const blinkRight = fp.blinkRight ?? fp.blink ?? 0;
   const eyeLeft = fp.eyeLeft ?? (1 - blinkLeft);
   const eyeRight = fp.eyeRight ?? (1 - blinkRight);
 
-  // Mirror yaw for selfie view (like open demo mirror mode)
-  // Pitch and roll are negated to match intuitive direction (down=down, left tilt=left tilt)
+  // Mirror yaw for selfie view (like open demo mirror mode): negate yaw
+  // Pitch is negated to match intuitive direction (down=down)
+  // Roll is NOT negated — open demo's mirror mode does the negation+mirror twice, cancelling out.
+  //   (open demo: roll=-roll then headRollNorm=1-headRollNorm → net no negation in mirror mode)
   const yawNorm = (-(fp.yaw ?? 0)) * 0.5 + 0.5;
   const pitchNorm = (-(fp.pitch ?? 0)) * 0.5 + 0.5;
-  const rollNorm = (-(fp.roll ?? 0)) * 0.5 + 0.5;
+  const rollNorm = (fp.roll ?? 0) * 0.5 + 0.5;
 
   return {
     mouthOpen: fp.mouthOpen ?? 0,
@@ -196,6 +207,14 @@ function faceParamsToRendererParams(fp) {
     headYaw: yawNorm,
     headPitch: pitchNorm,
     headRoll: rollNorm,
+    // Head pan (0.5 = center). Pass through directly; extraction already handles mirror.
+    headX: fp.headX ?? 0.5,
+    headY: fp.headY ?? 0.5,
+    // Iris gaze ([-1,1]). Pass through directly; extraction already handles mirror.
+    gazeLeftX: fp.gazeLeftX ?? 0,
+    gazeLeftY: fp.gazeLeftY ?? 0,
+    gazeRightX: fp.gazeRightX ?? 0,
+    gazeRightY: fp.gazeRightY ?? 0,
     browLeft: 0,
     browRight: 0,
   };
@@ -301,7 +320,9 @@ function manualFallback2D() {
 // ====== FACE FRAME INJECTION ======
 // Frame fields: source, seq, headYaw (deg), headPitch (deg), headRoll (deg),
 //               mouthOpen (0-1), mouthSmile (0-1),
-//               blinkLeft (0-1), blinkRight (0-1), eyeLeft (0-1), eyeRight (0-1)
+//               blinkLeft (0-1), blinkRight (0-1), eyeLeft (0-1), eyeRight (0-1),
+//               headX (0-1, 0.5=center), headY (0-1, 0.5=center),
+//               gazeLeftX/Y, gazeRightX/Y ([-1,1])
 // Degrees range: yaw ±60, pitch ±45, roll ±40
 function _degToNorm(deg, maxDeg) {
   const clamped = Math.max(-maxDeg, Math.min(maxDeg, deg));
@@ -352,6 +373,19 @@ function _applyFaceFrameInternal(frame) {
   // Update unified blink as max of both
   state.faceParams.blink = Math.max(state.faceParams.blinkLeft, state.faceParams.blinkRight);
 
+  // Head pan (0..1, 0.5=center)
+  if (typeof frame.headX === 'number') {
+    state.faceParams.headX = Math.max(0, Math.min(1, frame.headX));
+  }
+  if (typeof frame.headY === 'number') {
+    state.faceParams.headY = Math.max(0, Math.min(1, frame.headY));
+  }
+  // Iris gaze ([-1,1] per eye per axis)
+  if (typeof frame.gazeLeftX === 'number') state.faceParams.gazeLeftX = Math.max(-1, Math.min(1, frame.gazeLeftX));
+  if (typeof frame.gazeLeftY === 'number') state.faceParams.gazeLeftY = Math.max(-1, Math.min(1, frame.gazeLeftY));
+  if (typeof frame.gazeRightX === 'number') state.faceParams.gazeRightX = Math.max(-1, Math.min(1, frame.gazeRightX));
+  if (typeof frame.gazeRightY === 'number') state.faceParams.gazeRightY = Math.max(-1, Math.min(1, frame.gazeRightY));
+
   _lastAppliedValues = {
     yaw: state.faceParams.yaw,
     pitch: state.faceParams.pitch,
@@ -363,6 +397,12 @@ function _applyFaceFrameInternal(frame) {
     blinkRight: state.faceParams.blinkRight,
     eyeLeft: state.faceParams.eyeLeft,
     eyeRight: state.faceParams.eyeRight,
+    headX: state.faceParams.headX,
+    headY: state.faceParams.headY,
+    gazeLeftX: state.faceParams.gazeLeftX,
+    gazeLeftY: state.faceParams.gazeLeftY,
+    gazeRightX: state.faceParams.gazeRightX,
+    gazeRightY: state.faceParams.gazeRightY,
   };
 
   // Reset idle timeout
@@ -1037,6 +1077,12 @@ function simLoop(ts) {
       blinkRight: state.faceParams.blinkRight,
       eyeLeft: state.faceParams.eyeLeft,
       eyeRight: state.faceParams.eyeRight,
+      headX: state.faceParams.headX,
+      headY: state.faceParams.headY,
+      gazeLeftX: state.faceParams.gazeLeftX,
+      gazeLeftY: state.faceParams.gazeLeftY,
+      gazeRightX: state.faceParams.gazeRightX,
+      gazeRightY: state.faceParams.gazeRightY,
     };
 
     // Mapped renderer values (what actually gets sent to the renderer)
@@ -1049,6 +1095,12 @@ function simLoop(ts) {
       eyeRight: mapped.eyeRight,
       mouthOpen: mapped.mouthOpen,
       mouthSmile: mapped.mouthSmile,
+      headX: mapped.headX,
+      headY: mapped.headY,
+      gazeLeftX: mapped.gazeLeftX,
+      gazeLeftY: mapped.gazeLeftY,
+      gazeRightX: mapped.gazeRightX,
+      gazeRightY: mapped.gazeRightY,
     };
 
     // Eye orientation diagnostics (for eyelid rotation verification)
@@ -1576,7 +1628,10 @@ function startFaceDetectionLoop(video) {
         }
         lastCameraFrameStatus = 'error';
       } else if (detectResults.faceBlendshapes && detectResults.faceBlendshapes.length > 0) {
-        updateFaceParamsFromBlendshapes(detectResults.faceBlendshapes[0], detectResults.facialTransformationMatrixes);
+        const landmarksForUpdate = (detectResults.faceLandmarks && detectResults.faceLandmarks.length > 0)
+          ? detectResults.faceLandmarks[0]
+          : null;
+        updateFaceParamsFromBlendshapes(detectResults.faceBlendshapes[0], detectResults.facialTransformationMatrixes, landmarksForUpdate);
         _lastCameraFrameAt = performance.now();
         _realCameraFrameApplied = true;
         _cameraFrameErrorCount = 0;
@@ -1625,7 +1680,38 @@ function startFaceDetectionLoop(video) {
   loop();
 }
 
-function updateFaceParamsFromBlendshapes(blendshapes, matrices) {
+// Smoothing helpers for gaze (ported from open demo face-tracker.js)
+const _gazeSmootherState = {};
+function _smoothGaze(key, value, alpha) {
+  const a = (typeof alpha === 'number' && alpha > 0 && alpha < 1) ? alpha : 0.35;
+  const prev = _gazeSmootherState[key];
+  const next = (prev === undefined) ? value : prev * (1 - a) + value * a;
+  _gazeSmootherState[key] = next;
+  return next;
+}
+
+// Compute per-eye gaze (iris position relative to eye corners) from MediaPipe 478 landmarks.
+// Returns { x, y } in [-1, 1] per eye, or null if landmarks insufficient.
+function _computeGazeFromIris(landmarks, irisIdx, eyeLeftIdx, eyeRightIdx, eyeTopIdx, eyeBottomIdx) {
+  if (!landmarks || landmarks.length < 478) return null;
+  const iris = landmarks[irisIdx];
+  const eyeLeft = landmarks[eyeLeftIdx];
+  const eyeRight = landmarks[eyeRightIdx];
+  const eyeTop = landmarks[eyeTopIdx];
+  const eyeBottom = landmarks[eyeBottomIdx];
+  if (!iris || !eyeLeft || !eyeRight || !eyeTop || !eyeBottom) return null;
+  const eyeW = eyeRight.x - eyeLeft.x;
+  const eyeH = eyeBottom.y - eyeTop.y;
+  if (Math.abs(eyeW) < 0.001 || Math.abs(eyeH) < 0.001) return { x: 0, y: 0 };
+  const nx = (iris.x - eyeLeft.x) / eyeW;
+  const ny = (iris.y - eyeTop.y) / eyeH;
+  return {
+    x: Math.max(-1, Math.min(1, (nx - 0.5) * 2)),
+    y: Math.max(-1, Math.min(1, (ny - 0.5) * 2)),
+  };
+}
+
+function updateFaceParamsFromBlendshapes(blendshapes, matrices, landmarks) {
   const categories = blendshapes.categories || [];
   const getVal = (name) => {
     const cat = categories.find(c => c.categoryName === name);
@@ -1647,17 +1733,61 @@ function updateFaceParamsFromBlendshapes(blendshapes, matrices) {
   state.faceParams.smile = (smileLeft + smileRight) / 2;
   state.faceParams.faceDetected = true;
 
+  // Head pose: extract yaw/pitch/roll from facialTransformationMatrixes.
+  // Aligned with open demo formulas (column-major 4x4 matrix):
+  //   yaw   = atan2(m[8],  m[10])
+  //   pitch = atan2(-m[9], sqrt(m[1]^2 + m[5]^2))
+  //   roll  = atan2(m[1],  m[0])    ← previous contest demo used atan2(m[2], m[10]) which is wrong
   let yawDeg = 0, pitchDeg = 0, rollDeg = 0;
   if (matrices && matrices.length > 0) {
     const m = matrices[0].data;
     yawDeg = Math.atan2(m[8], m[10]) * 180 / Math.PI;
     pitchDeg = Math.atan2(-m[9], Math.sqrt(m[1] * m[1] + m[5] * m[5])) * 180 / Math.PI;
-    rollDeg = Math.atan2(m[2], m[10]) * 180 / Math.PI;
+    rollDeg = Math.atan2(m[1], m[0]) * 180 / Math.PI;
   }
 
   state.faceParams.yaw = Math.max(-1, Math.min(1, yawDeg / 60));
   state.faceParams.pitch = Math.max(-1, Math.min(1, pitchDeg / 45));
   state.faceParams.roll = Math.max(-1, Math.min(1, rollDeg / 40));
+
+  // Head pan (headX/headY): use nose tip landmark (index 1) position, mirrored for selfie.
+  // Aligned with open demo: headX = 1 - nose.x (mirror), headY = nose.y.
+  if (landmarks && landmarks.length > 1) {
+    const nose = landmarks[1];
+    if (nose && typeof nose.x === 'number' && typeof nose.y === 'number') {
+      state.faceParams.headX = Math.max(0, Math.min(1, 1 - nose.x));
+      state.faceParams.headY = Math.max(0, Math.min(1, nose.y));
+    }
+  }
+
+  // Iris / gaze tracking: requires refineLandmarks:true (478 landmarks).
+  // MediaPipe iris indices:
+  //   left eye:  iris 468, corners 33/133, lids 159/145
+  //   right eye: iris 473, corners 362/263, lids 386/374
+  // Mirror convention (selfie): swap left/right gaze to match user's view.
+  const leftGaze = _computeGazeFromIris(landmarks, 468, 33, 133, 159, 145);
+  const rightGaze = _computeGazeFromIris(landmarks, 473, 362, 263, 386, 374);
+  if (leftGaze && rightGaze) {
+    const sLX = _smoothGaze('gazeLeftX', leftGaze.x);
+    const sLY = _smoothGaze('gazeLeftY', leftGaze.y);
+    const sRX = _smoothGaze('gazeRightX', rightGaze.x);
+    const sRY = _smoothGaze('gazeRightY', rightGaze.y);
+    // Mirror swap: what MediaPipe sees as "left eye" is the user's right eye in mirror view.
+    state.faceParams.gazeLeftX = sRX;
+    state.faceParams.gazeLeftY = sRY;
+    state.faceParams.gazeRightX = sLX;
+    state.faceParams.gazeRightY = sLY;
+  } else if (leftGaze) {
+    state.faceParams.gazeLeftX = _smoothGaze('gazeLeftX', leftGaze.x);
+    state.faceParams.gazeLeftY = _smoothGaze('gazeLeftY', leftGaze.y);
+    state.faceParams.gazeRightX = state.faceParams.gazeLeftX;
+    state.faceParams.gazeRightY = state.faceParams.gazeLeftY;
+  } else if (rightGaze) {
+    state.faceParams.gazeRightX = _smoothGaze('gazeRightX', rightGaze.x);
+    state.faceParams.gazeRightY = _smoothGaze('gazeRightY', rightGaze.y);
+    state.faceParams.gazeLeftX = state.faceParams.gazeRightX;
+    state.faceParams.gazeLeftY = state.faceParams.gazeRightY;
+  }
 
   _faceFrameActive = true;
   _faceFrameSource = 'camera';
@@ -1673,6 +1803,12 @@ function updateFaceParamsFromBlendshapes(blendshapes, matrices) {
     blinkRight: state.faceParams.blinkRight,
     eyeLeft: state.faceParams.eyeLeft,
     eyeRight: state.faceParams.eyeRight,
+    headX: state.faceParams.headX,
+    headY: state.faceParams.headY,
+    gazeLeftX: state.faceParams.gazeLeftX,
+    gazeLeftY: state.faceParams.gazeLeftY,
+    gazeRightX: state.faceParams.gazeRightX,
+    gazeRightY: state.faceParams.gazeRightY,
   };
 
   const diag = window.__cheapLiveContestAvatarDiag;
@@ -1692,6 +1828,12 @@ function updateFaceParamsFromBlendshapes(blendshapes, matrices) {
       mouthSmile: state.faceParams.smile,
       eyeLeft: 1 - blinkLeft,
       eyeRight: 1 - blinkRight,
+      headX: state.faceParams.headX,
+      headY: state.faceParams.headY,
+      gazeLeftX: state.faceParams.gazeLeftX,
+      gazeLeftY: state.faceParams.gazeLeftY,
+      gazeRightX: state.faceParams.gazeRightX,
+      gazeRightY: state.faceParams.gazeRightY,
     };
   }
 

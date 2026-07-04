@@ -618,21 +618,33 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
   _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
     const anchors = this.getAnchors(np);
 
-    // 统一画"一只眼睛"：使用完整投影椭圆计算主轴角度
-    const drawEye = (anchor, openness) => {
+    // 统一画"一只眼睛"：使用 eye-local 坐标系（ctx.translate + ctx.rotate(eyeAngle)）
+    // - 眼白椭圆、瞳孔、上眼皮均在 eye-local 坐标内绘制
+    // - 上眼皮通过 clip 到眼白椭圆实现，绝不会遮掉鱼头/脸部/肉色区域
+    // - 眼皮分界线是 eye-local 内的水平线，roll 时自动跟随头部旋转
+    const drawEye = (anchor, openness, eyeWide, eyeSquint, gazeX, gazeY) => {
       const local = computeSphereFaceAnchorXYZ(this.mesh, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
 
-      const eyeSize = 10 * scale;
-      const eyeHalfW = eyeSize;
-      const eyeHalfH = eyeSize;
+      const eyeBase = 10 * scale;
+      const eyeHalfW = eyeBase;
+      const eyeHalfH = eyeBase;
 
-      const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
-      const rx = Math.max(0.1, proj.radiusX);
-      const ry = Math.max(0.1, proj.radiusY);
-      const ang = proj.angle;
+      // eye-local coordinate system:
+      // eyeAngle = rotation of eye horizontal axis (rightVec) in screen space
+      // localRx/localRy = eye radii in screen pixels along rightVec/downVec
+      const rLen = t.rightLen || Math.sqrt(t.rightVec.x * t.rightVec.x + t.rightVec.y * t.rightVec.y);
+      const dLen = t.downLen || Math.sqrt(t.downVec.x * t.downVec.x + t.downVec.y * t.downVec.y);
+      const eyeAngle = Math.atan2(t.rightVec.y, t.rightVec.x);
+
+      const wideScale = 1 + (eyeWide || 0) * 0.47;
+      const squintScaleY = 1 - (eyeSquint || 0) * 0.55;
+      const squintScaleX = 1 + (eyeSquint || 0) * 0.08;
+
+      const localRx = Math.max(0.1, eyeHalfW * rLen * wideScale * squintScaleX);
+      const localRy = Math.max(0.1, eyeHalfH * dLen * wideScale * squintScaleY);
 
       // 线性映射：openness 0=闭眼, 1=全睁
       const tOpen = Math.max(0, Math.min(1, openness));
@@ -640,91 +652,89 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const easedClosed = 1 - easedOpen;
 
       // 瞳孔固定尺寸（不随 blink 缩放）
-      const pupilR = Math.min(rx, ry) * 0.55;
+      const irisR = Math.min(localRx, localRy) * 0.50;
+      const pupilR2 = Math.min(localRx, localRy) * 0.28;
 
+      // Gaze offset in eye-local coordinates
+      const maxOffsetX = Math.max(0, localRx - irisR) * 0.55;
+      const maxOffsetY = Math.max(0, localRy - irisR) * 0.55;
+      const gazeOffsetX = (gazeX || 0) * maxOffsetX;
+      const gazeOffsetY = (gazeY || 0) * maxOffsetY;
+
+      // Enter eye-local coordinate system
       ctx.save();
       ctx.globalAlpha = facing;
+      ctx.translate(t.screenX, t.screenY);
+      ctx.rotate(eyeAngle);
 
       if (easedOpen < 0.05) {
-        // 完全闭眼：自然弧线
-        const closedDip = ry * 0.15;
+        // Fully closed: draw natural closed-eye curve (downward dip), no eye white
+        const closedDip = localRy * 0.15;
         ctx.beginPath();
-        ctx.moveTo(t.screenX - rx * 0.9, t.screenY);
-        ctx.quadraticCurveTo(t.screenX, t.screenY + closedDip, t.screenX + rx * 0.9, t.screenY);
+        ctx.moveTo(-localRx * 0.9, 0);
+        ctx.quadraticCurveTo(0, closedDip, localRx * 0.9, 0);
         ctx.strokeStyle = '#333';
         ctx.lineWidth = Math.max(1.5, 2.5 * scale);
         ctx.stroke();
       } else {
-        // 眼白椭圆：保持完整大小
+        // 1. Eye white ellipse (full circle, not squashed)
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+        ctx.ellipse(0, 0, localRx, localRy, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#ffffff';
         ctx.fill();
-        ctx.lineWidth = Math.max(1, 1.8 * scale);
+        ctx.lineWidth = Math.max(1, 2.0 * scale);
         ctx.strokeStyle = '#222';
         ctx.stroke();
 
-        // 瞳孔：固定尺寸，clip 在眼白内
+        // 2. Iris + pupil (fixed size, clipped to eye white)
         ctx.save();
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY, rx - 1, ry - 1, ang, 0, Math.PI * 2);
+        ctx.ellipse(0, 0, localRx - 1, localRy - 1, 0, 0, Math.PI * 2);
         ctx.clip();
+
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY, pupilR, pupilR, ang, 0, Math.PI * 2);
-        ctx.fillStyle = '#1f1f1f';
-        ctx.globalAlpha = facing;
+        ctx.ellipse(gazeOffsetX, gazeOffsetY, irisR, irisR, 0, 0, Math.PI * 2);
+        ctx.fillStyle = '#7a6b5c';
+        ctx.globalAlpha = Math.max(0.4, facing);
         ctx.fill();
+
+        ctx.beginPath();
+        ctx.ellipse(gazeOffsetX, gazeOffsetY, pupilR2, pupilR2, 0, 0, Math.PI * 2);
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fill();
+
+        if (easedOpen > 0.3) {
+          const hlX = gazeOffsetX + irisR * 0.3;
+          const hlY = gazeOffsetY - irisR * 0.3;
+          ctx.beginPath();
+          ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = Math.max(0.3, facing) * 0.7;
+          ctx.fill();
+        }
+
         ctx.restore();
         ctx.globalAlpha = facing;
 
-        // 上眼皮：clip 到眼睛椭圆内，从顶部向下覆盖
-        // 修复：眼皮分界线沿眼睛水平方向（rightVec），随头部姿态一起旋转
+        // 3. Upper eyelid: cover from top down to eyelidY, clipped to eye white ellipse
         if (easedClosed > 0.02) {
           ctx.save();
           ctx.beginPath();
-          ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+          ctx.ellipse(0, 0, localRx, localRy, 0, 0, Math.PI * 2);
           ctx.clip();
 
-          // 用 rightVec/downVec 构建眼睛局部坐标系
-          const rVec = t.rightVec;
-          const dVec = t.downVec;
+          const eyelidY = -localRy + localRy * 2 * easedClosed;
 
-          // 眼睛水平/垂直方向半径（屏幕坐标）
-          const hx = eyeHalfW; // rightVec 方向半径
-          const hy = eyeHalfH; // downVec 方向半径
+          ctx.fillStyle = this.mesh.faceTopColor || this.mesh.bodyColor || '#d9d2be';
+          ctx.fillRect(-localRx - 2, -localRy - 2, localRx * 2 + 4, eyelidY - (-localRy) + 2);
 
-          // 眼皮分界线的 y 位置（眼睛局部坐标）
-          const eyelidLocalY = -hy + hy * 2 * easedClosed;
-
-          // 计算眼皮分界线的两个端点（屏幕坐标）
-          const lx = t.screenX - rVec.x * hx + dVec.x * eyelidLocalY;
-          const ly = t.screenY - rVec.y * hx + dVec.y * eyelidLocalY;
-          const rx_pt = t.screenX + rVec.x * hx + dVec.x * eyelidLocalY;
-          const ry_pt = t.screenY + rVec.y * hx + dVec.y * eyelidLocalY;
-
-          // 顶部两端点
-          const topLx = t.screenX - rVec.x * hx - dVec.x * hy;
-          const topLy = t.screenY - rVec.y * hx - dVec.y * hy;
-          const topRx = t.screenX + rVec.x * hx - dVec.x * hy;
-          const topRy = t.screenY + rVec.y * hx - dVec.y * hy;
-
-          // 填充上眼皮区域
-          ctx.fillStyle = this.mesh.faceTopColor || '#d9d2be';
-          ctx.beginPath();
-          ctx.moveTo(topLx - rVec.x * 2 - dVec.x * 2, topLy - rVec.y * 2 - dVec.y * 2);
-          ctx.lineTo(topRx + rVec.x * 2 - dVec.x * 2, topRy + rVec.y * 2 - dVec.y * 2);
-          ctx.lineTo(rx_pt + rVec.x * 2, ry_pt + rVec.y * 2);
-          ctx.lineTo(lx - rVec.x * 2, ly - rVec.y * 2);
-          ctx.closePath();
-          ctx.fill();
-
-          // 上眼皮边缘线
           ctx.strokeStyle = '#555';
-          ctx.lineWidth = Math.max(0.8, 1.2 * scale);
+          ctx.lineWidth = Math.max(1, 1.8 * scale);
           ctx.beginPath();
-          ctx.moveTo(lx, ly);
-          ctx.lineTo(rx_pt, ry_pt);
+          ctx.moveTo(-localRx, eyelidY);
+          ctx.lineTo(localRx, eyelidY);
           ctx.stroke();
+
           ctx.restore();
         }
       }
@@ -789,8 +799,8 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft);
-    drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight);
+    drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY);
+    drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY);
     drawBrow(anchors.browLeft, np.browLeft);
     drawBrow(anchors.browRight, np.browRight);
     drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile, np.mouthFunnel, np.mouthPress);
@@ -981,88 +991,88 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const eyeHalfW = eyeBase * scale;
       const eyeHalfH = eyeBase * scale;
 
-      const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
-      let rx = Math.max(0.1, proj.radiusX);
-      let ry = Math.max(0.1, proj.radiusY);
+      // eye-local coordinate system:
+      // eyeAngle = rotation of eye horizontal axis (rightVec) in screen space
+      // localRx/localRy = eye radii in screen pixels along rightVec/downVec
+      const rLen = t.rightLen || Math.sqrt(t.rightVec.x * t.rightVec.x + t.rightVec.y * t.rightVec.y);
+      const dLen = t.downLen || Math.sqrt(t.downVec.x * t.downVec.x + t.downVec.y * t.downVec.y);
+      const eyeAngle = Math.atan2(t.rightVec.y, t.rightVec.x);
 
-      // eyeWide: 只放大眼眶/眼白，虹膜不变
+      // eyeWide: only enlarge eye white, not iris
       const wideScale = 1 + (eyeWide || 0) * 0.47;
-      rx *= wideScale;
-      ry *= wideScale;
-
-      // eyeSquint: 眯眼
+      // eyeSquint: squint
       const squintScaleY = 1 - (eyeSquint || 0) * 0.55;
       const squintScaleX = 1 + (eyeSquint || 0) * 0.08;
-      rx *= squintScaleX;
-      ry *= squintScaleY;
-      const ang = proj.angle;
 
-      // 线性映射：openness 0=闭眼, 1=全睁
-      // 之前 (openness-0.15)/(0.5-0.15) 导致 openness=0.5 就已经是全睁，blink=0.5 无变化
+      const localRx = Math.max(0.1, eyeHalfW * rLen * wideScale * squintScaleX);
+      const localRy = Math.max(0.1, eyeHalfH * dLen * wideScale * squintScaleY);
+
+      // Linear mapping: openness 0=closed, 1=fully open
       const tOpen = Math.max(0, Math.min(1, openness));
       const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
-      // 虹膜/瞳孔：固定尺寸，不随 blink 缩放（只被眼皮遮挡）
+      // Iris/pupil: fixed size, not squashed by blink
       const irisScale = 0.50;
       const pupilScale = 0.28;
-      const irisR = Math.min(rx, ry) * irisScale;
-      const pupilR2 = Math.min(rx, ry) * pupilScale;
+      const irisR = Math.min(localRx, localRy) * irisScale;
+      const pupilR2 = Math.min(localRx, localRy) * pupilScale;
 
-      // 视线偏移：根据 gazeX/gazeY 偏移虹膜/瞳孔位置
-      const maxOffsetX = Math.max(0, rx - irisR) * 0.55;
-      const maxOffsetY = Math.max(0, ry - irisR) * 0.55;
+      // Gaze offset in eye-local coordinates
+      const maxOffsetX = Math.max(0, localRx - irisR) * 0.55;
+      const maxOffsetY = Math.max(0, localRy - irisR) * 0.55;
       const gazeOffsetX = (gazeX || 0) * maxOffsetX;
       const gazeOffsetY = (gazeY || 0) * maxOffsetY;
-      const irisCX = t.screenX + gazeOffsetX;
-      const irisCY = t.screenY + gazeOffsetY;
 
+      // Enter eye-local coordinate system
       ctx.save();
       ctx.globalAlpha = facing;
+      ctx.translate(t.screenX, t.screenY);
+      ctx.rotate(eyeAngle);
 
       if (easedOpen < 0.05) {
-        // 完全闭眼：画自然闭眼弧线（向下弯），不画眼白
-        const closedDip = ry * 0.15;
+        // Fully closed: draw natural closed-eye curve (downward dip), no eye white
+        const closedDip = localRy * 0.15;
         ctx.beginPath();
-        ctx.moveTo(t.screenX - rx * 0.9, t.screenY);
-        ctx.quadraticCurveTo(t.screenX, t.screenY + closedDip, t.screenX + rx * 0.9, t.screenY);
+        ctx.moveTo(-localRx * 0.9, 0);
+        ctx.quadraticCurveTo(0, closedDip, localRx * 0.9, 0);
         ctx.strokeStyle = '#333';
         ctx.lineWidth = Math.max(1.5, 2.5 * scale);
         ctx.stroke();
       } else {
-        // 睁眼（含半闭眼）：先画完整圆形眼白 + 虹膜/瞳孔，再用上眼皮从上向下覆盖
-        // 1. 眼白椭圆（完整圆形，不被压扁）
+        // Open eye (including half-closed): draw full eye white + iris/pupil, then upper eyelid covers from top
+        // 1. Eye white ellipse (full circle, not squashed)
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+        ctx.ellipse(0, 0, localRx, localRy, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#ffffff';
         ctx.fill();
         ctx.lineWidth = Math.max(1, 2.0 * scale);
         ctx.strokeStyle = '#222';
         ctx.stroke();
 
-        // 2. 虹膜 + 瞳孔（固定尺寸，clip 在眼白内）
+        // 2. Iris + pupil (fixed size, clipped to eye white)
         ctx.save();
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY, rx - 1, ry - 1, ang, 0, Math.PI * 2);
+        ctx.ellipse(0, 0, localRx - 1, localRy - 1, 0, 0, Math.PI * 2);
         ctx.clip();
 
-        // 虹膜：固定大小圆
+        // Iris: fixed-size circle
         ctx.beginPath();
-        ctx.ellipse(irisCX, irisCY, irisR, irisR, ang, 0, Math.PI * 2);
+        ctx.ellipse(gazeOffsetX, gazeOffsetY, irisR, irisR, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#7a6b5c';
         ctx.globalAlpha = Math.max(0.4, facing);
         ctx.fill();
 
-        // 瞳孔：固定大小圆
+        // Pupil: fixed-size circle
         ctx.beginPath();
-        ctx.ellipse(irisCX, irisCY, pupilR2, pupilR2, ang, 0, Math.PI * 2);
+        ctx.ellipse(gazeOffsetX, gazeOffsetY, pupilR2, pupilR2, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#1a1a1a';
         ctx.fill();
 
-        // 高光：小白点
+        // Highlight: small white dot
         if (easedOpen > 0.3) {
-          const hlX = irisCX + irisR * 0.3;
-          const hlY = irisCY - irisR * 0.3;
+          const hlX = gazeOffsetX + irisR * 0.3;
+          const hlY = gazeOffsetY - irisR * 0.3;
           ctx.beginPath();
           ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
           ctx.fillStyle = '#ffffff';
@@ -1073,62 +1083,28 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.restore();
         ctx.globalAlpha = facing;
 
-        // 3. 上眼皮：从眼睛顶部向下覆盖（clip 在眼白椭圆内）
-        // easedClosed=0 时无覆盖，easedClosed=1 时完全覆盖
-        // 修复：眼皮分界线沿眼睛水平方向（rightVec），随头部姿态一起旋转
+        // 3. Upper eyelid: cover from top down to eyelidY, clipped to eye white ellipse
+        // In eye-local coords: eyelidY goes from -localRy (top) to +localRy (bottom)
+        // easedClosed=0 → no cover, easedClosed=1 → full cover
         if (easedClosed > 0.02) {
           ctx.save();
           ctx.beginPath();
-          ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+          ctx.ellipse(0, 0, localRx, localRy, 0, 0, Math.PI * 2);
           ctx.clip();
 
-          // 用 rightVec/downVec 构建眼睛局部坐标系
-          // rightVec = 眼睛水平向右方向，downVec = 眼睛垂直向下方向
-          const rVec = t.rightVec;
-          const dVec = t.downVec;
-          const rLen = t.rightLen || Math.sqrt(rVec.x * rVec.x + rVec.y * rVec.y);
-          const dLen = t.downLen || Math.sqrt(dVec.x * dVec.x + dVec.y * dVec.y);
+          // Eyelid boundary Y position in eye-local coords
+          const eyelidY = -localRy + localRy * 2 * easedClosed;
 
-          // 眼睛水平/垂直方向的屏幕半径（考虑 eyeWide/eyeSquint 缩放）
-          const wScale = (1 + (eyeWide || 0) * 0.47) * (1 + (eyeSquint || 0) * 0.08);
-          const hScale = (1 + (eyeWide || 0) * 0.47) * (1 - (eyeSquint || 0) * 0.55);
-          const hx = eyeHalfW * wScale; // 水平方向半径（rightVec 方向的大小）
-          const hy = eyeHalfH * hScale; // 垂直方向半径（downVec 方向的大小）
-
-          // 眼皮分界线的 y 位置（眼睛局部坐标，向下为正）
-          const eyelidLocalY = -hy + hy * 2 * easedClosed;
-
-          // 计算眼皮分界线的两个端点（屏幕坐标）
-          // 左眼端点：眼睛中心 + (-rightVec * hx) + (downVec * eyelidLocalY)
-          const lx = t.screenX - rVec.x * hx + dVec.x * eyelidLocalY;
-          const ly = t.screenY - rVec.y * hx + dVec.y * eyelidLocalY;
-          // 右眼端点：眼睛中心 + (+rightVec * hx) + (downVec * eyelidLocalY)
-          const rx_pt = t.screenX + rVec.x * hx + dVec.x * eyelidLocalY;
-          const ry_pt = t.screenY + rVec.y * hx + dVec.y * eyelidLocalY;
-
-          // 用多边形填充上眼皮区域（顶部到分界线）
-          // 顶部两端点：眼睛顶部（沿 -downVec 方向的端点）
-          const topLx = t.screenX - rVec.x * hx - dVec.x * hy;
-          const topLy = t.screenY - rVec.y * hx - dVec.y * hy;
-          const topRx = t.screenX + rVec.x * hx - dVec.x * hy;
-          const topRy = t.screenY + rVec.y * hx - dVec.y * hy;
-
-          // 填充上眼皮区域（扩大 2px 确保覆盖边缘）
+          // Fill upper eyelid area (from top to eyelidY) with skin color
           ctx.fillStyle = mesh.faceTopColor || mesh.bodyColor || '#d9d2be';
-          ctx.beginPath();
-          ctx.moveTo(topLx - rVec.x * 2 - dVec.x * 2, topLy - rVec.y * 2 - dVec.y * 2);
-          ctx.lineTo(topRx + rVec.x * 2 - dVec.x * 2, topRy + rVec.y * 2 - dVec.y * 2);
-          ctx.lineTo(rx_pt + rVec.x * 2, ry_pt + rVec.y * 2);
-          ctx.lineTo(lx - rVec.x * 2, ly - rVec.y * 2);
-          ctx.closePath();
-          ctx.fill();
+          ctx.fillRect(-localRx - 2, -localRy - 2, localRx * 2 + 4, eyelidY - (-localRy) + 2);
 
-          // 上眼皮边缘线
+          // Eyelid boundary line (horizontal in eye-local, rotates with head)
           ctx.strokeStyle = '#555';
           ctx.lineWidth = Math.max(1, 1.8 * scale);
           ctx.beginPath();
-          ctx.moveTo(lx, ly);
-          ctx.lineTo(rx_pt, ry_pt);
+          ctx.moveTo(-localRx, eyelidY);
+          ctx.lineTo(localRx, eyelidY);
           ctx.stroke();
 
           ctx.restore();
