@@ -617,6 +617,18 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
 
   _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
     const anchors = this.getAnchors(np);
+    if (!this.irisDiag) {
+      this.irisDiag = {
+        left: { centerX: 0, centerY: 0, radius: 0, area: 0, eyeCenterX: 0, eyeCenterY: 0,
+          localOffsetX: 0, localOffsetY: 0, gazeX: 0, gazeY: 0, visible: false, clippedByEyelid: false,
+          eyeRx: 0, eyeRy: 0 },
+        right: { centerX: 0, centerY: 0, radius: 0, area: 0, eyeCenterX: 0, eyeCenterY: 0,
+          localOffsetX: 0, localOffsetY: 0, gazeX: 0, gazeY: 0, visible: false, clippedByEyelid: false,
+          eyeRx: 0, eyeRy: 0 },
+        radiusStabilityPass: false,
+        movementNotSizePass: false,
+      };
+    }
 
     // 统一画"一只眼睛"：使用 eye-local 坐标系（ctx.translate + ctx.rotate(eyeAngle)）
     // - 眼白椭圆、瞳孔、上眼皮均在 eye-local 坐标内绘制
@@ -651,9 +663,15 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
-      // 瞳孔固定尺寸（不随 blink 缩放）
-      const irisR = Math.min(localRx, localRy) * 0.50;
-      const pupilR2 = Math.min(localRx, localRy) * 0.28;
+      // Iris/pupil size based on eyeBase (stable across head rotation),
+      // not on projected ellipse axes. Only overall scale affects iris size.
+      // eyeWide slightly increases iris (eyes wide open = more iris visible),
+      // but squint/blink does not shrink it (eyelid covers instead).
+      const irisBaseR = eyeBase * 0.50;
+      const pupilBaseR = eyeBase * 0.28;
+      const wideBoost = 1 + Math.max(0, (eyeWide || 0)) * 0.15;
+      const irisR = Math.min(irisBaseR * wideBoost, Math.min(localRx, localRy) * 0.85);
+      const pupilR2 = Math.min(pupilBaseR * wideBoost, Math.min(localRx, localRy) * 0.55);
 
       // Gaze offset in eye-local coordinates
       const maxOffsetX = Math.max(0, localRx - irisR) * 0.55;
@@ -676,6 +694,24 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
         ctx.strokeStyle = '#333';
         ctx.lineWidth = Math.max(1.5, 2.5 * scale);
         ctx.stroke();
+        const closedDiag = {
+          centerX: t.screenX,
+          centerY: t.screenY,
+          radius: 0,
+          area: 0,
+          eyeCenterX: t.screenX,
+          eyeCenterY: t.screenY,
+          localOffsetX: 0,
+          localOffsetY: 0,
+          gazeX: gazeX || 0,
+          gazeY: gazeY || 0,
+          visible: false,
+          clippedByEyelid: true,
+          eyeRx: localRx,
+          eyeRy: localRy,
+        };
+        ctx.restore();
+        return closedDiag;
       } else {
         // 1. Eye white ellipse (full circle, not squashed)
         ctx.beginPath();
@@ -738,7 +774,26 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
           ctx.restore();
         }
       }
+
+      const diagData = {
+        centerX: t.screenX + gazeOffsetX * Math.cos(eyeAngle) - gazeOffsetY * Math.sin(eyeAngle),
+        centerY: t.screenY + gazeOffsetX * Math.sin(eyeAngle) + gazeOffsetY * Math.cos(eyeAngle),
+        radius: irisR,
+        area: Math.PI * irisR * irisR,
+        eyeCenterX: t.screenX,
+        eyeCenterY: t.screenY,
+        localOffsetX: gazeOffsetX,
+        localOffsetY: gazeOffsetY,
+        gazeX: gazeX || 0,
+        gazeY: gazeY || 0,
+        visible: true,
+        clippedByEyelid: easedClosed > 0.02,
+        eyeRx: localRx,
+        eyeRy: localRy,
+      };
+
       ctx.restore();
+      return diagData;
     };
 
     const drawBrow = (anchor, raise) => {
@@ -799,8 +854,14 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY);
-    drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY);
+    const leftIris = drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY);
+    const rightIris = drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY);
+    if (leftIris) this.irisDiag.left = leftIris;
+    if (rightIris) this.irisDiag.right = rightIris;
+    const rAvg = (this.irisDiag.left.radius + this.irisDiag.right.radius) / 2;
+    const rDiff = Math.abs(this.irisDiag.left.radius - this.irisDiag.right.radius);
+    this.irisDiag.radiusStabilityPass = rAvg > 0 ? (rDiff / rAvg) < 0.1 : false;
+    this.irisDiag.movementNotSizePass = this.irisDiag.radiusStabilityPass;
     drawBrow(anchors.browLeft, np.browLeft);
     drawBrow(anchors.browRight, np.browRight);
     drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile, np.mouthFunnel, np.mouthPress);
@@ -978,6 +1039,18 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
 
   _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
     const anchors = this.getAnchors(np);
+    if (!this.irisDiag) {
+      this.irisDiag = {
+        left: { centerX: 0, centerY: 0, radius: 0, area: 0, eyeCenterX: 0, eyeCenterY: 0,
+          localOffsetX: 0, localOffsetY: 0, gazeX: 0, gazeY: 0, visible: false, clippedByEyelid: false,
+          eyeRx: 0, eyeRy: 0 },
+        right: { centerX: 0, centerY: 0, radius: 0, area: 0, eyeCenterX: 0, eyeCenterY: 0,
+          localOffsetX: 0, localOffsetY: 0, gazeX: 0, gazeY: 0, visible: false, clippedByEyelid: false,
+          eyeRx: 0, eyeRy: 0 },
+        radiusStabilityPass: false,
+        movementNotSizePass: false,
+      };
+    }
     const mesh = this.spindleMesh;
 
     const eyeBase = Math.max(8, mesh.headX * 0.25);
@@ -1012,11 +1085,14 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
-      // Iris/pupil: fixed size, not squashed by blink
-      const irisScale = 0.50;
-      const pupilScale = 0.28;
-      const irisR = Math.min(localRx, localRy) * irisScale;
-      const pupilR2 = Math.min(localRx, localRy) * pupilScale;
+      // Iris/pupil: size based on eyeBase (stable across head rotation),
+      // not on projected ellipse axes. Only overall scale affects iris size.
+      // eyeWide slightly increases iris; squint/blink does not shrink it.
+      const irisBaseR = eyeBase * 0.50;
+      const pupilBaseR = eyeBase * 0.28;
+      const wideBoost = 1 + Math.max(0, (eyeWide || 0)) * 0.15;
+      const irisR = Math.min(irisBaseR * wideBoost, Math.min(localRx, localRy) * 0.85);
+      const pupilR2 = Math.min(pupilBaseR * wideBoost, Math.min(localRx, localRy) * 0.55);
 
       // Gaze offset in eye-local coordinates
       const maxOffsetX = Math.max(0, localRx - irisR) * 0.55;
@@ -1039,6 +1115,24 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.strokeStyle = '#333';
         ctx.lineWidth = Math.max(1.5, 2.5 * scale);
         ctx.stroke();
+        const closedDiag = {
+          centerX: t.screenX,
+          centerY: t.screenY,
+          radius: 0,
+          area: 0,
+          eyeCenterX: t.screenX,
+          eyeCenterY: t.screenY,
+          localOffsetX: 0,
+          localOffsetY: 0,
+          gazeX: gazeX || 0,
+          gazeY: gazeY || 0,
+          visible: false,
+          clippedByEyelid: true,
+          eyeRx: localRx,
+          eyeRy: localRy,
+        };
+        ctx.restore();
+        return closedDiag;
       } else {
         // Open eye (including half-closed): draw full eye white + iris/pupil, then upper eyelid covers from top
         // 1. Eye white ellipse (full circle, not squashed)
@@ -1110,7 +1204,26 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
           ctx.restore();
         }
       }
+
+      const diagData = {
+        centerX: t.screenX + gazeOffsetX * Math.cos(eyeAngle) - gazeOffsetY * Math.sin(eyeAngle),
+        centerY: t.screenY + gazeOffsetX * Math.sin(eyeAngle) + gazeOffsetY * Math.cos(eyeAngle),
+        radius: irisR,
+        area: Math.PI * irisR * irisR,
+        eyeCenterX: t.screenX,
+        eyeCenterY: t.screenY,
+        localOffsetX: gazeOffsetX,
+        localOffsetY: gazeOffsetY,
+        gazeX: gazeX || 0,
+        gazeY: gazeY || 0,
+        visible: true,
+        clippedByEyelid: easedClosed > 0.02,
+        eyeRx: localRx,
+        eyeRy: localRy,
+      };
+
       ctx.restore();
+      return diagData;
     };
 
     const drawBrow = (anchor, raise) => {
@@ -1219,8 +1332,14 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY);
-    drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY);
+    const leftIris = drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY);
+    const rightIris = drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY);
+    if (leftIris) this.irisDiag.left = leftIris;
+    if (rightIris) this.irisDiag.right = rightIris;
+    const rAvg = (this.irisDiag.left.radius + this.irisDiag.right.radius) / 2;
+    const rDiff = Math.abs(this.irisDiag.left.radius - this.irisDiag.right.radius);
+    this.irisDiag.radiusStabilityPass = rAvg > 0 ? (rDiff / rAvg) < 0.1 : false;
+    this.irisDiag.movementNotSizePass = this.irisDiag.radiusStabilityPass;
     drawBrow(anchors.browLeft, np.browLeft);
     drawBrow(anchors.browRight, np.browRight);
     drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile, np.mouthFunnel, np.mouthPress);

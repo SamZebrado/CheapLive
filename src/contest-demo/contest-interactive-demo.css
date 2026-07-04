@@ -281,10 +281,9 @@ body {
   display: flex;
   flex-direction: column;
   border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  overflow: visible;
   z-index: 50;
-  transition: opacity 0.3s;
+  background: transparent;
 }
 .fw-top-bar {
   height: 22px;
@@ -307,10 +306,10 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 0;
-  /* 关键：fw-content 强制正方形，canvas resize() 才能读到正方形父容器尺寸。
-     由于高度已经被 flex 父级限制为 178px，这里 width = 父容器 height 即可。 */
   width: 100%;
   aspect-ratio: 1 / 1;
+  background: transparent;
+  border-radius: 10px;
 }
 .fw-content canvas {
   position: absolute;
@@ -329,9 +328,6 @@ body {
   opacity: 0.8;
 }
 /* Floating window mode states */
-.floating-window.fw-display-mode {
-  opacity: 0.85;
-}
 .floating-window.fw-display-mode .fw-content {
   pointer-events: none;
 }
@@ -342,11 +338,14 @@ body {
   display: none;
 }
 .floating-window.fw-edit-mode {
-  opacity: 1;
   pointer-events: auto;
 }
 .floating-window.fw-edit-mode .fw-top-bar {
   box-shadow: 0 0 8px rgba(74,144,217,0.4);
+}
+.floating-window.fw-edit-mode .fw-content {
+  border: 2px dashed rgba(74,144,217,0.5);
+  box-sizing: border-box;
 }
 
 /* ====== Floating Mode Button (独立于悬浮窗，在左侧边缘) ====== */

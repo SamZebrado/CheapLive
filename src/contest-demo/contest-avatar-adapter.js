@@ -116,6 +116,9 @@
     inst.updateParams(params || {});
     diag.lastRenderTime = performance.now ? performance.now() : Date.now();
     _refreshCanvasDiag();
+    if (inst.irisDiag) {
+      diag.irisDiag = inst.irisDiag;
+    }
     return true;
   };
 

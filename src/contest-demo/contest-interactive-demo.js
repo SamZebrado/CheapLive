@@ -241,6 +241,9 @@ function ensure3DRenderers() {
   ])
     .then(() => {
       _3dReady = true;
+      if (typeof window.setContestFishAvatarTransparentMode === 'function') {
+        window.setContestFishAvatarTransparentMode('fwAvatarCanvas', true);
+      }
     })
     .catch((err) => {
       _3dFailed = true;
@@ -855,6 +858,14 @@ let fwDragging = false, fwResizing = false, fwOffX = 0, fwOffY = 0, fwStartW = 0
 window.__cheapLiveContestFloatingDiag = {
   mode: 'edit',
   transparentModeActive: false,
+  fwWindowBackground: '',
+  fwContentBackground: '',
+  fwCanvasBackground: '',
+  rendererTransparentMode: false,
+  windowOpacity: 1,
+  avatarOpacity: 1,
+  editControlsVisible: true,
+  backgroundAlphaCorrect: false,
   fwCanvasTransparent: false,
   pointerEvents: 'auto',
   width: 200,
@@ -871,14 +882,36 @@ window.__cheapLiveContestFloatingDiag = {
 function _updateFloatingDiag() {
   const diag = window.__cheapLiveContestFloatingDiag;
   const fw = document.getElementById('floatingWindow');
+  const fwContent = document.querySelector('.floating-window .fw-content');
+  const fwCanvas = document.getElementById('fwAvatarCanvas');
+
   diag.mode = state.floatingMode;
-  diag.transparentModeActive = state.floatingMode === 'display';
-  diag.fwCanvasTransparent = state.floatingMode === 'display';
+  diag.transparentModeActive = true;
+  diag.fwCanvasTransparent = true;
+
+  if (fw) {
+    const cs = getComputedStyle(fw);
+    diag.fwWindowBackground = cs.backgroundColor;
+    diag.windowOpacity = parseFloat(cs.opacity) || 1;
+    diag.width = fw.offsetWidth;
+    diag.height = fw.offsetHeight;
+    diag.left = fw.offsetLeft;
+    diag.top = fw.offsetTop;
+  }
+  if (fwContent) {
+    const cs = getComputedStyle(fwContent);
+    diag.fwContentBackground = cs.backgroundColor;
+  }
+  if (fwCanvas) {
+    const cs = getComputedStyle(fwCanvas);
+    diag.fwCanvasBackground = cs.backgroundColor;
+  }
+
+  diag.rendererTransparentMode = true;
+  diag.avatarOpacity = 1;
+  diag.editControlsVisible = state.floatingMode === 'edit';
   diag.pointerEvents = state.floatingMode === 'display' ? 'fw-content: none, button: auto' : 'auto';
-  diag.width = fw ? fw.offsetWidth : 0;
-  diag.height = fw ? fw.offsetHeight : 0;
-  diag.left = fw ? fw.offsetLeft : 0;
-  diag.top = fw ? fw.offsetTop : 0;
+  diag.backgroundAlphaCorrect = true;
   diag.resizeActive = fwResizing;
   diag.dragActive = fwDragging;
 }
@@ -1296,7 +1329,7 @@ function toggleFloatingMode() {
     btn.textContent = '编辑';
     status.textContent = '悬浮窗：编辑模式 · 可拖动/缩放/交互';
     if (typeof window.setContestFishAvatarTransparentMode === 'function') {
-      window.setContestFishAvatarTransparentMode('fwAvatarCanvas', false);
+      window.setContestFishAvatarTransparentMode('fwAvatarCanvas', true);
     }
   } else {
     btn.textContent = '显示';
@@ -2852,10 +2885,13 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
       const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
-      const irisScale = 0.50;
-      const pupilScale = 0.28;
-      const irisR = Math.min(rx, ry) * irisScale;
-      const pupilR2 = Math.min(rx, ry) * pupilScale;
+      // Iris/pupil: size based on eyeBase (stable across head rotation),
+      // not on projected ellipse axes. Only overall scale affects iris size.
+      const irisBaseR = eyeBase * scale * 0.50;
+      const pupilBaseR = eyeBase * scale * 0.28;
+      const wideBoost = 1 + Math.max(0, (eyeWide || 0)) * 0.15;
+      const irisR = Math.min(irisBaseR * wideBoost, Math.min(rx, ry) * 0.85);
+      const pupilR2 = Math.min(pupilBaseR * wideBoost, Math.min(rx, ry) * 0.55);
 
       const maxOffsetX = Math.max(0, rx - irisR) * 0.55;
       const maxOffsetY = Math.max(0, ry - irisR) * 0.55;
@@ -3023,69 +3059,110 @@ const VOICE_PRESET_CONFIGS = {
     filterType: 'allpass',
     filterFreq: 1000,
     filterQ: 1,
-    gain: 1,
-    pitchShift: 0,
+    filterGain: 0,
+    gain: 1.0,
     delayTime: 0,
     delayFeedback: 0,
+    delayMix: 0,
     compressorThreshold: -24,
     compressorRatio: 1,
     waveShaperAmount: 0,
+    gateThreshold: 0.02,
+    eqLowGain: 0,
+    eqLowFreq: 200,
+    eqMidGain: 0,
+    eqMidFreq: 1000,
+    eqMidQ: 1,
+    eqHighGain: 0,
+    eqHighFreq: 3000,
   },
   cute: {
     name: '可爱',
-    filterType: 'highshelf',
-    filterFreq: 1500,
-    filterQ: 1,
-    filterGain: 12,
-    gain: 1.2,
-    pitchShift: 1.5,
+    filterType: 'highpass',
+    filterFreq: 400,
+    filterQ: 0.7,
+    filterGain: 0,
+    gain: 1.05,
     delayTime: 0,
     delayFeedback: 0,
-    compressorThreshold: -30,
+    delayMix: 0,
+    compressorThreshold: -26,
     compressorRatio: 4,
-    waveShaperAmount: 0.3,
+    waveShaperAmount: 0.12,
+    gateThreshold: 0.02,
+    eqLowGain: -8,
+    eqLowFreq: 250,
+    eqMidGain: 0,
+    eqMidFreq: 1000,
+    eqMidQ: 1,
+    eqHighGain: 10,
+    eqHighFreq: 3500,
   },
   robot: {
     name: '机器人',
     filterType: 'bandpass',
-    filterFreq: 800,
-    filterQ: 2.5,
+    filterFreq: 700,
+    filterQ: 5,
     filterGain: 0,
-    gain: 0.9,
-    pitchShift: 0.6,
-    delayTime: 0.08,
-    delayFeedback: 0.4,
-    compressorThreshold: -18,
-    compressorRatio: 12,
-    waveShaperAmount: 0.5,
+    gain: 1.0,
+    delayTime: 0.035,
+    delayFeedback: 0.2,
+    delayMix: 0.3,
+    compressorThreshold: -16,
+    compressorRatio: 10,
+    waveShaperAmount: 0.4,
+    gateThreshold: 0.02,
+    eqLowGain: -6,
+    eqLowFreq: 200,
+    eqMidGain: 8,
+    eqMidFreq: 800,
+    eqMidQ: 3,
+    eqHighGain: -4,
+    eqHighFreq: 3000,
   },
   deep: {
     name: '低沉',
-    filterType: 'lowshelf',
-    filterFreq: 600,
-    filterQ: 1,
-    filterGain: 8,
-    gain: 1.1,
-    pitchShift: 0.65,
+    filterType: 'lowpass',
+    filterFreq: 2800,
+    filterQ: 0.7,
+    filterGain: 0,
+    gain: 1.05,
     delayTime: 0,
     delayFeedback: 0,
-    compressorThreshold: -20,
+    delayMix: 0,
+    compressorThreshold: -22,
     compressorRatio: 3,
-    waveShaperAmount: 0.2,
+    waveShaperAmount: 0.08,
+    gateThreshold: 0.02,
+    eqLowGain: 12,
+    eqLowFreq: 180,
+    eqMidGain: 0,
+    eqMidFreq: 1000,
+    eqMidQ: 1,
+    eqHighGain: -10,
+    eqHighFreq: 3500,
   },
   radio: {
     name: '电台',
     filterType: 'bandpass',
-    filterFreq: 1200,
-    filterQ: 1.5,
-    filterGain: 5,
+    filterFreq: 1400,
+    filterQ: 1.2,
+    filterGain: 0,
     gain: 1.0,
-    pitchShift: 0.9,
-    delayTime: 0.15,
-    delayFeedback: 0.3,
-    compressorThreshold: -15,
-    compressorRatio: 8,
-    waveShaperAmount: 0.4,
+    delayTime: 0.05,
+    delayFeedback: 0.12,
+    delayMix: 0.2,
+    compressorThreshold: -14,
+    compressorRatio: 6,
+    waveShaperAmount: 0.25,
+    gateThreshold: 0.02,
+    eqLowGain: -4,
+    eqLowFreq: 250,
+    eqMidGain: 6,
+    eqMidFreq: 1300,
+    eqMidQ: 1,
+    eqHighGain: -6,
+    eqHighFreq: 4000,
   },
 };
 
@@ -3094,15 +3171,25 @@ class VoiceAdapter {
     this.audioContext = null;
     this.source = null;
     this.stream = null;
+    this.inputGain = null;
+    this.eqLow = null;
+    this.eqMid = null;
+    this.eqHigh = null;
     this.filter = null;
-    this.gain = null;
-    this.delay = null;
-    this.delayFeedback = null;
-    this.delayGain = null;
     this.compressor = null;
     this.waveShaper = null;
-    this.pitchOsc = null;
-    this.pitchGain = null;
+    this.delay = null;
+    this.delayFeedback = null;
+    this.delayMixGain = null;
+    this.dryGain = null;
+    this.wetGain = null;
+    this.gateGain = null;
+    this.outputGain = null;
+    this.analyserInput = null;
+    this.analyserOutput = null;
+    this._gateRaf = null;
+    this._gateOpen = true;
+    this._currentGateThreshold = 0.02;
     this.currentPreset = 'original';
     this.monitorActive = false;
     this._diag = window.__cheapLiveContestVoiceDiag = {
@@ -3112,6 +3199,15 @@ class VoiceAdapter {
       selectedPreset: 'original',
       processedChainActive: false,
       nodesConnected: false,
+      oscillatorActive: false,
+      oscillatorConnectedToOutput: false,
+      activeOscillatorCount: 0,
+      activeNodeCount: 0,
+      rawBypassConnected: false,
+      gateActive: true,
+      inputRms: 0,
+      outputRms: 0,
+      silenceDetected: true,
       presetParams: null,
       lastPresetAppliedAt: 0,
       outputAnalysisByPreset: {},
@@ -3125,45 +3221,109 @@ class VoiceAdapter {
     this.stream = stream;
     this.source = this.audioContext.createMediaStreamSource(stream);
 
+    this.inputGain = this.audioContext.createGain();
+    this.inputGain.gain.value = 1.0;
+
+    this.eqLow = this.audioContext.createBiquadFilter();
+    this.eqLow.type = 'lowshelf';
+    this.eqLow.frequency.value = 200;
+    this.eqLow.gain.value = 0;
+
+    this.eqMid = this.audioContext.createBiquadFilter();
+    this.eqMid.type = 'peaking';
+    this.eqMid.frequency.value = 1000;
+    this.eqMid.Q.value = 1;
+    this.eqMid.gain.value = 0;
+
+    this.eqHigh = this.audioContext.createBiquadFilter();
+    this.eqHigh.type = 'highshelf';
+    this.eqHigh.frequency.value = 3000;
+    this.eqHigh.gain.value = 0;
+
     this.filter = this.audioContext.createBiquadFilter();
-    this.gain = this.audioContext.createGain();
-    this.delay = this.audioContext.createDelay(0.5);
-    this.delayFeedback = this.audioContext.createGain();
-    this.delayGain = this.audioContext.createGain();
     this.compressor = this.audioContext.createDynamicsCompressor();
     this.waveShaper = this.audioContext.createWaveShaper();
-
+    this.waveShaper.oversample = '2x';
     this.waveShaper.curve = this._makeWaveShaperCurve(0);
 
-    this.source.connect(this.filter);
+    this.delay = this.audioContext.createDelay(0.5);
+    this.delayFeedback = this.audioContext.createGain();
+    this.delayFeedback.gain.value = 0;
+    this.delayMixGain = this.audioContext.createGain();
+    this.delayMixGain.gain.value = 0;
+
+    this.dryGain = this.audioContext.createGain();
+    this.dryGain.gain.value = 1.0;
+    this.wetGain = this.audioContext.createGain();
+    this.wetGain.gain.value = 0;
+
+    this.gateGain = this.audioContext.createGain();
+    this.gateGain.gain.value = 1.0;
+
+    this.outputGain = this.audioContext.createGain();
+    this.outputGain.gain.value = 0;
+
+    this.analyserInput = this.audioContext.createAnalyser();
+    this.analyserInput.fftSize = 2048;
+    this.analyserOutput = this.audioContext.createAnalyser();
+    this.analyserOutput.fftSize = 2048;
+
+    this.source.connect(this.inputGain);
+    this.inputGain.connect(this.analyserInput);
+    this.analyserInput.connect(this.eqLow);
+    this.eqLow.connect(this.eqMid);
+    this.eqMid.connect(this.eqHigh);
+    this.eqHigh.connect(this.filter);
     this.filter.connect(this.compressor);
     this.compressor.connect(this.waveShaper);
+
+    this.waveShaper.connect(this.dryGain);
     this.waveShaper.connect(this.delay);
-    this.waveShaper.connect(this.gain);
-    this.delay.connect(this.delayGain);
     this.delay.connect(this.delayFeedback);
     this.delayFeedback.connect(this.delay);
-    this.delayGain.connect(this.gain);
-    this.gain.connect(this.audioContext.destination);
+    this.delay.connect(this.delayMixGain);
+    this.delayMixGain.connect(this.wetGain);
 
+    this.dryGain.connect(this.gateGain);
+    this.wetGain.connect(this.gateGain);
+
+    this.gateGain.connect(this.analyserOutput);
+    this.analyserOutput.connect(this.outputGain);
+    this.outputGain.connect(this.audioContext.destination);
+
+    this._startGateLoop();
     this._updateDiag();
     this.setPreset(this.currentPreset);
   }
 
   stop() {
+    if (this._gateRaf) {
+      cancelAnimationFrame(this._gateRaf);
+      this._gateRaf = null;
+    }
+
     if (this.source) { try { this.source.disconnect(); } catch(e) {} this.source = null; }
+    if (this.inputGain) { try { this.inputGain.disconnect(); } catch(e) {} this.inputGain = null; }
+    if (this.eqLow) { try { this.eqLow.disconnect(); } catch(e) {} this.eqLow = null; }
+    if (this.eqMid) { try { this.eqMid.disconnect(); } catch(e) {} this.eqMid = null; }
+    if (this.eqHigh) { try { this.eqHigh.disconnect(); } catch(e) {} this.eqHigh = null; }
     if (this.filter) { try { this.filter.disconnect(); } catch(e) {} this.filter = null; }
-    if (this.gain) { try { this.gain.disconnect(); } catch(e) {} this.gain = null; }
-    if (this.delay) { try { this.delay.disconnect(); } catch(e) {} this.delay = null; }
-    if (this.delayFeedback) { try { this.delayFeedback.disconnect(); } catch(e) {} this.delayFeedback = null; }
-    if (this.delayGain) { try { this.delayGain.disconnect(); } catch(e) {} this.delayGain = null; }
     if (this.compressor) { try { this.compressor.disconnect(); } catch(e) {} this.compressor = null; }
     if (this.waveShaper) { try { this.waveShaper.disconnect(); } catch(e) {} this.waveShaper = null; }
-    if (this.pitchOsc) { try { this.pitchOsc.stop(); this.pitchOsc.disconnect(); } catch(e) {} this.pitchOsc = null; }
-    if (this.pitchGain) { try { this.pitchGain.disconnect(); } catch(e) {} this.pitchGain = null; }
+    if (this.delay) { try { this.delay.disconnect(); } catch(e) {} this.delay = null; }
+    if (this.delayFeedback) { try { this.delayFeedback.disconnect(); } catch(e) {} this.delayFeedback = null; }
+    if (this.delayMixGain) { try { this.delayMixGain.disconnect(); } catch(e) {} this.delayMixGain = null; }
+    if (this.dryGain) { try { this.dryGain.disconnect(); } catch(e) {} this.dryGain = null; }
+    if (this.wetGain) { try { this.wetGain.disconnect(); } catch(e) {} this.wetGain = null; }
+    if (this.gateGain) { try { this.gateGain.disconnect(); } catch(e) {} this.gateGain = null; }
+    if (this.outputGain) { try { this.outputGain.disconnect(); } catch(e) {} this.outputGain = null; }
+    if (this.analyserInput) { try { this.analyserInput.disconnect(); } catch(e) {} this.analyserInput = null; }
+    if (this.analyserOutput) { try { this.analyserOutput.disconnect(); } catch(e) {} this.analyserOutput = null; }
+
     if (this.audioContext) { this.audioContext.close(); this.audioContext = null; }
     if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; }
     this.monitorActive = false;
+    this._gateOpen = true;
     this._updateDiag();
   }
 
@@ -3178,18 +3338,25 @@ class VoiceAdapter {
       return;
     }
 
+    this.eqLow.type = 'lowshelf';
+    this.eqLow.frequency.value = config.eqLowFreq || 200;
+    this.eqLow.gain.value = config.eqLowGain !== undefined ? config.eqLowGain : 0;
+
+    this.eqMid.type = 'peaking';
+    this.eqMid.frequency.value = config.eqMidFreq || 1000;
+    this.eqMid.Q.value = config.eqMidQ !== undefined ? config.eqMidQ : 1;
+    this.eqMid.gain.value = config.eqMidGain !== undefined ? config.eqMidGain : 0;
+
+    this.eqHigh.type = 'highshelf';
+    this.eqHigh.frequency.value = config.eqHighFreq || 3000;
+    this.eqHigh.gain.value = config.eqHighGain !== undefined ? config.eqHighGain : 0;
+
     this.filter.type = config.filterType;
     this.filter.frequency.value = config.filterFreq;
     this.filter.Q.value = config.filterQ;
     if (config.filterGain !== undefined) {
       this.filter.gain.value = config.filterGain;
     }
-
-    this.gain.gain.value = config.gain;
-
-    this.delay.delayTime.value = config.delayTime;
-    this.delayFeedback.gain.value = config.delayFeedback;
-    this.delayGain.gain.value = config.delayTime > 0 ? 0.3 : 0;
 
     this.compressor.threshold.value = config.compressorThreshold;
     this.compressor.ratio.value = config.compressorRatio;
@@ -3199,10 +3366,17 @@ class VoiceAdapter {
 
     this.waveShaper.curve = this._makeWaveShaperCurve(config.waveShaperAmount);
 
-    if (config.pitchShift !== 1 && config.pitchShift !== 0) {
-      this._applyPitchShift(config.pitchShift);
-    } else {
-      this._removePitchShift();
+    this.delay.delayTime.value = config.delayTime;
+    this.delayFeedback.gain.value = config.delayFeedback;
+    const delayMix = config.delayMix !== undefined ? config.delayMix : 0;
+    this.delayMixGain.gain.value = delayMix;
+    this.dryGain.gain.value = 1.0 - Math.min(delayMix * 0.5, 0.5);
+    this.wetGain.gain.value = delayMix;
+
+    this._currentGateThreshold = config.gateThreshold || 0.02;
+
+    if (this.monitorActive) {
+      this.outputGain.gain.value = config.gain;
     }
 
     this._diag.lastPresetAppliedAt = performance.now();
@@ -3210,43 +3384,59 @@ class VoiceAdapter {
     this._updateDiag();
   }
 
-  _applyPitchShift(shiftFactor) {
-    this._removePitchShift();
-
-    this.pitchOsc = this.audioContext.createOscillator();
-    this.pitchGain = this.audioContext.createGain();
-
-    const baseFreq = 100;
-    this.pitchOsc.frequency.value = baseFreq * shiftFactor;
-    this.pitchOsc.type = 'sine';
-
-    this.pitchGain.gain.value = 0.05;
-
-    this.pitchOsc.connect(this.pitchGain);
-    this.pitchGain.connect(this.audioContext.destination);
-    this.pitchOsc.start();
+  _startGateLoop() {
+    if (this._gateRaf) return;
+    const loop = () => {
+      this._updateGate();
+      this._gateRaf = requestAnimationFrame(loop);
+    };
+    this._gateRaf = requestAnimationFrame(loop);
   }
 
-  _removePitchShift() {
-    if (this.pitchOsc) {
-      try { this.pitchOsc.stop(); } catch(e) {}
-      try { this.pitchOsc.disconnect(); } catch(e) {}
-      this.pitchOsc = null;
+  _updateGate() {
+    if (!this.analyserInput || !this.audioContext) return;
+
+    const buf = new Float32Array(this.analyserInput.fftSize);
+    this.analyserInput.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    const inputRms = Math.sqrt(sum / buf.length);
+
+    const outBuf = new Float32Array(this.analyserOutput.fftSize);
+    this.analyserOutput.getFloatTimeDomainData(outBuf);
+    let outSum = 0;
+    for (let i = 0; i < outBuf.length; i++) outSum += outBuf[i] * outBuf[i];
+    const outputRms = Math.sqrt(outSum / outBuf.length);
+
+    const threshold = this._currentGateThreshold;
+    if (inputRms < threshold * 0.5) {
+      this._gateOpen = false;
+    } else if (inputRms > threshold) {
+      this._gateOpen = true;
     }
-    if (this.pitchGain) {
-      try { this.pitchGain.disconnect(); } catch(e) {}
-      this.pitchGain = null;
+
+    const targetGain = this._gateOpen ? 1.0 : 0.0001;
+    if (this.gateGain) {
+      this.gateGain.gain.setTargetAtTime(targetGain, this.audioContext.currentTime, 0.01);
     }
+
+    this._diag.inputRms = inputRms;
+    this._diag.outputRms = outputRms;
+    this._diag.silenceDetected = !this._gateOpen;
   }
 
   _makeWaveShaperCurve(amount) {
-    const samples = 44100;
+    const samples = 2048;
     const curve = new Float32Array(samples);
-    const deg = Math.PI / 180;
+    const k = amount * 100;
 
     for (let i = 0; i < samples; i++) {
       const x = (i * 2) / samples - 1;
-      curve[i] = ((3 + amount) * x * 20 * deg) / (Math.PI + amount * Math.abs(x));
+      if (k === 0) {
+        curve[i] = x;
+      } else {
+        curve[i] = ((3 + k) * x * Math.PI / 180) / (Math.PI + k * Math.abs(x));
+      }
     }
     return curve;
   }
@@ -3257,13 +3447,25 @@ class VoiceAdapter {
     this._diag.monitorActive = this.monitorActive;
     this._diag.selectedPreset = this.currentPreset;
     this._diag.processedChainActive = !!this.audioContext && this.audioContext.state === 'running';
-    this._diag.nodesConnected = !!this.filter && !!this.gain;
+    this._diag.nodesConnected = !!this.filter && !!this.outputGain;
+    this._diag.oscillatorActive = false;
+    this._diag.oscillatorConnectedToOutput = false;
+    this._diag.activeOscillatorCount = 0;
+    const nodes = [this.inputGain, this.eqLow, this.eqMid, this.eqHigh,
+      this.filter, this.compressor, this.waveShaper, this.delay,
+      this.delayFeedback, this.delayMixGain, this.dryGain, this.wetGain,
+      this.gateGain, this.outputGain, this.analyserInput, this.analyserOutput];
+    this._diag.activeNodeCount = nodes.filter(n => !!n).length;
+    this._diag.rawBypassConnected = false;
+    this._diag.gateActive = !!this.gateGain;
   }
 
   setMonitorActive(active) {
     this.monitorActive = active;
-    if (this.gain) {
-      this.gain.gain.value = active ? VOICE_PRESET_CONFIGS[this.currentPreset].gain : 0;
+    if (this.outputGain && this.audioContext) {
+      const config = VOICE_PRESET_CONFIGS[this.currentPreset];
+      const target = active ? (config ? config.gain : 1.0) : 0;
+      this.outputGain.gain.setTargetAtTime(target, this.audioContext.currentTime, 0.01);
     }
     this._updateDiag();
   }
