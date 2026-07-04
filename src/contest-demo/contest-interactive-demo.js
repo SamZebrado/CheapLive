@@ -14,7 +14,7 @@ const state = {
   guideStep: 0,
   floatingMode: 'edit', // 'edit' | 'display'
   // Simulated face params
-  faceParams: { mouthOpen: 0, blink: 0, yaw: 0, pitch: 0, roll: 0, smile: 0 },
+  faceParams: { mouthOpen: 0, blink: 0, blinkLeft: 0, blinkRight: 0, eyeLeft: 1, eyeRight: 1, yaw: 0, pitch: 0, roll: 0, smile: 0 },
 };
 
 // ====== FACE FRAME STATE ======
@@ -172,14 +172,30 @@ function update3DRenderers(params) {
 }
 
 function faceParamsToRendererParams(fp) {
+  // Aligned with open demo mapping conventions:
+  // - yaw: negative = left, positive = right; mirrored for selfie view
+  // - pitch: negative = down (nod), positive = up
+  // - roll: negative = left tilt, positive = right tilt; negated for visual match
+  // - eyeLeft/eyeRight: 0 = closed, 1 = fully open (derived from blink values)
+  const blinkLeft = fp.blinkLeft ?? fp.blink ?? 0;
+  const blinkRight = fp.blinkRight ?? fp.blink ?? 0;
+  const eyeLeft = fp.eyeLeft ?? (1 - blinkLeft);
+  const eyeRight = fp.eyeRight ?? (1 - blinkRight);
+
+  // Mirror yaw for selfie view (like open demo mirror mode)
+  // Pitch and roll are negated to match intuitive direction (down=down, left tilt=left tilt)
+  const yawNorm = (-(fp.yaw ?? 0)) * 0.5 + 0.5;
+  const pitchNorm = (-(fp.pitch ?? 0)) * 0.5 + 0.5;
+  const rollNorm = (-(fp.roll ?? 0)) * 0.5 + 0.5;
+
   return {
     mouthOpen: fp.mouthOpen ?? 0,
     mouthSmile: fp.smile ?? 0,
-    eyeLeft: 1 - (fp.blink ?? 0),
-    eyeRight: 1 - (fp.blink ?? 0),
-    headYaw: (fp.yaw ?? 0) * 0.5 + 0.5,
-    headPitch: (fp.pitch ?? 0) * 0.5 + 0.5,
-    headRoll: (fp.roll ?? 0) * 0.5 + 0.5,
+    eyeLeft: eyeLeft,
+    eyeRight: eyeRight,
+    headYaw: yawNorm,
+    headPitch: pitchNorm,
+    headRoll: rollNorm,
     browLeft: 0,
     browRight: 0,
   };
@@ -284,7 +300,8 @@ function manualFallback2D() {
 
 // ====== FACE FRAME INJECTION ======
 // Frame fields: source, seq, headYaw (deg), headPitch (deg), headRoll (deg),
-//               mouthOpen (0-1), mouthSmile (0-1)
+//               mouthOpen (0-1), mouthSmile (0-1),
+//               blinkLeft (0-1), blinkRight (0-1), eyeLeft (0-1), eyeRight (0-1)
 // Degrees range: yaw ±60, pitch ±45, roll ±40
 function _degToNorm(deg, maxDeg) {
   const clamped = Math.max(-maxDeg, Math.min(maxDeg, deg));
@@ -315,6 +332,25 @@ function _applyFaceFrameInternal(frame) {
   if (typeof frame.mouthSmile === 'number') {
     state.faceParams.smile = Math.max(0, Math.min(1, frame.mouthSmile));
   }
+  // Eye/blink fields: support both blinkLeft/blinkRight and eyeLeft/eyeRight
+  if (typeof frame.blinkLeft === 'number') {
+    state.faceParams.blinkLeft = Math.max(0, Math.min(1, frame.blinkLeft));
+    state.faceParams.eyeLeft = 1 - state.faceParams.blinkLeft;
+  }
+  if (typeof frame.blinkRight === 'number') {
+    state.faceParams.blinkRight = Math.max(0, Math.min(1, frame.blinkRight));
+    state.faceParams.eyeRight = 1 - state.faceParams.blinkRight;
+  }
+  if (typeof frame.eyeLeft === 'number') {
+    state.faceParams.eyeLeft = Math.max(0, Math.min(1, frame.eyeLeft));
+    state.faceParams.blinkLeft = 1 - state.faceParams.eyeLeft;
+  }
+  if (typeof frame.eyeRight === 'number') {
+    state.faceParams.eyeRight = Math.max(0, Math.min(1, frame.eyeRight));
+    state.faceParams.blinkRight = 1 - state.faceParams.eyeRight;
+  }
+  // Update unified blink as max of both
+  state.faceParams.blink = Math.max(state.faceParams.blinkLeft, state.faceParams.blinkRight);
 
   _lastAppliedValues = {
     yaw: state.faceParams.yaw,
@@ -322,6 +358,11 @@ function _applyFaceFrameInternal(frame) {
     roll: state.faceParams.roll,
     mouthOpen: state.faceParams.mouthOpen,
     smile: state.faceParams.smile,
+    blink: state.faceParams.blink,
+    blinkLeft: state.faceParams.blinkLeft,
+    blinkRight: state.faceParams.blinkRight,
+    eyeLeft: state.faceParams.eyeLeft,
+    eyeRight: state.faceParams.eyeRight,
   };
 
   // Reset idle timeout
@@ -983,6 +1024,42 @@ function simLoop(ts) {
     diag.mediapipeInitDiag = _mediapipeInitDiag;
     const statusEl = document.getElementById('faceCamStatus');
     diag.faceCamStatus = statusEl ? statusEl.textContent : null;
+
+    // Raw pose from face params (before mapping to renderer)
+    diag.rawPoseDiag = {
+      yaw: state.faceParams.yaw,
+      pitch: state.faceParams.pitch,
+      roll: state.faceParams.roll,
+      mouthOpen: state.faceParams.mouthOpen,
+      smile: state.faceParams.smile,
+      blink: state.faceParams.blink,
+      blinkLeft: state.faceParams.blinkLeft,
+      blinkRight: state.faceParams.blinkRight,
+      eyeLeft: state.faceParams.eyeLeft,
+      eyeRight: state.faceParams.eyeRight,
+    };
+
+    // Mapped renderer values (what actually gets sent to the renderer)
+    const mapped = faceParamsToRendererParams(state.faceParams);
+    diag.mappedPoseDiag = {
+      headYaw: mapped.headYaw,
+      headPitch: mapped.headPitch,
+      headRoll: mapped.headRoll,
+      eyeLeft: mapped.eyeLeft,
+      eyeRight: mapped.eyeRight,
+      mouthOpen: mapped.mouthOpen,
+      mouthSmile: mapped.mouthSmile,
+    };
+
+    // Eye orientation diagnostics (for eyelid rotation verification)
+    const headRollDeg = (mapped.headRoll - 0.5) * 80;
+    diag.eyeOrientationDiag = {
+      headRoll: headRollDeg,
+      eyeLocalAngleLeft: 0,
+      eyeLocalAngleRight: 0,
+      eyelidBoundaryAngleLeft: headRollDeg,
+      eyelidBoundaryAngleRight: headRollDeg,
+    };
   }
 
   // Draw avatar on main canvas
@@ -1563,6 +1640,10 @@ function updateFaceParamsFromBlendshapes(blendshapes, matrices) {
 
   state.faceParams.mouthOpen = mouthOpen;
   state.faceParams.blink = Math.max(blinkLeft, blinkRight);
+  state.faceParams.blinkLeft = blinkLeft;
+  state.faceParams.blinkRight = blinkRight;
+  state.faceParams.eyeLeft = 1 - blinkLeft;
+  state.faceParams.eyeRight = 1 - blinkRight;
   state.faceParams.smile = (smileLeft + smileRight) / 2;
   state.faceParams.faceDetected = true;
 
@@ -1588,6 +1669,10 @@ function updateFaceParamsFromBlendshapes(blendshapes, matrices) {
     mouthOpen: state.faceParams.mouthOpen,
     smile: state.faceParams.smile,
     blink: state.faceParams.blink,
+    blinkLeft: state.faceParams.blinkLeft,
+    blinkRight: state.faceParams.blinkRight,
+    eyeLeft: state.faceParams.eyeLeft,
+    eyeRight: state.faceParams.eyeRight,
   };
 
   const diag = window.__cheapLiveContestAvatarDiag;

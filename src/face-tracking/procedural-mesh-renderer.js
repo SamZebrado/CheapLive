@@ -677,23 +677,53 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
         ctx.restore();
         ctx.globalAlpha = facing;
 
-        // 上眼皮：clip 到眼睛椭圆内，用矩形从顶部向下覆盖
+        // 上眼皮：clip 到眼睛椭圆内，从顶部向下覆盖
+        // 修复：眼皮分界线沿眼睛水平方向（rightVec），随头部姿态一起旋转
         if (easedClosed > 0.02) {
           ctx.save();
           ctx.beginPath();
           ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
           ctx.clip();
-          const eyelidY = t.screenY - ry + ry * 2 * easedClosed;
+
+          // 用 rightVec/downVec 构建眼睛局部坐标系
+          const rVec = t.rightVec;
+          const dVec = t.downVec;
+
+          // 眼睛水平/垂直方向半径（屏幕坐标）
+          const hx = eyeHalfW; // rightVec 方向半径
+          const hy = eyeHalfH; // downVec 方向半径
+
+          // 眼皮分界线的 y 位置（眼睛局部坐标）
+          const eyelidLocalY = -hy + hy * 2 * easedClosed;
+
+          // 计算眼皮分界线的两个端点（屏幕坐标）
+          const lx = t.screenX - rVec.x * hx + dVec.x * eyelidLocalY;
+          const ly = t.screenY - rVec.y * hx + dVec.y * eyelidLocalY;
+          const rx_pt = t.screenX + rVec.x * hx + dVec.x * eyelidLocalY;
+          const ry_pt = t.screenY + rVec.y * hx + dVec.y * eyelidLocalY;
+
+          // 顶部两端点
+          const topLx = t.screenX - rVec.x * hx - dVec.x * hy;
+          const topLy = t.screenY - rVec.y * hx - dVec.y * hy;
+          const topRx = t.screenX + rVec.x * hx - dVec.x * hy;
+          const topRy = t.screenY + rVec.y * hx - dVec.y * hy;
+
+          // 填充上眼皮区域
           ctx.fillStyle = this.mesh.faceTopColor || '#d9d2be';
-          ctx.fillRect(
-            t.screenX - rx - 2, t.screenY - ry - 2,
-            rx * 2 + 4, eyelidY - t.screenY + ry + 2
-          );
+          ctx.beginPath();
+          ctx.moveTo(topLx - rVec.x * 2 - dVec.x * 2, topLy - rVec.y * 2 - dVec.y * 2);
+          ctx.lineTo(topRx + rVec.x * 2 - dVec.x * 2, topRy + rVec.y * 2 - dVec.y * 2);
+          ctx.lineTo(rx_pt + rVec.x * 2, ry_pt + rVec.y * 2);
+          ctx.lineTo(lx - rVec.x * 2, ly - rVec.y * 2);
+          ctx.closePath();
+          ctx.fill();
+
+          // 上眼皮边缘线
           ctx.strokeStyle = '#555';
           ctx.lineWidth = Math.max(0.8, 1.2 * scale);
           ctx.beginPath();
-          ctx.moveTo(t.screenX - rx, eyelidY);
-          ctx.lineTo(t.screenX + rx, eyelidY);
+          ctx.moveTo(lx, ly);
+          ctx.lineTo(rx_pt, ry_pt);
           ctx.stroke();
           ctx.restore();
         }
@@ -1045,27 +1075,60 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
 
         // 3. 上眼皮：从眼睛顶部向下覆盖（clip 在眼白椭圆内）
         // easedClosed=0 时无覆盖，easedClosed=1 时完全覆盖
+        // 修复：眼皮分界线沿眼睛水平方向（rightVec），随头部姿态一起旋转
         if (easedClosed > 0.02) {
           ctx.save();
           ctx.beginPath();
           ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
           ctx.clip();
 
-          // 上眼皮覆盖高度：从顶部向下覆盖 easedClosed 比例
-          const eyelidCoverY = t.screenY - ry + ry * 2 * easedClosed;
-          // 用肤色（头部颜色）填充上眼皮区域
+          // 用 rightVec/downVec 构建眼睛局部坐标系
+          // rightVec = 眼睛水平向右方向，downVec = 眼睛垂直向下方向
+          const rVec = t.rightVec;
+          const dVec = t.downVec;
+          const rLen = t.rightLen || Math.sqrt(rVec.x * rVec.x + rVec.y * rVec.y);
+          const dLen = t.downLen || Math.sqrt(dVec.x * dVec.x + dVec.y * dVec.y);
+
+          // 眼睛水平/垂直方向的屏幕半径（考虑 eyeWide/eyeSquint 缩放）
+          const wScale = (1 + (eyeWide || 0) * 0.47) * (1 + (eyeSquint || 0) * 0.08);
+          const hScale = (1 + (eyeWide || 0) * 0.47) * (1 - (eyeSquint || 0) * 0.55);
+          const hx = eyeHalfW * wScale; // 水平方向半径（rightVec 方向的大小）
+          const hy = eyeHalfH * hScale; // 垂直方向半径（downVec 方向的大小）
+
+          // 眼皮分界线的 y 位置（眼睛局部坐标，向下为正）
+          const eyelidLocalY = -hy + hy * 2 * easedClosed;
+
+          // 计算眼皮分界线的两个端点（屏幕坐标）
+          // 左眼端点：眼睛中心 + (-rightVec * hx) + (downVec * eyelidLocalY)
+          const lx = t.screenX - rVec.x * hx + dVec.x * eyelidLocalY;
+          const ly = t.screenY - rVec.y * hx + dVec.y * eyelidLocalY;
+          // 右眼端点：眼睛中心 + (+rightVec * hx) + (downVec * eyelidLocalY)
+          const rx_pt = t.screenX + rVec.x * hx + dVec.x * eyelidLocalY;
+          const ry_pt = t.screenY + rVec.y * hx + dVec.y * eyelidLocalY;
+
+          // 用多边形填充上眼皮区域（顶部到分界线）
+          // 顶部两端点：眼睛顶部（沿 -downVec 方向的端点）
+          const topLx = t.screenX - rVec.x * hx - dVec.x * hy;
+          const topLy = t.screenY - rVec.y * hx - dVec.y * hy;
+          const topRx = t.screenX + rVec.x * hx - dVec.x * hy;
+          const topRy = t.screenY + rVec.y * hx - dVec.y * hy;
+
+          // 填充上眼皮区域（扩大 2px 确保覆盖边缘）
           ctx.fillStyle = mesh.faceTopColor || mesh.bodyColor || '#d9d2be';
-          ctx.fillRect(
-            t.screenX - rx - 2, t.screenY - ry - 2,
-            rx * 2 + 4, eyelidCoverY - (t.screenY - ry) + 2
-          );
+          ctx.beginPath();
+          ctx.moveTo(topLx - rVec.x * 2 - dVec.x * 2, topLy - rVec.y * 2 - dVec.y * 2);
+          ctx.lineTo(topRx + rVec.x * 2 - dVec.x * 2, topRy + rVec.y * 2 - dVec.y * 2);
+          ctx.lineTo(rx_pt + rVec.x * 2, ry_pt + rVec.y * 2);
+          ctx.lineTo(lx - rVec.x * 2, ly - rVec.y * 2);
+          ctx.closePath();
+          ctx.fill();
 
           // 上眼皮边缘线
           ctx.strokeStyle = '#555';
           ctx.lineWidth = Math.max(1, 1.8 * scale);
           ctx.beginPath();
-          ctx.moveTo(t.screenX - rx, eyelidCoverY);
-          ctx.lineTo(t.screenX + rx, eyelidCoverY);
+          ctx.moveTo(lx, ly);
+          ctx.lineTo(rx_pt, ry_pt);
           ctx.stroke();
 
           ctx.restore();
