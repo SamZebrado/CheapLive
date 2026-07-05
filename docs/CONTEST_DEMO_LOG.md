@@ -151,3 +151,60 @@
 - [未验证] Android 真机视觉同步（Android 不加载 contest-demo）
 - [未验证] 用户视觉验收（鱼和猫的形象主观评价）
 - [未验证] mocap 真实 active 状态（资源未安装）
+
+---
+
+## 2026-07-05 16:55 — 鱼修复 + 平板验证（commit 2ae7375）
+
+### 修改内容
+
+#### P0-A: 3D 鱼转头眼睛脱离修复
+- Root cause: yaw 转头时 rightVec（tangent）投影长度 rLen 趋近 0，导致 localRx 坍缩
+  - yaw=-0.5: 远侧眼 aspectRatio=0.730（接近临界）
+  - yaw=-1.0: 远侧眼 aspectRatio=0.272（严重坍缩，眼睛变竖条）
+- Fix: 在 procedural-mesh-renderer.js SpindleWhale drawEye 中新增 minAspect=0.55 clamp
+  - `if (localRx < localRy * minAspect) localRx = localRy * minAspect;`
+  - `if (localRy < localRx * minAspect) localRy = localRx * minAspect;`
+  - `const localRx` 改为 `let localRx` 以支持 clamp
+- 新增诊断字段: eyeAngle, rightLen, downLen, facing, anchorNz
+
+#### P0-B: 2D 鱼形象重新设计
+- Root cause: 三种视角混合
+  - 身体竖椭圆 = 侧视
+  - 眼睛左右分布 = 正视
+  - 尾鳍在底部 = 俯视
+- Fix: 统一为正面视角
+  - 身体: 宽水平椭圆 ellipse(0, 5*s, 42*s, 38*s)（宽>高）
+  - 头盾: 上部更浅色椭圆
+  - 尾鳍: 扇形（正面视角）
+  - 背鳍: 顶部小三角
+  - 胸鳍: 两侧小椭圆
+  - 眼窝: 深色环描边
+  - 嘴: always-visible mouth line + filled ellipse when open
+  - 移除无意义灰色斑点
+- 所有动态保留: mouthOpen, blinkLeft/Right, headOffset, roll, gaze
+
+### 测试
+- [已运行本地测试] Playwright 106/106 全绿（2.1m）
+  - 新增 3D fish yaw-left-60 远侧眼宽高比不坍缩（eyeRx >= eyeRy * 0.5）
+  - 新增 3D fish yaw-right-60 远侧眼宽高比不坍缩
+  - 新增 3D fish yaw 时 eyeAngle 保持稳定（不出现 90° 翻转）
+  - 新增 2D fish 重新设计后 diagnostics 正常，mouth/blink/headOffset/roll/gaze 全部生效
+
+### 平板验证：PARTIAL
+- PASS: 页面加载、版本号 v=2ae7375 source=query、renderer 就绪、2D 鱼动态、触摸穿透、0 console errors
+- FAIL: GitHub Pages 部署延迟（push 后 15+ 分钟仍服务旧版本 c4868a2），平板实测旧代码
+- 本地 Playwright 证明新代码修复有效，待 Pages 部署后平板 reload 即可验证
+
+### Verified
+- [已运行端到端测试] CDP 注入 face params 验证 3D 鱼 neutral/yaw±0.5/yaw=-1.0/pitch/roll 各状态不崩
+- [已运行端到端测试] CDP 验证 2D 鱼切换 + mouthOpen/blink/headOffset/gaze
+- [已运行端到端测试] CDP 验证触摸穿透 display mode pointerEvents=none
+- [已核对] 控制台 0 错误
+- [已核对] 版本号机制 v=2ae7375 source=query 工作正常
+
+### Not verified
+- [未验证] GitHub Pages 部署 2ae7375 后平板实测新代码（Pages 部署延迟）
+- [未验证] 3D 鱼眼睛修复在平板真实视觉效果（待 Pages 部署）
+- [未验证] 2D 鱼新版正面视角在平板真实视觉效果（待 Pages 部署）
+- [未验证] 用户视觉验收（鱼形象主观评价）
