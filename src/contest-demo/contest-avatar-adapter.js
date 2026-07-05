@@ -120,6 +120,11 @@
       if (!diag.perCanvasIrisDiag) diag.perCanvasIrisDiag = {};
       diag.perCanvasIrisDiag[canvasId] = inst.irisDiag;
     }
+    // 同步 mouthDiag / eyelidDiag 到全局 diag（以 main canvas avatarCanvas 为准）
+    if (canvasId === 'avatarCanvas') {
+      if (inst.mouthDiag) diag.mouthDiag = inst.mouthDiag;
+      if (inst.eyelidDiag) diag.eyelidDiag = inst.eyelidDiag;
+    }
     return true;
   };
 

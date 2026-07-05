@@ -833,4 +833,252 @@ test.describe('Contest Demo Layout Regression', () => {
     // 标题应该是"慢慢岛"（不是"慢慢倒"）
     expect(toolboxText).toContain('慢慢岛');
   });
+
+  // ====== 新增：visual-history 历史形象链接 ======
+  test('visual-history：历史形象入口链接存在且指向正确目标', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+
+    const linkInfo = await page.evaluate(() => {
+      const link = document.querySelector('.evolution-link');
+      const diag = window.__cheapLiveContestLinksDiag || {};
+      if (!link) return { present: false, diag };
+      const rect = link.getBoundingClientRect();
+      return {
+        present: true,
+        href: link.getAttribute('href'),
+        text: link.textContent,
+        visible: rect.width > 0 && rect.height > 0,
+        placement: 'footer',
+        diagPresent: !!window.__cheapLiveContestLinksDiag,
+        diagHref: diag.evolutionLinkHref,
+        diagVisible: diag.evolutionLinkVisible,
+      };
+    });
+
+    expect(linkInfo.present).toBe(true);
+    expect(linkInfo.href).toBe('../visual-history/index.html');
+    expect(linkInfo.text).toContain('形象进化记录');
+    expect(linkInfo.visible).toBe(true);
+    expect(linkInfo.diagPresent).toBe(true);
+    expect(linkInfo.diagHref).toBe('../visual-history/index.html');
+  });
+
+  // ====== 新增：avatar selection 同步 ======
+  test('avatar selection：点击 cat/fish 后 main 和 floating 同步切换', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000);
+
+    // 点击 cat
+    await page.click('.avatar-btn[data-avatar="cat"]');
+    await page.waitForTimeout(800);
+    const catDiag = await page.evaluate(() => {
+      const sel = window.__cheapLiveContestAvatarSelectionDiag || {};
+      const mc = document.getElementById('avatarCanvas');
+      return {
+        selectedAvatar: sel.selectedAvatar,
+        mainPanelAvatar: sel.mainPanelAvatar,
+        floatingPanelAvatar: sel.floatingPanelAvatar,
+        panelsInSync: sel.panelsInSync,
+        mainUses3D: sel.mainUses3D,
+        mainCanvasWidth: mc ? mc.width : 0,
+        clearRectWidth: sel.clearRectWidth,
+      };
+    });
+    expect(catDiag.selectedAvatar).toBe('cat');
+    expect(catDiag.mainPanelAvatar).toBe('cat');
+    expect(catDiag.floatingPanelAvatar).toBe('cat');
+    expect(catDiag.panelsInSync).toBe(true);
+    expect(catDiag.mainUses3D).toBe(false);
+    // clearRectWidth 应覆盖完整 canvas（不能只清 360）
+    expect(catDiag.clearRectWidth).toBeGreaterThanOrEqual(catDiag.mainCanvasWidth);
+
+    // 点击 fish (sacabambaspis 2D)
+    await page.click('.avatar-btn[data-avatar="sacabambaspis"]');
+    await page.waitForTimeout(800);
+    const fishDiag = await page.evaluate(() => {
+      const sel = window.__cheapLiveContestAvatarSelectionDiag || {};
+      return {
+        selectedAvatar: sel.selectedAvatar,
+        mainPanelAvatar: sel.mainPanelAvatar,
+        floatingPanelAvatar: sel.floatingPanelAvatar,
+        panelsInSync: sel.panelsInSync,
+      };
+    });
+    expect(fishDiag.selectedAvatar).toBe('sacabambaspis');
+    expect(fishDiag.mainPanelAvatar).toBe('sacabambaspis');
+    expect(fishDiag.floatingPanelAvatar).toBe('sacabambaspis');
+    expect(fishDiag.panelsInSync).toBe(true);
+
+    // 切回 Sacabambaspis 3D
+    await page.click('.avatar-btn[data-avatar="sacabambaspis-3d"]');
+    await page.waitForTimeout(1500);
+    const sacaDiag = await page.evaluate(() => {
+      const sel = window.__cheapLiveContestAvatarSelectionDiag || {};
+      const d = window.__cheapLiveContestAvatarDiag || {};
+      return {
+        selectedAvatar: sel.selectedAvatar,
+        mainPanelAvatar: sel.mainPanelAvatar,
+        floatingPanelAvatar: sel.floatingPanelAvatar,
+        panelsInSync: sel.panelsInSync,
+        mainUses3D: sel.mainUses3D,
+        rendererReady: d.rendererReady,
+        rendererClass: d.rendererClass,
+      };
+    });
+    expect(sacaDiag.selectedAvatar).toBe('sacabambaspis-3d');
+    expect(sacaDiag.mainPanelAvatar).toBe('sacabambaspis-3d');
+    expect(sacaDiag.panelsInSync).toBe(true);
+    expect(sacaDiag.mainUses3D).toBe(true);
+    expect(sacaDiag.rendererClass).toBe('ProceduralSpindleWhaleAvatar');
+  });
+
+  // ====== 新增：2D avatar tracking（blink + head position） ======
+  test('2D avatar tracking：cat/fish 支持 blink + headOffset + roll', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+
+    // 点击 cat
+    await page.click('.avatar-btn[data-avatar="cat"]');
+    await page.waitForTimeout(500);
+
+    // mock blink + headOffset + roll
+    const catDiag = await page.evaluate(() => {
+      state.faceParams.blinkLeft = 1;
+      state.faceParams.blinkRight = 1;
+      state.faceParams.eyeLeft = 0;
+      state.faceParams.eyeRight = 0;
+      state.faceParams.headX = 0.3; // 偏左
+      state.faceParams.headY = 0.4; // 偏上
+      state.faceParams.roll = 0.5;
+      state.faceParams.mouthOpen = 0.5;
+      return new Promise(resolve => {
+        setTimeout(() => {
+          const d = window.__cheapLiveContest2DAvatarDiag || {};
+          resolve({
+            avatarType: d.avatarType,
+            blinkApplied: d.blinkApplied,
+            headOffsetApplied: d.headOffsetApplied,
+            rollApplied: d.rollApplied,
+            mouthOpenApplied: d.mouthOpenApplied,
+            leftEyeOpen: d.leftEyeOpen,
+            rightEyeOpen: d.rightEyeOpen,
+            headOffsetX: d.headOffsetX,
+            headOffsetY: d.headOffsetY,
+          });
+        }, 300);
+      });
+    });
+    expect(catDiag.avatarType).toBe('cat');
+    expect(catDiag.blinkApplied).toBe(true);
+    expect(catDiag.headOffsetApplied).toBe(true);
+    expect(catDiag.rollApplied).toBe(true);
+    expect(catDiag.mouthOpenApplied).toBe(true);
+    expect(catDiag.leftEyeOpen).toBe(0);
+    expect(catDiag.rightEyeOpen).toBe(0);
+    expect(Math.abs(catDiag.headOffsetX)).toBeGreaterThan(0);
+
+    // 点击 fish (sacabambaspis 2D)
+    await page.click('.avatar-btn[data-avatar="sacabambaspis"]');
+    await page.waitForTimeout(500);
+    const fishDiag = await page.evaluate(() => {
+      state.faceParams.blinkLeft = 1;
+      state.faceParams.blinkRight = 1;
+      state.faceParams.eyeLeft = 0;
+      state.faceParams.eyeRight = 0;
+      state.faceParams.headX = 0.7;
+      state.faceParams.headY = 0.6;
+      return new Promise(resolve => {
+        setTimeout(() => {
+          const d = window.__cheapLiveContest2DAvatarDiag || {};
+          resolve({
+            avatarType: d.avatarType,
+            blinkApplied: d.blinkApplied,
+            headOffsetApplied: d.headOffsetApplied,
+            leftEyeOpen: d.leftEyeOpen,
+            rightEyeOpen: d.rightEyeOpen,
+          });
+        }, 300);
+      });
+    });
+    expect(fishDiag.avatarType).toBe('sacabambaspis');
+    expect(fishDiag.blinkApplied).toBe(true);
+    expect(fishDiag.headOffsetApplied).toBe(true);
+    expect(fishDiag.leftEyeOpen).toBe(0);
+    expect(fishDiag.rightEyeOpen).toBe(0);
+  });
+
+  // ====== 新增：mouth smile 改进（上嘴唇向上弯） ======
+  test('mouth smile：smile 时上嘴唇向上弯，neutral 不带笑', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000);
+
+    // neutral
+    const neutralDiag = await page.evaluate(() => {
+      state.faceParams.smile = 0;
+      state.faceParams.mouthOpen = 0;
+      return new Promise(resolve => {
+        setTimeout(() => {
+          const d = window.__cheapLiveContestAvatarDiag || {};
+          const m = d.mouthDiag || {};
+          resolve({
+            neutralSmileBias: m.neutralSmileBias,
+            upperLipCurve: m.upperLipCurve,
+            upperLipCurvePass: m.upperLipCurvePass,
+          });
+        }, 400);
+      });
+    });
+    expect(neutralDiag.neutralSmileBias).toBe(0);
+
+    // smile only
+    const smileDiag = await page.evaluate(() => {
+      state.faceParams.smile = 0.8;
+      state.faceParams.mouthOpen = 0;
+      return new Promise(resolve => {
+        setTimeout(() => {
+          const d = window.__cheapLiveContestAvatarDiag || {};
+          const m = d.mouthDiag || {};
+          resolve({
+            smile: m.smile,
+            upperLipCurve: m.upperLipCurve,
+            upperLipCurvePass: m.upperLipCurvePass,
+            smileCornerLift: m.smileCornerLift,
+          });
+        }, 400);
+      });
+    });
+    expect(smileDiag.smile).toBe(0.8);
+    expect(smileDiag.upperLipCurve).toBeGreaterThan(0);
+    expect(smileDiag.upperLipCurvePass).toBe(true);
+    expect(smileDiag.smileCornerLift).toBeGreaterThan(0);
+
+    // smile + open
+    const smileOpenDiag = await page.evaluate(() => {
+      state.faceParams.smile = 0.8;
+      state.faceParams.mouthOpen = 0.7;
+      return new Promise(resolve => {
+        setTimeout(() => {
+          const d = window.__cheapLiveContestAvatarDiag || {};
+          const m = d.mouthDiag || {};
+          resolve({
+            upperLipOffset: m.upperLipOffset,
+            lowerLipOffset: m.lowerLipOffset,
+            upperLipCurve: m.upperLipCurve,
+            upperLipCurvePass: m.upperLipCurvePass,
+            happyOpenMouthPass: m.happyOpenMouthPass,
+            bottomToTopMotionRatio: m.bottomToTopMotionRatio,
+          });
+        }, 400);
+      });
+    });
+    expect(smileOpenDiag.upperLipCurvePass).toBe(true);
+    expect(smileOpenDiag.happyOpenMouthPass).toBe(true);
+    // 下嘴唇位移 > 上嘴唇位移
+    expect(Math.abs(smileOpenDiag.lowerLipOffset)).toBeGreaterThan(Math.abs(smileOpenDiag.upperLipOffset));
+  });
 });

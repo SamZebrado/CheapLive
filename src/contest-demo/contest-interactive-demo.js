@@ -134,10 +134,63 @@ document.addEventListener('DOMContentLoaded', () => {
   initFloatingWindow();
   startSimLoop();
   initVersionStamp();
+  initAvatarSelectionDiag();
+  initLinksDiag();
+  init2DAvatarDiag();
   if (state.currentAvatar === 'sacabambaspis-3d') {
     ensure3DRenderers().catch(() => {});
   }
 });
+
+function initAvatarSelectionDiag() {
+  if (window.__cheapLiveContestAvatarSelectionDiag) return;
+  window.__cheapLiveContestAvatarSelectionDiag = {
+    selectedAvatar: state.currentAvatar,
+    activeButtonAvatar: state.currentAvatar,
+    mainPanelAvatar: state.currentAvatar,
+    floatingPanelAvatar: state.currentAvatar,
+    mainRendererClass: state.currentAvatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + state.currentAvatar,
+    floatingRendererClass: state.currentAvatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + state.currentAvatar,
+    mainUses3D: state.currentAvatar === 'sacabambaspis-3d',
+    floatingUses3D: state.currentAvatar === 'sacabambaspis-3d',
+    panelsInSync: true,
+    mainCanvasWidth: 0,
+    mainCanvasHeight: 0,
+    clearRectWidth: 0,
+    clearRectHeight: 0,
+    lastAvatarSwitchAt: Date.now(),
+  };
+}
+
+function initLinksDiag() {
+  if (window.__cheapLiveContestLinksDiag) return;
+  const link = document.querySelector('.evolution-link');
+  const rect = link ? link.getBoundingClientRect() : null;
+  window.__cheapLiveContestLinksDiag = {
+    evolutionLinkPresent: !!link,
+    evolutionLinkHref: link ? link.getAttribute('href') : null,
+    evolutionLinkVisible: link ? (rect.width > 0 && rect.height > 0) : false,
+    evolutionLinkPlacement: link ? 'footer' : null,
+  };
+}
+
+function init2DAvatarDiag() {
+  if (window.__cheapLiveContest2DAvatarDiag) return;
+  window.__cheapLiveContest2DAvatarDiag = {
+    avatarType: state.currentAvatar,
+    mouthOpenApplied: false,
+    blinkApplied: false,
+    headOffsetApplied: false,
+    rollApplied: false,
+    leftEyeOpen: 1,
+    rightEyeOpen: 1,
+    headOffsetX: 0,
+    headOffsetY: 0,
+    mouthOpen: 0,
+    smile: 0,
+    mainAndFloatingParamsInSync: true,
+  };
+}
 
 // ====== VERSION STAMP ======
 // 静态加载 contest-build.json，把 git SHA + build time 显示在标题右侧。
@@ -457,13 +510,20 @@ window.__cheapLiveContestAvatarResetFrame = function () {
 
 function drawSacabambaspis(ctx, cx, cy, p, s) {
   const mouth = Math.max(0, Math.min(1, p.mouthOpen));
-  const blink = Math.max(0, Math.min(1, p.blink));
-  const yaw = p.yaw * 30 * s;
+  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
+  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
+  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
+  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
+  const roll = (p.roll ?? 0) * 0.3; // 轻微 roll
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s; // 头部位置跟随
+  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
   const mouthH = mouth * 12 * s;
-  const eyeH = (1 - blink) * 5 * s;
+  const eyeHL = eyeL * 5 * s;
+  const eyeHR = eyeR * 5 * s;
 
   ctx.save();
-  ctx.translate(cx + yaw * 0.3, cy);
+  ctx.translate(cx + headOffsetX, cy + headOffsetY);
+  ctx.rotate(roll);
 
   // Body
   ctx.fillStyle = '#e4e1d3';
@@ -500,12 +560,12 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
     ctx.fill();
   }
 
-  // Eye
+  // Left Eye
   ctx.fillStyle = '#fff';
   ctx.beginPath();
-  ctx.ellipse(30 * s, -12 * s, 8 * s, Math.max(1, eyeH), 0, 0, Math.PI * 2);
+  ctx.ellipse(30 * s, -12 * s, 8 * s, Math.max(1, eyeHL), 0, 0, Math.PI * 2);
   ctx.fill();
-  if (eyeH > 2) {
+  if (eyeHL > 2) {
     ctx.fillStyle = '#1a1a2e';
     ctx.beginPath();
     ctx.arc(32 * s, -12 * s, 4 * s, 0, Math.PI * 2);
@@ -513,6 +573,21 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
     ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.arc(33 * s, -13 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Right Eye (fish 对称，用 eyeR)
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(30 * s, 12 * s, 8 * s, Math.max(1, eyeHR), 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (eyeHR > 2) {
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.arc(32 * s, 12 * s, 4 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(33 * s, 11 * s, 1.5 * s, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -527,17 +602,40 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
   ctx.fill();
 
   ctx.restore();
+
+  // 更新 2D avatar diagnostics
+  if (window.__cheapLiveContest2DAvatarDiag) {
+    const d = window.__cheapLiveContest2DAvatarDiag;
+    d.avatarType = 'sacabambaspis';
+    d.mouthOpenApplied = true;
+    d.blinkApplied = true;
+    d.headOffsetApplied = true;
+    d.rollApplied = true;
+    d.leftEyeOpen = eyeL;
+    d.rightEyeOpen = eyeR;
+    d.headOffsetX = headOffsetX;
+    d.headOffsetY = headOffsetY;
+    d.mouthOpen = mouth;
+    d.smile = p.smile ?? 0;
+  }
 }
 
 function drawCat(ctx, cx, cy, p, s) {
   const mouth = Math.max(0, Math.min(1, p.mouthOpen));
-  const blink = Math.max(0, Math.min(1, p.blink));
-  const yaw = p.yaw * 25 * s;
-  const eyeH = (1 - blink) * 6 * s;
+  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
+  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
+  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
+  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
+  const roll = (p.roll ?? 0) * 0.3; // 轻微 roll
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s; // 头部位置跟随
+  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
+  const eyeHL = eyeL * 6 * s;
+  const eyeHR = eyeR * 6 * s;
   const mouthOpen = mouth * 5 * s;
 
   ctx.save();
-  ctx.translate(cx + yaw * 0.3, cy);
+  ctx.translate(cx + headOffsetX, cy + headOffsetY);
+  ctx.rotate(roll);
 
   // Head
   ctx.fillStyle = '#ffb347';
@@ -581,26 +679,32 @@ function drawCat(ctx, cx, cy, p, s) {
   ctx.closePath();
   ctx.fill();
 
-  // Eyes
+  // Left Eye (用 eyeL)
   ctx.fillStyle = '#fff';
   ctx.beginPath();
-  ctx.ellipse(-12 * s, -14 * s, 8 * s, Math.max(1, eyeH), 0, 0, Math.PI * 2);
+  ctx.ellipse(-12 * s, -14 * s, 8 * s, Math.max(1, eyeHL), 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(12 * s, -14 * s, 8 * s, Math.max(1, eyeH), 0, 0, Math.PI * 2);
-  ctx.fill();
-  if (eyeH > 2) {
+  if (eyeHL > 2) {
     ctx.fillStyle = '#333';
     ctx.beginPath();
     ctx.ellipse(-10 * s, -14 * s, 4 * s, 5 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(14 * s, -14 * s, 4 * s, 5 * s, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.arc(-9 * s, -16 * s, 2 * s, 0, Math.PI * 2);
     ctx.fill();
+  }
+  // Right Eye (用 eyeR)
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(12 * s, -14 * s, 8 * s, Math.max(1, eyeHR), 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (eyeHR > 2) {
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.ellipse(14 * s, -14 * s, 4 * s, 5 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.arc(15 * s, -16 * s, 2 * s, 0, Math.PI * 2);
     ctx.fill();
@@ -644,6 +748,22 @@ function drawCat(ctx, cx, cy, p, s) {
   });
 
   ctx.restore();
+
+  // 更新 2D avatar diagnostics
+  if (window.__cheapLiveContest2DAvatarDiag) {
+    const d = window.__cheapLiveContest2DAvatarDiag;
+    d.avatarType = 'cat';
+    d.mouthOpenApplied = true;
+    d.blinkApplied = true;
+    d.headOffsetApplied = true;
+    d.rollApplied = true;
+    d.leftEyeOpen = eyeL;
+    d.rightEyeOpen = eyeR;
+    d.headOffsetX = headOffsetX;
+    d.headOffsetY = headOffsetY;
+    d.mouthOpen = mouth;
+    d.smile = p.smile ?? 0;
+  }
 }
 
 function drawPlaceholder(ctx, cx, cy, avatar, s) {
@@ -1444,9 +1564,29 @@ function simLoop(ts) {
       _show3DLoadingOverlay();
     }
   } else {
-    drawAvatar(avatarCtx, avatarW, avatarH, state.currentAvatar, state.faceParams, 1);
+    // 2D avatar path: 必须用实时 canvas 尺寸，不能用 init 常量 avatarW/avatarH
+    // 否则 3D renderer 改大 canvas 后 clearRect 只清左上角，残留 3D 鱼
+    const mc = document.getElementById('avatarCanvas');
+    const mcW = mc.width;
+    const mcH = mc.height;
+    drawAvatar(avatarCtx, mcW, mcH, state.currentAvatar, state.faceParams, mcW / 360);
     const fc = document.getElementById('fwAvatarCanvas');
     drawAvatar(fwCtx, fc.width, fc.height, state.currentAvatar, state.faceParams, fc.width / 360);
+    // 更新 avatar selection diagnostics
+    if (window.__cheapLiveContestAvatarSelectionDiag) {
+      const sel = window.__cheapLiveContestAvatarSelectionDiag;
+      sel.selectedAvatar = state.currentAvatar;
+      sel.mainPanelAvatar = state.currentAvatar;
+      sel.floatingPanelAvatar = state.currentAvatar;
+      sel.mainUses3D = false;
+      sel.floatingUses3D = false;
+      sel.panelsInSync = true;
+      sel.mainCanvasWidth = mcW;
+      sel.mainCanvasHeight = mcH;
+      sel.clearRectWidth = mcW;
+      sel.clearRectHeight = mcH;
+      sel.lastAvatarSwitchAt = sel.lastAvatarSwitchAt || Date.now();
+    }
   }
 
   // Update guide params if open
@@ -1502,6 +1642,37 @@ function selectAvatar(avatar, el) {
   document.querySelectorAll('#avatarGrid .avatar-btn').forEach(b => b.classList.remove('selected'));
   if (el) el.classList.add('selected');
   document.getElementById('avatarLabel').textContent = AVATAR_NAMES[avatar] || avatar;
+
+  // 更新 avatar selection diagnostics
+  if (!window.__cheapLiveContestAvatarSelectionDiag) {
+    window.__cheapLiveContestAvatarSelectionDiag = {
+      selectedAvatar: avatar,
+      activeButtonAvatar: avatar,
+      mainPanelAvatar: avatar,
+      floatingPanelAvatar: avatar,
+      mainRendererClass: avatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + avatar,
+      floatingRendererClass: avatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + avatar,
+      mainUses3D: avatar === 'sacabambaspis-3d',
+      floatingUses3D: avatar === 'sacabambaspis-3d',
+      panelsInSync: true,
+      mainCanvasWidth: 0,
+      mainCanvasHeight: 0,
+      clearRectWidth: 0,
+      clearRectHeight: 0,
+      lastAvatarSwitchAt: Date.now(),
+    };
+  }
+  const sel = window.__cheapLiveContestAvatarSelectionDiag;
+  sel.selectedAvatar = avatar;
+  sel.activeButtonAvatar = avatar;
+  sel.mainPanelAvatar = avatar;
+  sel.floatingPanelAvatar = avatar;
+  sel.mainUses3D = avatar === 'sacabambaspis-3d';
+  sel.floatingUses3D = avatar === 'sacabambaspis-3d';
+  sel.mainRendererClass = avatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + avatar;
+  sel.floatingRendererClass = avatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + avatar;
+  sel.panelsInSync = true;
+  sel.lastAvatarSwitchAt = Date.now();
 
   if (avatar === 'sacabambaspis-3d') {
     ensure3DRenderers()

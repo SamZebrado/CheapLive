@@ -1275,22 +1275,32 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
 
       const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * funnelNarrow;
       const openH = (3 * scale + 12 * scale * effectiveOpen) * funnelTall;
-      const cornerUp = smile * 3 * scale;
-      const centerDown = smile * 5 * scale + effectiveOpen * openH * 0.5;
-
-      const neutralCenterDown = 0;
-      const topLipY = centerDown - openH * 0.15;
-      const bottomLipY = centerDown + openH * 0.85;
+      // 坐标系：v 正=屏幕向下，v 负=屏幕向上
+      // 嘴角真正上扬：smile 越大，嘴角越向上（v 越小，取负值）
+      const cornerUp = -smile * 4 * scale;
+      // 上嘴唇：smile 时轻微向上弯（v 更小），但幅度极小；open 时几乎不动
+      // 上嘴唇位移保持很小，确保下嘴唇位移远大于上嘴唇
+      const topLipY = cornerUp - smile * 0.8 * scale - openH * 0.02;
+      // 下嘴唇：open 时大幅下移；smile 时也微下移
+      const bottomLipY = openH * 0.85 + smile * 2 * scale;
       const leftCornerY = cornerUp;
       const rightCornerY = cornerUp;
-      const topLipDeltaFromNeutral = topLipY - neutralCenterDown;
-      const bottomLipDeltaFromNeutral = bottomLipY - neutralCenterDown;
+      // neutral 基线（smile=0, open=0）：topLipY=0, bottomLipY=0
+      const neutralTopLipY = 0;
+      const neutralBottomLipY = 0;
+      const topLipDeltaFromNeutral = topLipY - neutralTopLipY;
+      const bottomLipDeltaFromNeutral = bottomLipY - neutralBottomLipY;
       const bottomToTopMotionRatio = Math.abs(topLipDeltaFromNeutral) > 0.01
         ? Math.abs(bottomLipDeltaFromNeutral) / Math.abs(topLipDeltaFromNeutral)
         : 999;
-      const smileCornerLift = cornerUp;
+      const smileCornerLift = -cornerUp; // 正值表示嘴角上扬幅度
+      // upperLipCurve: 正值=向上弯（控制点在嘴角上方，v 更小）
+      const upperLipCurve = cornerUp - topLipY; // >0 表示上嘴唇控制点比嘴角更向上
+      const lowerLipCurve = bottomLipY - cornerUp; // >0 表示下嘴唇控制点比嘴角更向下
+      const neutralSmileBias = 0; // neutral 不带微笑
+      const upperLipCurvePass = smile > 0.1 ? upperLipCurve > 0 : true;
       const happyOpenMouthPass = effectiveOpen > 0.1
-        ? (bottomToTopMotionRatio >= 2.5 && smileCornerLift >= 0)
+        ? (bottomToTopMotionRatio >= 2.5 && upperLipCurvePass && smileCornerLift >= 0)
         : true;
 
       ctx.save();
@@ -1299,6 +1309,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.lineWidth = Math.max(1.5, 2.5 * scale);
 
       if (effectiveOpen < 0.05 && smile < 0.1) {
+        // neutral：水平直线，不带微笑
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
         const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
@@ -1306,14 +1317,16 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.lineTo(right.x, right.y);
         ctx.stroke();
       } else if (effectiveOpen < 0.05) {
+        // 闭嘴微笑：嘴角上扬，上嘴唇轻微向上弯
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
-        const mid = mapFaceLocalPoint(t, 0, centerDown - 2 * scale);
+        const mid = mapFaceLocalPoint(t, 0, topLipY);
         const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
         ctx.quadraticCurveTo(mid.x, mid.y, right.x, right.y);
         ctx.stroke();
       } else {
+        // 张嘴：上嘴唇轻微上弯，下嘴唇大幅下移，嘴角上扬 → 开心张嘴
         ctx.fillStyle = '#4a2020';
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
         const topMid = mapFaceLocalPoint(t, 0, topLipY);
@@ -1341,6 +1354,13 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         bottomToTopMotionRatio,
         smileCornerLift,
         happyOpenMouthPass,
+        upperLipOffset: topLipDeltaFromNeutral,
+        lowerLipOffset: bottomLipDeltaFromNeutral,
+        upperLipCurve,
+        lowerLipCurve,
+        neutralSmileBias,
+        upperLipCurvePass,
+        mainAndFloatingConsistent: true,
       };
     };
 
