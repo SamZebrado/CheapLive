@@ -270,6 +270,36 @@ body {
 #gameCanvas { display: block; width: 100%; height: 100%; cursor: default; }
 #gameCanvas.draw-mode { cursor: crosshair; }
 
+/* ====== Version Stamp (top bar 标题右侧灰色小字) ====== */
+.version-stamp {
+  margin-left: 10px;
+  font-size: 11px;
+  color: var(--cl-text-muted);
+  font-weight: 400;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+@media (max-width: 540px) {
+  .version-stamp { display: block; margin-left: 0; font-size: 10px; }
+}
+
+/* ====== Game focus hint (低调提示，不抢布局) ====== */
+.game-focus-hint {
+  position: absolute;
+  bottom: 6px;
+  left: 8px;
+  font-size: 10px;
+  color: var(--cl-text-muted);
+  background: rgba(13, 20, 32, 0.6);
+  padding: 2px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0.7;
+  z-index: 5;
+}
+#gamePanelBody:focus { outline: 2px solid var(--cl-blue); outline-offset: -2px; }
+#gamePanelBody:focus .game-focus-hint { opacity: 0; }
+
 /* ====== Floating Window ======
    修复：原本 .floating-window 没有显式 display:flex，导致 .fw-content 高度
    计算失效，canvas 被拉伸成 180×600+ 的纵向矩形，3D 鱼被垂直挤压。
@@ -328,14 +358,25 @@ body {
   opacity: 0.8;
 }
 /* Floating window mode states */
+.floating-window.fw-display-mode {
+  pointer-events: none;
+}
 .floating-window.fw-display-mode .fw-content {
   pointer-events: none;
 }
 .floating-window.fw-display-mode .fw-top-bar {
   display: none;
+  pointer-events: none;
 }
 .floating-window.fw-display-mode .fw-resize {
   display: none;
+  pointer-events: none;
+}
+.floating-window.fw-display-mode canvas {
+  pointer-events: none;
+}
+.floating-window.fw-display-mode .fw-mode-btn {
+  pointer-events: auto;
 }
 .floating-window.fw-edit-mode {
   pointer-events: auto;
@@ -355,7 +396,7 @@ body {
   top: 50%;
   transform: translateY(-50%);
   z-index: 60;
-  background: var(--cl-blue);
+  background: var(--cl-orange);
   color: #fff;
   border: none;
   border-radius: 8px;
@@ -364,22 +405,22 @@ body {
   font-weight: 700;
   cursor: pointer;
   font-family: var(--font);
-  box-shadow: 0 2px 8px rgba(74,144,217,0.4);
+  box-shadow: 0 2px 8px rgba(255,140,66,0.4);
   transition: background 0.2s, box-shadow 0.2s;
   user-select: none;
   touch-action: none;
 }
 .fw-mode-btn:hover {
-  background: #3a7bc8;
-  box-shadow: 0 2px 12px rgba(74,144,217,0.6);
-}
-.fw-mode-btn.display-mode {
-  background: var(--cl-orange);
-  box-shadow: 0 2px 8px rgba(255,140,66,0.4);
-}
-.fw-mode-btn.display-mode:hover {
   background: #e87a30;
   box-shadow: 0 2px 12px rgba(255,140,66,0.6);
+}
+.fw-mode-btn.display-mode {
+  background: var(--cl-blue);
+  box-shadow: 0 2px 8px rgba(74,144,217,0.4);
+}
+.fw-mode-btn.display-mode:hover {
+  background: #3a7bc8;
+  box-shadow: 0 2px 12px rgba(74,144,217,0.6);
 }
 
 /* ====== Guide Wizard Modal ====== */

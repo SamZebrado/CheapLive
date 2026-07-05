@@ -10,7 +10,7 @@
 
 <!-- ====== Top Bar ====== -->
 <div class="top-bar">
-  <div class="brand">CheapLive <span>Contest Demo</span></div>
+  <div class="brand">CheapLive <span>Contest Demo</span><span class="version-stamp" id="versionStamp">version unknown</span></div>
   <div class="links">
     <a href="https://github.com/SamZebrado/CheapLive" target="_blank">CheapLive GitHub</a>
     <a href="https://github.com/SamZebrado/TransparentFloatingBrowser" target="_blank">TransparentFloatingBrowser GitHub</a>
@@ -174,8 +174,9 @@
       <span>直播端 · 游戏 / 手工手机画面</span>
       <span class="label">透明悬浮小窗叠加</span>
     </div>
-    <div class="panel-body" id="gamePanelBody">
+    <div class="panel-body" id="gamePanelBody" tabindex="0" role="application" aria-label="游戏区域，点击后可用方向键控制贪吃蛇">
       <canvas id="gameCanvas"></canvas>
+      <div class="game-focus-hint" id="gameFocusHint">点击此区域后，方向键控制贪吃蛇（不会滚动页面）</div>
 
       <!-- Floating Window (TransparentFloatingBrowser 模拟) -->
       <div class="floating-window" id="floatingWindow">
@@ -240,9 +241,9 @@
     <!-- IslandSlonelyFall Card -->
     <div class="toolbox-card">
       <div class="toolbox-card-icon">🏝️</div>
-      <div class="toolbox-card-title">慢慢倒</div>
-      <div class="toolbox-card-desc">IslandSlonelyFall · 慢节奏独立休闲游戏项目</div>
-      <div class="toolbox-card-tag planned-tag">外部项目 · 开源</div>
+      <div class="toolbox-card-title">慢慢岛</div>
+      <div class="toolbox-card-desc">IslandSlonelyFall · 游戏化心态调节与时间管理工具。用游戏形态帮助放慢节奏、整理状态和管理时间，适合作为开播前后或学习/运动间隙的自我调节入口。</div>
+      <div class="toolbox-card-tag planned-tag">辅助工具 · 开源</div>
       <a class="btn btn-ghost btn-sm toolbox-card-btn" href="https://github.com/SamZebrado/IslandSlonelyFall" target="_blank">查看项目</a>
     </div>
   </div>
@@ -253,6 +254,11 @@
   <p>透明悬浮能力来自开源项目 <a href="https://github.com/SamZebrado/TransparentFloatingBrowser" target="_blank">TransparentFloatingBrowser</a>，由 TRAE Work 开发。</p>
   <p>CheapLive: <a href="https://github.com/SamZebrado/CheapLive" target="_blank">GitHub</a> · TransparentFloatingBrowser: <a href="https://github.com/SamZebrado/TransparentFloatingBrowser" target="_blank">GitHub</a></p>
   <p style="margin-top:6px">当前 demo 展示产品流程和核心交互；真实面捕、透明悬浮、多动物、多设备是主线，音频/AI 变声为后续增强。</p>
+  <p class="tech-credits" style="margin-top:8px;font-size:11px;color:var(--cl-text-muted)">
+    技术说明 / Tech credits：人脸关键点检测使用 <a href="https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker" target="_blank">MediaPipe Face Landmarker</a>（Apache-2.0）；
+    变声效果使用浏览器原生 Web Audio API 实现；头像渲染与参赛 Demo UI 由 CheapLive 实现。
+    <a href="https://github.com/SamZebrado/CheapLive/blob/main/docs/CONTEST_DEMO_ATTRIBUTION.md" target="_blank">查看完整声明</a>
+  </p>
 </div>
 
 <script src="contest-avatar-adapter.js"></script>

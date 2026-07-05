@@ -133,10 +133,34 @@ document.addEventListener('DOMContentLoaded', () => {
   initFWAvatarCanvas();
   initFloatingWindow();
   startSimLoop();
+  initVersionStamp();
   if (state.currentAvatar === 'sacabambaspis-3d') {
     ensure3DRenderers().catch(() => {});
   }
 });
+
+// ====== VERSION STAMP ======
+// 静态加载 contest-build.json，把 git SHA + build time 显示在标题右侧。
+// 加载失败时显示 "version unknown"，不抛错。
+function initVersionStamp() {
+  const el = document.getElementById('versionStamp');
+  if (!el) return;
+  fetch('contest-build.json', { cache: 'no-cache' })
+    .then(r => {
+      if (!r.ok) throw new Error('build stamp http ' + r.status);
+      return r.json();
+    })
+    .then(stamp => {
+      const sha = (stamp && stamp.gitShortSha) ? stamp.gitShortSha : 'unknown';
+      const time = (stamp && stamp.buildTimeLocal) ? stamp.buildTimeLocal : '';
+      let text = `v${sha}`;
+      if (time) text += ` · updated ${time}`;
+      el.textContent = text;
+    })
+    .catch(() => {
+      el.textContent = 'version unknown';
+    });
+}
 
 // ====== AVATAR CANVAS (Middle Panel) ======
 let avatarCtx, avatarW, avatarH;
@@ -669,6 +693,19 @@ function initGameCanvas() {
   c.addEventListener('touchend', onDrawEnd);
 
   document.addEventListener('keydown', onGameKey);
+
+  // 游戏区域聚焦：点击 gamePanelBody 后自动 focus，方向键只作用于游戏
+  const gamePanelBody = document.getElementById('gamePanelBody');
+  if (gamePanelBody) {
+    gamePanelBody.addEventListener('mousedown', () => {
+      // mousedown 先于 focus，确保点击游戏区域时获得焦点
+      try { gamePanelBody.focus({ preventScroll: true }); } catch (e) {}
+    });
+    gamePanelBody.addEventListener('touchstart', () => {
+      try { gamePanelBody.focus({ preventScroll: true }); } catch (e) {}
+    }, { passive: true });
+  }
+  initGameKeyboardDiag();
 }
 
 function resetGame() {
@@ -816,12 +853,75 @@ function gameTick() {
 function startGame() { resetGame(); gameRunning = true; gameTick(); }
 
 function onGameKey(e) {
-  if (['ArrowUp','w','W'].includes(e.key) && gameDir.y === 0) gameNextDir = { x: 0, y: -1 };
-  if (['ArrowDown','s','S'].includes(e.key) && gameDir.y === 0) gameNextDir = { x: 0, y: 1 };
-  if (['ArrowLeft','a','A'].includes(e.key) && gameDir.x === 0) gameNextDir = { x: -1, y: 0 };
-  if (['ArrowRight','d','D'].includes(e.key) && gameDir.x === 0) gameNextDir = { x: 1, y: 0 };
-  if (!gameRunning && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d'].includes(e.key)) {
+  const gamePanelBody = document.getElementById('gamePanelBody');
+  const activeEl = document.activeElement;
+  const isFormControl = activeEl && (
+    activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' ||
+    activeEl.tagName === 'SELECT' || activeEl.tagName === 'BUTTON' ||
+    activeEl.isContentEditable
+  );
+  // 只在 gamePanelBody 获得焦点时处理方向键，且不与表单控件冲突
+  const gameFocused = !!gamePanelBody && activeEl === gamePanelBody && !isFormControl;
+  const arrowKeys = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+  const wasdKeys = ['w','a','s','d','W','A','S','D'];
+  const allGameKeys = arrowKeys.concat(wasdKeys);
+
+  if (gameFocused && arrowKeys.includes(e.key)) {
+    // 阻止页面滚动
+    e.preventDefault();
+    if (window.__cheapLiveContestGameDiag) {
+      window.__cheapLiveContestGameDiag.preventedPageScroll = true;
+      window.__cheapLiveContestGameDiag.lastKey = e.key;
+      window.__cheapLiveContestGameDiag.arrowKeysScopedToGame = true;
+    }
+  }
+
+  if (!gameFocused) {
+    // 焦点不在游戏区域时不抢方向键，允许页面默认滚动
+    if (window.__cheapLiveContestGameDiag && arrowKeys.includes(e.key)) {
+      window.__cheapLiveContestGameDiag.arrowKeysScopedToGame = false;
+    }
+    return;
+  }
+
+  let dirChanged = false;
+  if (['ArrowUp','w','W'].includes(e.key) && gameDir.y === 0) { gameNextDir = { x: 0, y: -1 }; dirChanged = true; }
+  if (['ArrowDown','s','S'].includes(e.key) && gameDir.y === 0) { gameNextDir = { x: 0, y: 1 }; dirChanged = true; }
+  if (['ArrowLeft','a','A'].includes(e.key) && gameDir.x === 0) { gameNextDir = { x: -1, y: 0 }; dirChanged = true; }
+  if (['ArrowRight','d','D'].includes(e.key) && gameDir.x === 0) { gameNextDir = { x: 1, y: 0 }; dirChanged = true; }
+  if (!gameRunning && allGameKeys.includes(e.key)) {
     startGame();
+  }
+  if (window.__cheapLiveContestGameDiag && dirChanged) {
+    window.__cheapLiveContestGameDiag.lastDirection = { ...gameNextDir };
+  }
+}
+
+function initGameKeyboardDiag() {
+  if (window.__cheapLiveContestGameDiag) return;
+  window.__cheapLiveContestGameDiag = {
+    gameFocused: false,
+    lastKey: null,
+    lastDirection: null,
+    preventedPageScroll: false,
+    pageScrollBeforeKey: null,
+    pageScrollAfterKey: null,
+    focusTarget: null,
+    arrowKeysScopedToGame: false,
+  };
+  const gamePanelBody = document.getElementById('gamePanelBody');
+  if (gamePanelBody) {
+    gamePanelBody.addEventListener('focus', () => {
+      if (window.__cheapLiveContestGameDiag) {
+        window.__cheapLiveContestGameDiag.gameFocused = true;
+        window.__cheapLiveContestGameDiag.focusTarget = 'gamePanelBody';
+      }
+    });
+    gamePanelBody.addEventListener('blur', () => {
+      if (window.__cheapLiveContestGameDiag) {
+        window.__cheapLiveContestGameDiag.gameFocused = false;
+      }
+    });
   }
 }
 
@@ -3173,6 +3273,14 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
 }
 
 // ====== VOICE ADAPTER (WebAudio Voice Effects) ======
+// 增强版 preset：每个 preset 在 EQ / 滤波 / 失真 / 压缩 / comb 上有显著差异，
+// 不引入第三方库，不引入 oscillator 直连输出。
+// 设计目标：
+//   - original：尽量原声；
+//   - cute：高通 + 高频提升 + formant-ish 中频峰 + 轻度过载；
+//   - robot：窄带通 + comb 滤波（短延迟反馈）+ 较重失真；
+//   - deep：低通 + 低频提升 + 高频削减；
+//   - radio：电话波段窄带通 + 重压缩 + 较重饱和。
 const VOICE_PRESET_CONFIGS = {
   original: {
     name: '原声',
@@ -3198,92 +3306,104 @@ const VOICE_PRESET_CONFIGS = {
   },
   cute: {
     name: '可爱',
+    // 高通 + 高频大幅提升 + formant-ish 中频峰 + 轻度过载
     filterType: 'highpass',
-    filterFreq: 400,
+    filterFreq: 500,
     filterQ: 0.7,
     filterGain: 0,
-    gain: 1.05,
+    gain: 1.12,
     delayTime: 0,
     delayFeedback: 0,
     delayMix: 0,
-    compressorThreshold: -26,
+    compressorThreshold: -28,
     compressorRatio: 4,
-    waveShaperAmount: 0.12,
+    waveShaperAmount: 0.18,
     gateThreshold: 0.02,
-    eqLowGain: -8,
-    eqLowFreq: 250,
-    eqMidGain: 0,
-    eqMidFreq: 1000,
-    eqMidQ: 1,
-    eqHighGain: 10,
-    eqHighFreq: 3500,
+    eqLowGain: -12,
+    eqLowFreq: 220,
+    eqMidGain: 5,
+    eqMidFreq: 1800,
+    eqMidQ: 2,
+    eqHighGain: 14,
+    eqHighFreq: 4200,
   },
   robot: {
     name: '机器人',
+    // 窄带通 + comb 滤波（短延迟反馈）+ 较重失真
     filterType: 'bandpass',
-    filterFreq: 700,
-    filterQ: 5,
+    filterFreq: 850,
+    filterQ: 8,
     filterGain: 0,
-    gain: 1.0,
-    delayTime: 0.035,
-    delayFeedback: 0.2,
-    delayMix: 0.3,
-    compressorThreshold: -16,
-    compressorRatio: 10,
-    waveShaperAmount: 0.4,
+    gain: 1.05,
+    delayTime: 0.022,
+    delayFeedback: 0.4,
+    delayMix: 0.5,
+    compressorThreshold: -12,
+    compressorRatio: 15,
+    waveShaperAmount: 0.55,
     gateThreshold: 0.02,
-    eqLowGain: -6,
+    eqLowGain: -12,
     eqLowFreq: 200,
-    eqMidGain: 8,
-    eqMidFreq: 800,
-    eqMidQ: 3,
-    eqHighGain: -4,
+    eqMidGain: 10,
+    eqMidFreq: 850,
+    eqMidQ: 4,
+    eqHighGain: -10,
     eqHighFreq: 3000,
   },
   deep: {
     name: '低沉',
+    // 低通 + 低频大幅提升 + 高频削减
     filterType: 'lowpass',
-    filterFreq: 2800,
+    filterFreq: 2200,
     filterQ: 0.7,
     filterGain: 0,
-    gain: 1.05,
+    gain: 1.12,
     delayTime: 0,
     delayFeedback: 0,
     delayMix: 0,
-    compressorThreshold: -22,
+    compressorThreshold: -20,
     compressorRatio: 3,
-    waveShaperAmount: 0.08,
+    waveShaperAmount: 0.12,
     gateThreshold: 0.02,
-    eqLowGain: 12,
-    eqLowFreq: 180,
-    eqMidGain: 0,
-    eqMidFreq: 1000,
-    eqMidQ: 1,
-    eqHighGain: -10,
+    eqLowGain: 15,
+    eqLowFreq: 150,
+    eqMidGain: -3,
+    eqMidFreq: 1500,
+    eqMidQ: 1.5,
+    eqHighGain: -15,
     eqHighFreq: 3500,
   },
   radio: {
     name: '电台',
+    // 电话波段窄带通 + 重压缩 + 较重饱和
     filterType: 'bandpass',
-    filterFreq: 1400,
-    filterQ: 1.2,
+    filterFreq: 1700,
+    filterQ: 2,
     filterGain: 0,
-    gain: 1.0,
-    delayTime: 0.05,
-    delayFeedback: 0.12,
-    delayMix: 0.2,
-    compressorThreshold: -14,
-    compressorRatio: 6,
-    waveShaperAmount: 0.25,
+    gain: 1.05,
+    delayTime: 0.02,
+    delayFeedback: 0.05,
+    delayMix: 0.12,
+    compressorThreshold: -10,
+    compressorRatio: 8,
+    waveShaperAmount: 0.38,
     gateThreshold: 0.02,
-    eqLowGain: -4,
+    eqLowGain: -16,
     eqLowFreq: 250,
-    eqMidGain: 6,
-    eqMidFreq: 1300,
-    eqMidQ: 1,
-    eqHighGain: -6,
+    eqMidGain: 9,
+    eqMidFreq: 1700,
+    eqMidQ: 1.5,
+    eqHighGain: -16,
     eqHighFreq: 4000,
   },
+};
+
+// 变声实现 credits：明确声明实现方式与第三方组件
+window.__cheapLiveContestVoiceCredits = {
+  implementation: 'WebAudio preset chain (BiquadFilter x4 + DynamicsCompressor + WaveShaper + Delay + Gain + Analyser + noise gate). No third-party voice library.',
+  thirdPartyLibraries: [],
+  licenseNotes: 'Implemented with browser-native Web Audio API. No external DSP libraries bundled.',
+  attributionRequired: false,
 };
 
 class VoiceAdapter {
