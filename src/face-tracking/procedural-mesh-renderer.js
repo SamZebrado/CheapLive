@@ -1090,8 +1090,18 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const squintScaleY = 1 - (eyeSquint || 0) * 0.55;
       const squintScaleX = 1 + (eyeSquint || 0) * 0.08;
 
-      const localRx = Math.max(0.1, eyeHalfW * rLen * wideScale * squintScaleX);
-      const localRy = Math.max(0.1, eyeHalfH * dLen * wideScale * squintScaleY);
+      let localRx = Math.max(0.1, eyeHalfW * rLen * wideScale * squintScaleX);
+      let localRy = Math.max(0.1, eyeHalfH * dLen * wideScale * squintScaleY);
+
+      // Cartoon eye aspect-ratio clamp: prevent eye from collapsing into a
+      // vertical slit when head yaws (rightVec foreshortens).  Without this,
+      // the far eye at ~60° yaw becomes a 1:3.7 vertical oval with the iris
+      // clipped into a bar — visually reads as "eye falling forward off the
+      // face".  Keep minimum width at 55% of height (and vice-versa) so the
+      // eye always looks like an eye.
+      const minAspect = 0.55;
+      if (localRx < localRy * minAspect) localRx = localRy * minAspect;
+      if (localRy < localRx * minAspect) localRy = localRx * minAspect;
 
       // Linear mapping: openness 0=closed, 1=fully open
       const tOpen = Math.max(0, Math.min(1, openness));
@@ -1232,6 +1242,11 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         clippedByEyelid: easedClosed > 0.02,
         eyeRx: localRx,
         eyeRy: localRy,
+        eyeAngle: eyeAngle,
+        rightLen: rLen,
+        downLen: dLen,
+        facing: facing,
+        anchorNz: t.nz,
       };
 
       ctx.restore();

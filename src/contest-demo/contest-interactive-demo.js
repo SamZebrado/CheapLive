@@ -608,9 +608,9 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
   const roll = (p.roll ?? 0) * 0.3;
   const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s;
   const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
-  const mouthH = mouth * 12 * s;
-  const eyeHL = eyeL * 6 * s;
-  const eyeHR = eyeR * 6 * s;
+  const mouthH = mouth * 10 * s;
+  const eyeHL = eyeL * 7 * s;
+  const eyeHR = eyeR * 7 * s;
 
   // Gaze / iris tracking: use gazeX/gazeY or yaw/pitch as proxy
   const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
@@ -619,54 +619,75 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
   const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
   const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
 
-  // Eye positions — front-facing view, bilateral (left/right)
-  const leftEyeX = -14 * s;
-  const rightEyeX = 14 * s;
-  const eyeY = -20 * s;
-  const eyeW = 9 * s;
+  // === Unified FRONT-FACING view ===
+  // Sacabambaspis had a broad, flat cephalic shield — front view shows
+  // a wide head with bilateral eyes and a small mouth.
+  // Eye positions — front-facing, bilateral (left/right)
+  const leftEyeX = -16 * s;
+  const rightEyeX = 16 * s;
+  const eyeY = -12 * s;
+  const eyeW = 8 * s;
+  const irisR = 4.5 * s;
 
   ctx.save();
   ctx.translate(cx + headOffsetX, cy + headOffsetY);
   ctx.rotate(roll);
 
-  // Tail fin (bottom)
-  ctx.fillStyle = '#c8c4b4';
+  // --- Tail (bottom, fan-shaped, front view) ---
+  ctx.fillStyle = '#b8b4a4';
   ctx.beginPath();
-  ctx.moveTo(0, 55 * s);
-  ctx.lineTo(-20 * s, 80 * s);
-  ctx.lineTo(0, 72 * s);
-  ctx.lineTo(20 * s, 80 * s);
+  ctx.moveTo(-12 * s, 38 * s);
+  ctx.lineTo(-22 * s, 58 * s);
+  ctx.lineTo(-8 * s, 50 * s);
+  ctx.lineTo(0, 56 * s);
+  ctx.lineTo(8 * s, 50 * s);
+  ctx.lineTo(22 * s, 58 * s);
+  ctx.lineTo(12 * s, 38 * s);
   ctx.closePath();
   ctx.fill();
 
-  // Body — vertical ellipse (front-facing, head up)
+  // --- Body: wide horizontal ellipse (front view of a flat fish) ---
+  // Slightly tapering down, wider than tall
   ctx.fillStyle = '#e4e1d3';
   ctx.beginPath();
-  ctx.ellipse(0, 0, 40 * s, 60 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 5 * s, 42 * s, 38 * s, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Back shading
-  ctx.fillStyle = 'rgba(138,135,120,0.25)';
+  // --- Head shield: upper portion, slightly wider and lighter ---
+  ctx.fillStyle = '#ede9dc';
   ctx.beginPath();
-  ctx.ellipse(0, 5 * s, 32 * s, 48 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, -8 * s, 40 * s, 28 * s, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Spot
-  ctx.fillStyle = 'rgba(139,115,85,0.3)';
+  // --- Dorsal fin (top, small triangle, front view) ---
+  ctx.fillStyle = '#b8b4a4';
   ctx.beginPath();
-  ctx.ellipse(-5 * s, 15 * s, 12 * s, 7 * s, 0.3, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Dorsal fin (top)
-  ctx.fillStyle = '#c8c4b4';
-  ctx.beginPath();
-  ctx.moveTo(-15 * s, -45 * s);
-  ctx.lineTo(0, -70 * s);
-  ctx.lineTo(15 * s, -45 * s);
+  ctx.moveTo(-10 * s, -30 * s);
+  ctx.lineTo(0, -44 * s);
+  ctx.lineTo(10 * s, -30 * s);
   ctx.closePath();
   ctx.fill();
 
-  // Left Eye (bilateral — left side)
+  // --- Pectoral fins (sides, small, front view) ---
+  ctx.fillStyle = '#c8c4b4';
+  ctx.beginPath();
+  ctx.ellipse(-32 * s, 12 * s, 10 * s, 5 * s, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(32 * s, 12 * s, 10 * s, 5 * s, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Eye sockets (slight indent, darker ring) ---
+  ctx.strokeStyle = 'rgba(120,110,90,0.3)';
+  ctx.lineWidth = 1.5 * s;
+  ctx.beginPath();
+  ctx.ellipse(leftEyeX, eyeY, eyeW + 2 * s, Math.max(2, eyeHL + 2 * s), 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(rightEyeX, eyeY, eyeW + 2 * s, Math.max(2, eyeHR + 2 * s), 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // --- Left Eye (bilateral — left side) ---
   ctx.fillStyle = '#fff';
   ctx.beginPath();
   ctx.ellipse(leftEyeX, eyeY, eyeW, Math.max(1, eyeHL), 0, 0, Math.PI * 2);
@@ -675,7 +696,7 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
     // Iris with gaze tracking
     ctx.fillStyle = '#1a1a2e';
     ctx.beginPath();
-    ctx.arc(leftEyeX + irisOffsetX, eyeY + irisOffsetY, 4.5 * s, 0, Math.PI * 2);
+    ctx.arc(leftEyeX + irisOffsetX, eyeY + irisOffsetY, irisR, 0, Math.PI * 2);
     ctx.fill();
     // Pupil highlight
     ctx.fillStyle = '#fff';
@@ -683,7 +704,7 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
     ctx.arc(leftEyeX + irisOffsetX + 1 * s, eyeY + irisOffsetY - 1.5 * s, 1.5 * s, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Right Eye (bilateral — right side)
+  // --- Right Eye (bilateral — right side) ---
   ctx.fillStyle = '#fff';
   ctx.beginPath();
   ctx.ellipse(rightEyeX, eyeY, eyeW, Math.max(1, eyeHR), 0, 0, Math.PI * 2);
@@ -691,7 +712,7 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
   if (eyeHR > 2) {
     ctx.fillStyle = '#1a1a2e';
     ctx.beginPath();
-    ctx.arc(rightEyeX + irisOffsetX, eyeY + irisOffsetY, 4.5 * s, 0, Math.PI * 2);
+    ctx.arc(rightEyeX + irisOffsetX, eyeY + irisOffsetY, irisR, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.beginPath();
@@ -699,13 +720,20 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
     ctx.fill();
   }
 
-  // Mouth
-  if (mouthH > 1) {
+  // --- Mouth (center, below eyes, front view) ---
+  if (mouthH > 0.5) {
     ctx.fillStyle = '#8a7355';
     ctx.beginPath();
-    ctx.ellipse(0, 5 * s, 8 * s, mouthH * 0.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 14 * s, 7 * s, mouthH * 0.5, 0, 0, Math.PI * 2);
     ctx.fill();
   }
+  // Mouth line (always visible)
+  ctx.strokeStyle = '#6a5535';
+  ctx.lineWidth = Math.max(1, 1.5 * s);
+  ctx.beginPath();
+  ctx.moveTo(-6 * s, 14 * s);
+  ctx.quadraticCurveTo(0, 14 * s + Math.max(2, mouthH), 6 * s, 14 * s);
+  ctx.stroke();
 
   ctx.restore();
 

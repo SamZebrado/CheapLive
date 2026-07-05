@@ -1466,4 +1466,143 @@ test.describe('Contest Demo Layout Regression', () => {
     const fatalErrors = consoleErrors.filter(e => !e.includes('favicon') && !e.includes('404'));
     expect(fatalErrors.length).toBe(0);
   });
+
+  // ====== 3D fish yaw: eye aspect ratio stable ======
+  test('3D fish：yaw-left-60 时远侧眼睛宽高比不坍缩（eyeRx >= eyeRy * 0.5）', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000);
+    await page.click('.avatar-btn[data-avatar="sacabambaspis-3d"]');
+    await page.waitForTimeout(1500);
+
+    const result = await page.evaluate(async () => {
+      state.faceParams.yaw = -1.0;
+      const params = faceParamsToRendererParams(state.faceParams);
+      update3DRenderers(params);
+      await new Promise(r => setTimeout(r, 300));
+      const avatarDiag = window.__cheapLiveContestAvatarDiag || {};
+      const perCanvas = avatarDiag.perCanvasIrisDiag || {};
+      const mainIris = perCanvas.avatarCanvas || {};
+      const left = mainIris.left || {};
+      const right = mainIris.right || {};
+      return {
+        leftRx: left.eyeRx, leftRy: left.eyeRy, leftVisible: left.visible,
+        rightRx: right.eyeRx, rightRy: right.eyeRy, rightVisible: right.visible,
+      };
+    });
+
+    // Both eyes should be visible
+    expect(result.leftVisible).toBe(true);
+    expect(result.rightVisible).toBe(true);
+    // The far eye (right eye when yaw left) should not collapse
+    // eyeRx should be at least 50% of eyeRy (before fix it was ~27%)
+    const ratio = result.rightRx / result.rightRy;
+    expect(ratio).toBeGreaterThanOrEqual(0.5);
+  });
+
+  test('3D fish：yaw-right-60 时远侧眼睛宽高比不坍缩', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000);
+    await page.click('.avatar-btn[data-avatar="sacabambaspis-3d"]');
+    await page.waitForTimeout(1500);
+
+    const result = await page.evaluate(async () => {
+      state.faceParams.yaw = 1.0;
+      const params = faceParamsToRendererParams(state.faceParams);
+      update3DRenderers(params);
+      await new Promise(r => setTimeout(r, 300));
+      const avatarDiag = window.__cheapLiveContestAvatarDiag || {};
+      const perCanvas = avatarDiag.perCanvasIrisDiag || {};
+      const mainIris = perCanvas.avatarCanvas || {};
+      return {
+        leftRx: mainIris.left?.eyeRx, leftRy: mainIris.left?.eyeRy,
+        rightRx: mainIris.right?.eyeRx, rightRy: mainIris.right?.eyeRy,
+      };
+    });
+
+    // The far eye (left eye when yaw right) should not collapse
+    const ratio = result.leftRx / result.leftRy;
+    expect(ratio).toBeGreaterThanOrEqual(0.5);
+  });
+
+  // ====== 3D fish: eyeAngle stable (no wild rotation) ======
+  test('3D fish：yaw 时 eyeAngle 保持稳定（不出现 90° 翻转）', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000);
+    await page.click('.avatar-btn[data-avatar="sacabambaspis-3d"]');
+    await page.waitForTimeout(1500);
+
+    const results = [];
+    for (const yaw of [-1.0, -0.5, 0, 0.5, 1.0]) {
+      const r = await page.evaluate(async (y) => {
+        state.faceParams.yaw = y;
+        const params = faceParamsToRendererParams(state.faceParams);
+        update3DRenderers(params);
+        await new Promise(r => setTimeout(r, 200));
+        const avatarDiag = window.__cheapLiveContestAvatarDiag || {};
+        const perCanvas = avatarDiag.perCanvasIrisDiag || {};
+        const mainIris = perCanvas.avatarCanvas || {};
+        return {
+          leftAngle: mainIris.left?.eyeAngle,
+          rightAngle: mainIris.right?.eyeAngle,
+        };
+      }, yaw);
+      results.push({ yaw, ...r });
+    }
+
+    // All eyeAngles should be near 0 (horizontal) for yaw-only rotation
+    for (const r of results) {
+      expect(Math.abs(r.leftAngle)).toBeLessThan(Math.PI / 4); // < 45°
+      expect(Math.abs(r.rightAngle)).toBeLessThan(Math.PI / 4);
+    }
+  });
+
+  // ====== 2D fish: redesigned front-facing view ======
+  test('2D fish：重新设计后 diagnostics 正常，mouth/blink/headOffset/roll/gaze 全部生效', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000);
+    await page.click('.avatar-btn[data-avatar="sacabambaspis"]');
+    await page.waitForTimeout(1000);
+
+    // Test mouth open
+    await page.evaluate(() => { state.faceParams.mouthOpen = 0.8; });
+    await page.waitForTimeout(300);
+    const mouthDiag = await page.evaluate(() => window.__cheapLiveContest2DAvatarDiag || {});
+    expect(mouthDiag.mouthOpenApplied).toBe(true);
+    expect(mouthDiag.mouthOpen).toBe(0.8);
+
+    // Test blink
+    await page.evaluate(() => { state.faceParams.blinkLeft = 1; state.faceParams.eyeLeft = 0; });
+    await page.waitForTimeout(300);
+    const blinkDiag = await page.evaluate(() => window.__cheapLiveContest2DAvatarDiag || {});
+    expect(blinkDiag.blinkApplied).toBe(true);
+    expect(blinkDiag.leftEyeOpen).toBe(0);
+
+    // Test head offset
+    await page.evaluate(() => { state.faceParams.headX = 0.7; state.faceParams.headY = 0.6; });
+    await page.waitForTimeout(300);
+    const headDiag = await page.evaluate(() => window.__cheapLiveContest2DAvatarDiag || {});
+    expect(headDiag.headOffsetApplied).toBe(true);
+
+    // Test roll
+    await page.evaluate(() => { state.faceParams.roll = -0.5; });
+    await page.waitForTimeout(300);
+    const rollDiag = await page.evaluate(() => window.__cheapLiveContest2DAvatarDiag || {});
+    expect(rollDiag.rollApplied).toBe(true);
+
+    // Test gaze
+    await page.evaluate(() => { state.faceParams.gazeLeftX = 0.8; state.faceParams.gazeRightX = 0.8; });
+    await page.waitForTimeout(300);
+    const gazeDiag = await page.evaluate(() => window.__cheapLiveContest2DGazeDiag || {});
+    expect(gazeDiag.irisMovementApplied).toBe(true);
+    expect(gazeDiag.irisClampedInsideEye).toBe(true);
+
+    // Eyes bilateral
+    const fishDiag = await page.evaluate(() => window.__cheapLiveContestFishEyeDiag || {});
+    expect(fishDiag.eyesBilateralPass).toBe(true);
+    expect(fishDiag.bothEyesSameSide).toBe(false);
+  });
 });
