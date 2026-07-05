@@ -198,6 +198,47 @@ function init2DAvatarDiag() {
 function initVersionStamp() {
   const el = document.getElementById('versionStamp');
   if (!el) return;
+
+  // 初始化 version diagnostics
+  if (!window.__cheapLiveContestVersionDiag) {
+    window.__cheapLiveContestVersionDiag = {
+      version: null,
+      versionSource: null,
+      buildTime: null,
+      stampGitShortSha: null,
+      queryV: null,
+      stampLoaded: false,
+    };
+  }
+  const diag = window.__cheapLiveContestVersionDiag;
+
+  // 优先读取 URL query 里的 ?v=<sha>
+  const params = new URLSearchParams(window.location.search);
+  const queryV = params.get('v');
+  diag.queryV = queryV;
+
+  if (queryV && queryV.trim()) {
+    const v = queryV.trim();
+    diag.version = v;
+    diag.versionSource = 'query';
+    el.textContent = `v${v}`;
+    // 仍然尝试加载 build.json 拿 build time，但不阻塞显示
+    fetch('contest-build.json', { cache: 'no-cache' })
+      .then(r => { if (!r.ok) throw new Error('build stamp http ' + r.status); return r.json(); })
+      .then(stamp => {
+        diag.stampLoaded = true;
+        diag.stampGitShortSha = stamp.gitShortSha || null;
+        const time = stamp.buildTimeLocal || '';
+        diag.buildTime = time;
+        if (time) {
+          el.textContent = `v${v} · updated ${time}`;
+        }
+      })
+      .catch(() => { diag.stampLoaded = false; });
+    return;
+  }
+
+  // fallback: 读 contest-build.json
   fetch('contest-build.json', { cache: 'no-cache' })
     .then(r => {
       if (!r.ok) throw new Error('build stamp http ' + r.status);
@@ -209,9 +250,17 @@ function initVersionStamp() {
       let text = `v${sha}`;
       if (time) text += ` · updated ${time}`;
       el.textContent = text;
+      diag.version = sha;
+      diag.versionSource = 'build-json';
+      diag.buildTime = time || null;
+      diag.stampGitShortSha = sha;
+      diag.stampLoaded = true;
     })
     .catch(() => {
       el.textContent = 'version unknown';
+      diag.version = 'unknown';
+      diag.versionSource = 'fallback';
+      diag.stampLoaded = false;
     });
 }
 

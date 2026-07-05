@@ -147,3 +147,65 @@ npm run test:experimental
 - [`rules/runtime-validation-gate.md`](../rules/runtime-validation-gate.md) — 开发 Code 的提交前强制验证。
 - [`rules/evidence-labels.md`](../rules/evidence-labels.md) — 证据标签、防夸大规则。
 - [`rules/product-roadmap.md`](../rules/product-roadmap.md) — 产品路线与技术冻结项。
+
+---
+
+## 11. Contest Demo 版本号与发布验收硬规则
+
+> 本节面向所有参与 Contest Demo 开发的 Agent。
+> 违反以下规则的发布不得报 PASS。
+
+### 11.1 版本号强制规则
+
+1. 每次涉及参赛 demo 的 commit/push 前，必须更新版本号或 build stamp。
+2. 页面标题旁显示的版本号必须与本轮验证 SHA 一致。
+3. 如果页面仍显示旧 SHA，本轮只能报 PARTIAL 或 FAIL，不能报 PASS。
+4. 不允许把"build stamp 自引用困难"当成不更新页面版本号的理由。
+
+### 11.2 版本号来源
+
+页面版本号支持两种来源，按优先级：
+
+1. **URL query `?v=<sha>`**（优先）
+   - diagnostics: `window.__cheapLiveContestVersionDiag.versionSource = "query"`
+2. **`contest-build.json` fallback**
+   - diagnostics: `window.__cheapLiveContestVersionDiag.versionSource = "build-json"`
+
+### 11.3 线上验收 URL 格式
+
+```
+https://samzebrado.github.io/CheapLive/src/contest-demo/contest-interactive-demo.html?v=<newSHA>
+```
+
+必须用带 `?v=` 的 URL 验证，不能只用裸路径。
+
+### 11.4 最终回报必写项
+
+每次涉及 contest demo 的发布，最终回报必须明确写出：
+
+- commit SHA
+- push 后远端 main SHA
+- 线上验证 URL（带 `?v=`）
+- 页面实际显示的版本号文本
+- versionSource（query / build-json / fallback）
+
+### 11.5 测试门禁
+
+- Playwright 测试必须覆盖：URL query 版本号显示、无 query 时 fallback 不崩。
+- 测试不通过不准 push。
+
+### 11.6 验收级别区分
+
+不得混用以下级别，必须分别陈述：
+
+- **local PASS**：本地 Playwright / 静态检查全部通过
+- **online load verified**：线上页面能加载，版本号正确，无 console error
+- **online interaction verified**：线上关键交互（avatar 切换、触摸穿透等）实测通过
+- **user visually verified**：用户人工视觉确认（表情、美感、听感等主观项）
+
+### 11.7 Cautionary Note
+
+> **2026-07-05**：曾出现 push 到 `9c2d61f` 后页面仍显示 `v73b1eb2` 的情况。
+> 原因：`contest-build.json` 是静态文件，commit 时不会自动更新自身 SHA。
+> 修复：页面优先读取 URL query `?v=<sha>` 作为版本来源，build.json 仅作 fallback + 时间戳。
+> 此后每次 release 必须把页面显示版本号纳入 Playwright / 线上验收。

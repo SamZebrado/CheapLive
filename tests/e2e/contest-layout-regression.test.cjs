@@ -748,9 +748,55 @@ test.describe('Contest Demo Layout Regression', () => {
     });
 
     expect(stampText).toBeTruthy();
-    // 不应是初始占位 "version unknown"（除非 fetch 失败，但本地 server 应能加载）
-    // 接受 "v" 开头或 "version unknown"
     expect(stampText.length).toBeGreaterThan(5);
+  });
+
+  test('version stamp：URL query ?v= 优先显示，versionSource=query', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL + '?v=test-abc123', { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2500);
+
+    const result = await page.evaluate(() => {
+      const el = document.getElementById('versionStamp');
+      const diag = window.__cheapLiveContestVersionDiag || {};
+      return {
+        text: el ? el.textContent : null,
+        version: diag.version,
+        versionSource: diag.versionSource,
+        queryV: diag.queryV,
+      };
+    });
+
+    // 版本号必须包含 query 里的值
+    expect(result.text).toContain('test-abc123');
+    expect(result.version).toBe('test-abc123');
+    expect(result.versionSource).toBe('query');
+    expect(result.queryV).toBe('test-abc123');
+  });
+
+  test('version stamp：无 query 时 fallback 到 build.json 不崩', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2500);
+
+    const result = await page.evaluate(() => {
+      const el = document.getElementById('versionStamp');
+      const diag = window.__cheapLiveContestVersionDiag || {};
+      return {
+        text: el ? el.textContent : null,
+        versionSource: diag.versionSource,
+        hasError: el ? false : true,
+        versionDiagExists: !!window.__cheapLiveContestVersionDiag,
+      };
+    });
+
+    // diagnostics 必须存在
+    expect(result.versionDiagExists).toBe(true);
+    // 没有 query 时，versionSource 应该是 build-json 或 fallback
+    expect(['build-json', 'fallback']).toContain(result.versionSource);
+    // 页面不能崩，版本号元素必须有内容
+    expect(result.text).toBeTruthy();
+    expect(result.text.length).toBeGreaterThan(3);
   });
 
   // ====== 新增：游戏键盘聚焦，方向键不滚动页面 ======
