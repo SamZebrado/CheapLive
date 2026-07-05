@@ -857,10 +857,18 @@ function initFWAvatarCanvas() {
 let fwDragging = false, fwResizing = false, fwOffX = 0, fwOffY = 0, fwStartW = 0, fwStartH = 0;
 window.__cheapLiveContestFloatingDiag = {
   mode: 'edit',
+  modeButtonText: '',
+  modeButtonClickable: true,
+  modeButtonClass: '',
+  lastModeToggleAt: 0,
+  lastModeToggleSource: '',
   transparentModeActive: false,
   fwWindowBackground: '',
   fwContentBackground: '',
+  fwAvatarPanelBackground: '',
   fwCanvasBackground: '',
+  keyBackgroundColor: 'rgba(0,0,0,0)',
+  usesGlobalOpacity: false,
   rendererTransparentMode: false,
   windowOpacity: 1,
   avatarOpacity: 1,
@@ -874,7 +882,6 @@ window.__cheapLiveContestFloatingDiag = {
   top: 0,
   resizeActive: false,
   dragActive: false,
-  lastModeToggleAt: 0,
   lastResizeAt: 0,
   lastDragAt: 0,
 };
@@ -883,16 +890,25 @@ function _updateFloatingDiag() {
   const diag = window.__cheapLiveContestFloatingDiag;
   const fw = document.getElementById('floatingWindow');
   const fwContent = document.querySelector('.floating-window .fw-content');
+  const fwAvatarPanel = document.querySelector('.floating-window .fw-avatar-panel');
   const fwCanvas = document.getElementById('fwAvatarCanvas');
+  const btn = document.getElementById('fwModeBtn');
 
   diag.mode = state.floatingMode;
-  diag.transparentModeActive = true;
-  diag.fwCanvasTransparent = true;
+
+  if (btn) {
+    diag.modeButtonText = btn.textContent;
+    diag.modeButtonClass = btn.className;
+    const btnCs = getComputedStyle(btn);
+    const pe = btnCs.pointerEvents;
+    diag.modeButtonClickable = pe !== 'none' && !btn.disabled;
+  }
 
   if (fw) {
     const cs = getComputedStyle(fw);
     diag.fwWindowBackground = cs.backgroundColor;
     diag.windowOpacity = parseFloat(cs.opacity) || 1;
+    diag.usesGlobalOpacity = (parseFloat(cs.opacity) || 1) < 0.99;
     diag.width = fw.offsetWidth;
     diag.height = fw.offsetHeight;
     diag.left = fw.offsetLeft;
@@ -902,16 +918,26 @@ function _updateFloatingDiag() {
     const cs = getComputedStyle(fwContent);
     diag.fwContentBackground = cs.backgroundColor;
   }
+  if (fwAvatarPanel) {
+    const cs = getComputedStyle(fwAvatarPanel);
+    diag.fwAvatarPanelBackground = cs.backgroundColor;
+  }
   if (fwCanvas) {
     const cs = getComputedStyle(fwCanvas);
     diag.fwCanvasBackground = cs.backgroundColor;
+    diag.fwCanvasTransparent = cs.backgroundColor === 'rgba(0, 0, 0, 0)' ||
+      cs.backgroundColor === 'transparent';
   }
 
-  diag.rendererTransparentMode = true;
+  if (typeof window.getContestFishAvatarTransparentMode === 'function') {
+    diag.rendererTransparentMode = !!window.getContestFishAvatarTransparentMode('fwAvatarCanvas');
+  }
+
+  diag.transparentModeActive = diag.rendererTransparentMode || diag.fwCanvasTransparent;
   diag.avatarOpacity = 1;
   diag.editControlsVisible = state.floatingMode === 'edit';
   diag.pointerEvents = state.floatingMode === 'display' ? 'fw-content: none, button: auto' : 'auto';
-  diag.backgroundAlphaCorrect = true;
+  diag.backgroundAlphaCorrect = diag.transparentModeActive && !diag.usesGlobalOpacity;
   diag.resizeActive = fwResizing;
   diag.dragActive = fwDragging;
 }
@@ -1025,15 +1051,6 @@ function onModeBtnMoveTouch(e) {
   btn.style.bottom = 'auto';
 }
 
-// Extend onFWEnd to also handle mode button
-const _origOnFWEnd = onFWEnd;
-onFWEnd = function() {
-  _origOnFWEnd();
-  modeBtnDragging = false;
-  const btn = document.getElementById('fwModeBtn');
-  if (btn) btn.style.cursor = 'grab';
-};
-
 function onFWMove(e) {
   const fw = document.getElementById('floatingWindow');
   if (fwDragging) {
@@ -1080,6 +1097,11 @@ function onFWMoveTouch(e) {
 function onFWEnd() {
   fwDragging = false;
   fwResizing = false;
+  modeBtnDragging = false;
+  const btn = document.getElementById('fwModeBtn');
+  if (btn) btn.style.cursor = 'grab';
+  window.__cheapLiveContestFloatingDiag.dragActive = false;
+  window.__cheapLiveContestFloatingDiag.resizeActive = false;
 }
 
 // ====== SIM LOOP ======
@@ -1196,6 +1218,104 @@ function simLoop(ts) {
       eyeLocalAngleRight: 0,
       eyelidBoundaryAngleLeft: headRollDeg,
       eyelidBoundaryAngleRight: headRollDeg,
+    };
+
+    // Iris panel consistency diagnostics
+    const mainCanvas = document.getElementById('avatarCanvas');
+    const fwCanvas = document.getElementById('fwAvatarCanvas');
+    const getIrisInfo = (canvasId) => {
+      if (typeof window.getContestFishAvatarIrisDiag !== 'function') return null;
+      const id = window.getContestFishAvatarIrisDiag(canvasId);
+      if (!id) return null;
+      const inst = typeof window.getContestFishAvatarInstance === 'function'
+        ? window.getContestFishAvatarInstance(canvasId)
+        : null;
+      const canvas = document.getElementById(canvasId);
+      const cw = canvas ? canvas.width : 0;
+      const ch = canvas ? canvas.height : 0;
+      const minSide = Math.min(cw, ch);
+      const leftR = id.left ? id.left.radius : 0;
+      const rightR = id.right ? id.right.radius : 0;
+      const irisR = (leftR + rightR) / 2;
+      const leftEyeRx = id.left ? id.left.eyeRx : 0;
+      const rightEyeRx = id.right ? id.right.eyeRx : 0;
+      const eyeRx = (leftEyeRx + rightEyeRx) / 2;
+      const leftEyeRy = id.left ? id.left.eyeRy : 0;
+      const rightEyeRy = id.right ? id.right.eyeRy : 0;
+      const eyeRy = (leftEyeRy + rightEyeRy) / 2;
+      let projectedHeadRadius = 0;
+      if (inst && typeof inst.spindleMesh === 'object' && inst.spindleMesh) {
+        projectedHeadRadius = (inst.spindleMesh.headX || 70) * (inst._lastScale || 1);
+      } else if (inst && typeof inst.mesh === 'object' && inst.mesh) {
+        projectedHeadRadius = (inst.mesh.headX || 70) * (inst._lastScale || 1);
+      } else {
+        projectedHeadRadius = minSide * 0.30;
+      }
+      const pupilR = irisR * 0.55;
+      return {
+        rendererClass: diag.rendererClass,
+        fallbackActive: !!diag.fallbackActive,
+        canvasWidth: cw,
+        canvasHeight: ch,
+        projectedHeadRadius,
+        eyeRx,
+        eyeRy,
+        irisRadius: irisR,
+        pupilRadius: pupilR,
+        irisRatioToHead: projectedHeadRadius > 0 ? irisR / projectedHeadRadius : 0,
+        irisRatioToEye: eyeRx > 0 ? irisR / eyeRx : 0,
+        pupilRatioToIris: irisR > 0 ? pupilR / irisR : 0,
+      };
+    };
+
+    const mainInfo = getIrisInfo('avatarCanvas');
+    const fwInfo = getIrisInfo('fwAvatarCanvas');
+
+    let baselineNeutralIrisRadius = 0;
+    if (mainInfo && mainInfo.canvasWidth > 0) {
+      const minSide = Math.min(mainInfo.canvasWidth, mainInfo.canvasHeight);
+      baselineNeutralIrisRadius = minSide * 0.64 / 140 * (70 * 0.25) * 0.50;
+    }
+    const fixedNeutralIrisRadius = mainInfo ? mainInfo.irisRadius : 0;
+    const fixedToBaselineRatio = baselineNeutralIrisRadius > 0
+      ? fixedNeutralIrisRadius / baselineNeutralIrisRadius
+      : 0;
+
+    let panelConsistencyPass = false;
+    let defaultSizePass = false;
+    let radiusStabilityPass = false;
+    let movementNotSizePass = false;
+
+    if (mainInfo && fwInfo && mainInfo.irisRatioToHead > 0 && fwInfo.irisRatioToHead > 0) {
+      const ratioDiff = Math.abs(mainInfo.irisRatioToHead - fwInfo.irisRatioToHead);
+      const ratioAvg = (mainInfo.irisRatioToHead + fwInfo.irisRatioToHead) / 2;
+      panelConsistencyPass = ratioAvg > 0 ? (ratioDiff / ratioAvg) < 0.1 : false;
+    }
+
+    if (fixedToBaselineRatio >= 0.90 && fixedToBaselineRatio <= 1.10) {
+      defaultSizePass = true;
+    }
+
+    if (mainInfo) {
+      const mainIrisDiag = typeof window.getContestFishAvatarIrisDiag === 'function'
+        ? window.getContestFishAvatarIrisDiag('avatarCanvas')
+        : null;
+      if (mainIrisDiag) {
+        radiusStabilityPass = !!mainIrisDiag.radiusStabilityPass;
+        movementNotSizePass = !!mainIrisDiag.movementNotSizePass;
+      }
+    }
+
+    diag.irisDiag = {
+      mainPanel: mainInfo,
+      floatingPanel: fwInfo,
+      baselineNeutralIrisRadius,
+      fixedNeutralIrisRadius,
+      fixedToBaselineRatio,
+      panelConsistencyPass,
+      defaultSizePass,
+      radiusStabilityPass,
+      movementNotSizePass,
     };
   }
 

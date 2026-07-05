@@ -268,4 +268,193 @@ test.describe('Contest Demo Layout Regression', () => {
     // toolbox 应该在主布局下方
     expect(positions.toolboxTop).toBeGreaterThan(positions.mainBottom - 10);
   });
+
+  test('floating mode button 可切换 edit/display mode', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000);
+
+    const before = await page.evaluate(() => {
+      const diag = window.__cheapLiveContestFloatingDiag || {};
+      const btn = document.getElementById('fwModeBtn');
+      return {
+        mode: diag.mode,
+        buttonText: btn ? btn.textContent : null,
+        buttonClickable: diag.modeButtonClickable,
+      };
+    });
+
+    // 初始应该是 edit 模式
+    expect(before.mode).toBe('edit');
+    expect(before.buttonClickable).toBe(true);
+
+    // 点击 mode button
+    await page.click('#fwModeBtn');
+    await page.waitForTimeout(500);
+
+    const after = await page.evaluate(() => {
+      const diag = window.__cheapLiveContestFloatingDiag || {};
+      const btn = document.getElementById('fwModeBtn');
+      const fw = document.getElementById('floatingWindow');
+      return {
+        mode: diag.mode,
+        buttonText: btn ? btn.textContent : null,
+        hasDisplayClass: fw ? fw.classList.contains('fw-display-mode') : false,
+        hasEditClass: fw ? fw.classList.contains('fw-edit-mode') : false,
+        buttonClass: btn ? btn.className : '',
+      };
+    });
+
+    // 点击后应该切换到 display 模式
+    expect(after.mode).toBe('display');
+    expect(after.hasDisplayClass).toBe(true);
+    expect(after.hasEditClass).toBe(false);
+    // 按钮文字应该是"显示"（当前是显示模式）
+    expect(after.buttonText).toContain('显示');
+
+    // 再点一次，切回 edit 模式
+    await page.click('#fwModeBtn');
+    await page.waitForTimeout(500);
+
+    const after2 = await page.evaluate(() => {
+      const diag = window.__cheapLiveContestFloatingDiag || {};
+      const btn = document.getElementById('fwModeBtn');
+      return {
+        mode: diag.mode,
+        buttonText: btn ? btn.textContent : null,
+      };
+    });
+
+    expect(after2.mode).toBe('edit');
+    expect(after2.buttonText).toContain('编辑');
+  });
+
+  test('floating window 背景透明且不使用全局 opacity', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000);
+
+    const result = await page.evaluate(() => {
+      const diag = window.__cheapLiveContestFloatingDiag || {};
+      const fw = document.getElementById('floatingWindow');
+      const fwContent = document.querySelector('.floating-window .fw-content');
+      const fwCanvas = document.getElementById('fwAvatarCanvas');
+
+      const isTransparent = (bg) => {
+        return bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent' || bg === '';
+      };
+
+      const fwBg = fw ? getComputedStyle(fw).backgroundColor : '';
+      const contentBg = fwContent ? getComputedStyle(fwContent).backgroundColor : '';
+      const canvasBg = fwCanvas ? getComputedStyle(fwCanvas).backgroundColor : '';
+      const winOpacity = fw ? parseFloat(getComputedStyle(fw).opacity) : 1;
+
+      return {
+        fwWindowBackground: fwBg,
+        fwContentBackground: contentBg,
+        fwCanvasBackground: canvasBg,
+        windowOpacity: winOpacity,
+        fwBgTransparent: isTransparent(fwBg),
+        contentBgTransparent: isTransparent(contentBg),
+        canvasBgTransparent: isTransparent(canvasBg),
+        usesGlobalOpacity: winOpacity < 0.99,
+        rendererTransparentMode: diag.rendererTransparentMode,
+        diagMode: diag.mode,
+      };
+    });
+
+    // edit mode 下背景应该透明
+    expect(result.fwBgTransparent).toBe(true);
+    expect(result.contentBgTransparent).toBe(true);
+    expect(result.usesGlobalOpacity).toBe(false);
+    expect(result.windowOpacity).toBe(1);
+
+    // 切换到 display mode，检查背景仍然透明
+    await page.click('#fwModeBtn');
+    await page.waitForTimeout(500);
+
+    const result2 = await page.evaluate(() => {
+      const fw = document.getElementById('floatingWindow');
+      const fwContent = document.querySelector('.floating-window .fw-content');
+      const fwCanvas = document.getElementById('fwAvatarCanvas');
+
+      const isTransparent = (bg) => {
+        return bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent' || bg === '';
+      };
+
+      const fwBg = fw ? getComputedStyle(fw).backgroundColor : '';
+      const contentBg = fwContent ? getComputedStyle(fwContent).backgroundColor : '';
+      const canvasBg = fwCanvas ? getComputedStyle(fwCanvas).backgroundColor : '';
+      const winOpacity = fw ? parseFloat(getComputedStyle(fw).opacity) : 1;
+
+      return {
+        fwWindowBackground: fwBg,
+        fwContentBackground: contentBg,
+        fwCanvasBackground: canvasBg,
+        windowOpacity: winOpacity,
+        fwBgTransparent: isTransparent(fwBg),
+        contentBgTransparent: isTransparent(contentBg),
+        usesGlobalOpacity: winOpacity < 0.99,
+        mode: (window.__cheapLiveContestFloatingDiag || {}).mode,
+      };
+    });
+
+    expect(result2.mode).toBe('display');
+    expect(result2.fwBgTransparent).toBe(true);
+    expect(result2.contentBgTransparent).toBe(true);
+    expect(result2.usesGlobalOpacity).toBe(false);
+    expect(result2.windowOpacity).toBe(1);
+  });
+
+  test('main 和 floating panel iris 比例一致且大小正常', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000);
+
+    const result = await page.evaluate(() => {
+      const diag = window.__cheapLiveContestAvatarDiag || {};
+      const irisDiag = diag.irisDiag;
+      if (!irisDiag || !irisDiag.mainPanel) return { hasIrisDiag: false, irisDiagKeys: irisDiag ? Object.keys(irisDiag) : [] };
+
+      const main = irisDiag.mainPanel || {};
+      const fw = irisDiag.floatingPanel || {};
+
+      let ratioConsistency = false;
+      if (main.irisRatioToHead > 0 && fw.irisRatioToHead > 0) {
+        const diff = Math.abs(main.irisRatioToHead - fw.irisRatioToHead);
+        const avg = (main.irisRatioToHead + fw.irisRatioToHead) / 2;
+        ratioConsistency = avg > 0 ? (diff / avg) < 0.15 : false;
+      }
+
+      return {
+        hasIrisDiag: true,
+        mainIrisRatioToHead: main.irisRatioToHead,
+        fwIrisRatioToHead: fw.irisRatioToHead,
+        mainIrisRadius: main.irisRadius,
+        fwIrisRadius: fw.irisRadius,
+        mainProjectedHeadRadius: main.projectedHeadRadius,
+        fwProjectedHeadRadius: fw.projectedHeadRadius,
+        ratioConsistency,
+        panelConsistencyPass: irisDiag.panelConsistencyPass,
+        defaultSizePass: irisDiag.defaultSizePass,
+        fixedToBaselineRatio: irisDiag.fixedToBaselineRatio,
+        fallbackActive: main.fallbackActive,
+        rendererClass: main.rendererClass,
+        diagFallbackActive: diag.fallbackActive,
+        diagRendererClass: diag.rendererClass,
+      };
+    });
+
+    expect(result.hasIrisDiag).toBe(true);
+    expect(result.fallbackActive).toBe(false);
+    expect(result.rendererClass).toBe('ProceduralSpindleWhaleAvatar');
+
+    // main 和 floating 的 iris/head 比例应该接近
+    expect(result.ratioConsistency).toBe(true);
+
+    // 比例不能太小（不能是"小点"）
+    // iris/head ratio 正常应该 > 0.08
+    expect(result.mainIrisRatioToHead).toBeGreaterThan(0.08);
+    expect(result.fwIrisRatioToHead).toBeGreaterThan(0.08);
+  });
 });

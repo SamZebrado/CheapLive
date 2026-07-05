@@ -355,31 +355,31 @@ body {
   top: 50%;
   transform: translateY(-50%);
   z-index: 60;
-  background: var(--cl-orange);
+  background: var(--cl-blue);
   color: #fff;
   border: none;
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 12px;
   font-weight: 700;
-  cursor: grab;
+  cursor: pointer;
   font-family: var(--font);
-  box-shadow: 0 2px 8px rgba(255,140,66,0.4);
+  box-shadow: 0 2px 8px rgba(74,144,217,0.4);
   transition: background 0.2s, box-shadow 0.2s;
   user-select: none;
   touch-action: none;
 }
 .fw-mode-btn:hover {
-  background: #e87a30;
-  box-shadow: 0 2px 12px rgba(255,140,66,0.6);
+  background: #3a7bc8;
+  box-shadow: 0 2px 12px rgba(74,144,217,0.6);
 }
 .fw-mode-btn.display-mode {
-  background: var(--cl-green);
-  box-shadow: 0 2px 8px rgba(78,205,196,0.4);
+  background: var(--cl-orange);
+  box-shadow: 0 2px 8px rgba(255,140,66,0.4);
 }
 .fw-mode-btn.display-mode:hover {
-  background: #3eb8ad;
-  box-shadow: 0 2px 12px rgba(78,205,196,0.6);
+  background: #e87a30;
+  box-shadow: 0 2px 12px rgba(255,140,66,0.6);
 }
 
 /* ====== Guide Wizard Modal ====== */

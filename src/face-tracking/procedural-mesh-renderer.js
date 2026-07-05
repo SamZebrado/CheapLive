@@ -1021,6 +1021,9 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const margin = 0.18;
     const scale = (minSide * (1 - margin * 2)) / headDiameter;
 
+    this._lastScale = scale;
+    this._lastMinSide = minSide;
+
     // 头部中心稍微向上偏移，让下方有空间展示身体
     const originX = w * 0.5 + (np.headX - 0.5) * minSide * 0.22;
     const originY = h * 0.48 + (np.headY - 0.5) * minSide * 0.18;
