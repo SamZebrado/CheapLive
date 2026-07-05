@@ -164,6 +164,15 @@
       </div>
       <button class="btn btn-ghost btn-sm" onclick="toggleShowcase()">应用模式（透明背景）</button>
       <button class="btn btn-ghost btn-sm" onclick="openGuide()">真实项目操作流程演示</button>
+      <div class="mocap-toggle-row" style="margin-top:8px;">
+        <label class="mini-toggle-label">
+          <input type="checkbox" id="mocapToggle" onchange="toggleMocap()" style="display:none;">
+          <div class="mini-toggle" id="mocapToggleVisual"></div>
+          <span class="mocap-label">动作捕捉</span>
+          <span class="mocap-status" id="mocapStatus" style="font-size:11px;color:#888;margin-left:4px;">off</span>
+        </label>
+        <div style="font-size:10px;color:#999;margin-top:2px;">实验功能，可关闭；优先使用本地 MediaPipe 资源</div>
+      </div>
       <div class="receiver-note">用透明悬浮浏览器打开，可设置背景透明</div>
     </div>
   </div>

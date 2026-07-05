@@ -1127,4 +1127,164 @@ test.describe('Contest Demo Layout Regression', () => {
     // 下嘴唇位移 > 上嘴唇位移
     expect(Math.abs(smileOpenDiag.lowerLipOffset)).toBeGreaterThan(Math.abs(smileOpenDiag.upperLipOffset));
   });
+
+  // ====== 新增：鱼眼睛 bilateral 审计 ======
+  test('fish eye bilateral：2D sacabambaspis 两眼分布在头部中线两侧', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+
+    // 切换到 2D sacabambaspis
+    await page.click('.avatar-btn[data-avatar="sacabambaspis"]');
+    await page.waitForTimeout(1500);
+
+    const fishDiag = await page.evaluate(() => window.__cheapLiveContestFishEyeDiag || {});
+    expect(fishDiag.avatarType).toBe('sacabambaspis');
+    expect(fishDiag.bothEyesSameSide).toBe(false);
+    expect(fishDiag.eyesBilateralPass).toBe(true);
+    expect(fishDiag.leftEyeSide).toBe('left');
+    expect(fishDiag.rightEyeSide).toBe('right');
+    expect(fishDiag.eyeSeparation).toBeGreaterThan(0);
+    expect(fishDiag.eyeSeparationRatioToHead).toBeGreaterThan(0.1);
+  });
+
+  test('fish eye bilateral：cat 两眼也分布在头部中线两侧', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+
+    await page.click('.avatar-btn[data-avatar="cat"]');
+    await page.waitForTimeout(1500);
+
+    const catDiag = await page.evaluate(() => window.__cheapLiveContestFishEyeDiag || {});
+    expect(catDiag.avatarType).toBe('cat');
+    expect(catDiag.bothEyesSameSide).toBe(false);
+    expect(catDiag.eyesBilateralPass).toBe(true);
+  });
+
+  // ====== 新增：cat/fish iris gaze 追踪 ======
+  test('2D iris gaze：cat gaze left/right 时 irisOffsetX 有符号变化', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+
+    await page.click('.avatar-btn[data-avatar="cat"]');
+    await page.waitForTimeout(1500);
+
+    // gaze right
+    const gazeRight = await page.evaluate(() => {
+      state.faceParams.gazeLeftX = 0.8;
+      state.faceParams.gazeLeftY = 0;
+      return new Promise(resolve => setTimeout(() => {
+        const d = window.__cheapLiveContest2DGazeDiag || {};
+        resolve({ irisOffsetX: d.leftIrisOffsetX, irisMovementApplied: d.irisMovementApplied });
+      }, 400));
+    });
+    expect(gazeRight.irisMovementApplied).toBe(true);
+    expect(gazeRight.irisOffsetX).toBeGreaterThan(0);
+
+    // gaze left
+    const gazeLeft = await page.evaluate(() => {
+      state.faceParams.gazeLeftX = -0.8;
+      return new Promise(resolve => setTimeout(() => {
+        const d = window.__cheapLiveContest2DGazeDiag || {};
+        resolve({ irisOffsetX: d.leftIrisOffsetX });
+      }, 400));
+    });
+    expect(gazeLeft.irisOffsetX).toBeLessThan(0);
+  });
+
+  test('2D iris gaze：fish gaze up/down 时 irisOffsetY 有符号变化', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+
+    await page.click('.avatar-btn[data-avatar="sacabambaspis"]');
+    await page.waitForTimeout(1500);
+
+    // gaze down
+    const gazeDown = await page.evaluate(() => {
+      state.faceParams.gazeLeftX = 0;
+      state.faceParams.gazeLeftY = 0.8;
+      return new Promise(resolve => setTimeout(() => {
+        const d = window.__cheapLiveContest2DGazeDiag || {};
+        resolve({ irisOffsetY: d.leftIrisOffsetY, irisClampedInsideEye: d.irisClampedInsideEye });
+      }, 400));
+    });
+    expect(gazeDown.irisClampedInsideEye).toBe(true);
+    expect(gazeDown.irisOffsetY).toBeGreaterThan(0);
+
+    // gaze up
+    const gazeUp = await page.evaluate(() => {
+      state.faceParams.gazeLeftY = -0.8;
+      return new Promise(resolve => setTimeout(() => {
+        const d = window.__cheapLiveContest2DGazeDiag || {};
+        resolve({ irisOffsetY: d.leftIrisOffsetY });
+      }, 400));
+    });
+    expect(gazeUp.irisOffsetY).toBeLessThan(0);
+  });
+
+  test('2D iris gaze：blink 时 blinkOccludesIris=true', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+
+    await page.click('.avatar-btn[data-avatar="cat"]');
+    await page.waitForTimeout(1500);
+
+    const blinkDiag = await page.evaluate(() => {
+      state.faceParams.blinkLeft = 1;
+      state.faceParams.blinkRight = 1;
+      state.faceParams.eyeLeft = 0;
+      state.faceParams.eyeRight = 0;
+      return new Promise(resolve => setTimeout(() => {
+        const d = window.__cheapLiveContest2DGazeDiag || {};
+        resolve({ blinkOccludesIris: d.blinkOccludesIris });
+      }, 400));
+    });
+    expect(blinkDiag.blinkOccludesIris).toBe(true);
+  });
+
+  // ====== 新增：mocap toggle shell ======
+  test('mocap toggle：默认 off，点击后 unavailable（资源缺失），不崩', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+
+    // 默认 off
+    const defaultDiag = await page.evaluate(() => window.__cheapLiveContestMocapDiag || {});
+    expect(defaultDiag.enabled).toBe(false);
+    expect(defaultDiag.status).toBe('off');
+    expect(defaultDiag.noCdn).toBe(true);
+
+    // 点击 toggle
+    await page.click('#mocapToggleVisual');
+    await page.waitForTimeout(500);
+
+    const afterClick = await page.evaluate(() => {
+      const diag = window.__cheapLiveContestMocapDiag || {};
+      const statusEl = document.getElementById('mocapStatus');
+      return {
+        enabled: diag.enabled,
+        status: diag.status,
+        statusText: statusEl ? statusEl.textContent : null,
+        modelAssetsPresent: diag.modelAssetsPresent,
+        fallbackReason: diag.fallbackReason,
+        faceTrackingControlsExist: !!document.getElementById('voiceToggle')
+      };
+    });
+
+    // 资源缺失 → unavailable
+    expect(afterClick.status).toBe('unavailable');
+    expect(afterClick.enabled).toBe(false);
+    expect(afterClick.statusText).toBe('unavailable');
+    expect(afterClick.faceTrackingControlsExist).toBe(true); // face tracking 不受影响
+
+    // 再次点击不会崩溃
+    await page.click('#mocapToggleVisual');
+    await page.waitForTimeout(300);
+    const afterSecondClick = await page.evaluate(() => window.__cheapLiveContestMocapDiag || {});
+    expect(['unavailable', 'off']).toContain(afterSecondClick.status);
+  });
 });

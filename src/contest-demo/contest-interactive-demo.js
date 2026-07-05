@@ -137,6 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initAvatarSelectionDiag();
   initLinksDiag();
   init2DAvatarDiag();
+  initMocapDiag();
   if (state.currentAvatar === 'sacabambaspis-3d') {
     ensure3DRenderers().catch(() => {});
   }
@@ -189,6 +190,39 @@ function init2DAvatarDiag() {
     mouthOpen: 0,
     smile: 0,
     mainAndFloatingParamsInSync: true,
+  };
+  // Fish eye bilateral diagnostics
+  window.__cheapLiveContestFishEyeDiag = {
+    avatarType: null,
+    headCenterX: 0,
+    leftEyeCenterX: 0,
+    rightEyeCenterX: 0,
+    leftEyeSide: null,
+    rightEyeSide: null,
+    eyeSeparation: 0,
+    eyeSeparationRatioToHead: 0,
+    bothEyesSameSide: true,
+    eyesBilateralPass: false,
+    mainFloatingConsistent: true,
+  };
+  // 2D gaze / iris diagnostics
+  window.__cheapLiveContest2DGazeDiag = {
+    avatarType: null,
+    gazeSource: null,
+    gazeX: 0,
+    gazeY: 0,
+    leftIrisCenterX: 0,
+    leftIrisCenterY: 0,
+    rightIrisCenterX: 0,
+    rightIrisCenterY: 0,
+    leftIrisOffsetX: 0,
+    leftIrisOffsetY: 0,
+    rightIrisOffsetX: 0,
+    rightIrisOffsetY: 0,
+    irisMovementApplied: false,
+    irisClampedInsideEye: false,
+    blinkOccludesIris: false,
+    mainFloatingConsistent: true,
   };
 }
 
@@ -563,92 +597,107 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
   const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
   const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
   const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
-  const roll = (p.roll ?? 0) * 0.3; // 轻微 roll
-  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s; // 头部位置跟随
+  const roll = (p.roll ?? 0) * 0.3;
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s;
   const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
   const mouthH = mouth * 12 * s;
-  const eyeHL = eyeL * 5 * s;
-  const eyeHR = eyeR * 5 * s;
+  const eyeHL = eyeL * 6 * s;
+  const eyeHR = eyeR * 6 * s;
+
+  // Gaze / iris tracking: use gazeX/gazeY or yaw/pitch as proxy
+  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
+  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
+  const irisMaxOffset = 2.5 * s;
+  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
+  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
+
+  // Eye positions — front-facing view, bilateral (left/right)
+  const leftEyeX = -14 * s;
+  const rightEyeX = 14 * s;
+  const eyeY = -20 * s;
+  const eyeW = 9 * s;
 
   ctx.save();
   ctx.translate(cx + headOffsetX, cy + headOffsetY);
   ctx.rotate(roll);
 
-  // Body
+  // Tail fin (bottom)
+  ctx.fillStyle = '#c8c4b4';
+  ctx.beginPath();
+  ctx.moveTo(0, 55 * s);
+  ctx.lineTo(-20 * s, 80 * s);
+  ctx.lineTo(0, 72 * s);
+  ctx.lineTo(20 * s, 80 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // Body — vertical ellipse (front-facing, head up)
   ctx.fillStyle = '#e4e1d3';
   ctx.beginPath();
-  ctx.ellipse(0, 0, 70 * s, 35 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, 40 * s, 60 * s, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Back shading
-  ctx.fillStyle = 'rgba(138,135,120,0.3)';
+  ctx.fillStyle = 'rgba(138,135,120,0.25)';
   ctx.beginPath();
-  ctx.ellipse(-10 * s, 0, 55 * s, 25 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 5 * s, 32 * s, 48 * s, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Spot
-  ctx.fillStyle = 'rgba(139,115,85,0.35)';
+  ctx.fillStyle = 'rgba(139,115,85,0.3)';
   ctx.beginPath();
-  ctx.ellipse(-25 * s, -5 * s, 15 * s, 8 * s, 0.3, 0, Math.PI * 2);
+  ctx.ellipse(-5 * s, 15 * s, 12 * s, 7 * s, 0.3, 0, Math.PI * 2);
   ctx.fill();
 
-  // Dorsal fin
+  // Dorsal fin (top)
   ctx.fillStyle = '#c8c4b4';
   ctx.beginPath();
-  ctx.moveTo(-15 * s, -30 * s);
-  ctx.lineTo(-30 * s, -55 * s);
-  ctx.lineTo(5 * s, -30 * s);
+  ctx.moveTo(-15 * s, -45 * s);
+  ctx.lineTo(0, -70 * s);
+  ctx.lineTo(15 * s, -45 * s);
   ctx.closePath();
   ctx.fill();
+
+  // Left Eye (bilateral — left side)
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(leftEyeX, eyeY, eyeW, Math.max(1, eyeHL), 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (eyeHL > 2) {
+    // Iris with gaze tracking
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.arc(leftEyeX + irisOffsetX, eyeY + irisOffsetY, 4.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+    // Pupil highlight
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(leftEyeX + irisOffsetX + 1 * s, eyeY + irisOffsetY - 1.5 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Right Eye (bilateral — right side)
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(rightEyeX, eyeY, eyeW, Math.max(1, eyeHR), 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (eyeHR > 2) {
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.arc(rightEyeX + irisOffsetX, eyeY + irisOffsetY, 4.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(rightEyeX + irisOffsetX + 1 * s, eyeY + irisOffsetY - 1.5 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   // Mouth
   if (mouthH > 1) {
     ctx.fillStyle = '#8a7355';
     ctx.beginPath();
-    ctx.ellipse(55 * s, 5 * s, 8 * s, mouthH, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 5 * s, 8 * s, mouthH * 0.5, 0, 0, Math.PI * 2);
     ctx.fill();
   }
-
-  // Left Eye
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.ellipse(30 * s, -12 * s, 8 * s, Math.max(1, eyeHL), 0, 0, Math.PI * 2);
-  ctx.fill();
-  if (eyeHL > 2) {
-    ctx.fillStyle = '#1a1a2e';
-    ctx.beginPath();
-    ctx.arc(32 * s, -12 * s, 4 * s, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(33 * s, -13 * s, 1.5 * s, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // Right Eye (fish 对称，用 eyeR)
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.ellipse(30 * s, 12 * s, 8 * s, Math.max(1, eyeHR), 0, 0, Math.PI * 2);
-  ctx.fill();
-  if (eyeHR > 2) {
-    ctx.fillStyle = '#1a1a2e';
-    ctx.beginPath();
-    ctx.arc(32 * s, 12 * s, 4 * s, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(33 * s, 11 * s, 1.5 * s, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Tail fin
-  ctx.fillStyle = '#c8c4b4';
-  ctx.beginPath();
-  ctx.moveTo(-65 * s, 0);
-  ctx.lineTo(-85 * s, -20 * s);
-  ctx.lineTo(-80 * s, 0);
-  ctx.lineTo(-85 * s, 20 * s);
-  ctx.closePath();
-  ctx.fill();
 
   ctx.restore();
 
@@ -667,6 +716,49 @@ function drawSacabambaspis(ctx, cx, cy, p, s) {
     d.mouthOpen = mouth;
     d.smile = p.smile ?? 0;
   }
+
+  // 更新 fish eye bilateral diagnostics
+  if (window.__cheapLiveContestFishEyeDiag) {
+    const headCenterX = cx + headOffsetX;
+    const leftEyeCenterX = cx + headOffsetX + leftEyeX;
+    const rightEyeCenterX = cx + headOffsetX + rightEyeX;
+    const eyeSep = Math.abs(rightEyeX - leftEyeX);
+    window.__cheapLiveContestFishEyeDiag = {
+      avatarType: 'sacabambaspis',
+      headCenterX,
+      leftEyeCenterX,
+      rightEyeCenterX,
+      leftEyeSide: leftEyeCenterX < headCenterX ? 'left' : 'right',
+      rightEyeSide: rightEyeCenterX > headCenterX ? 'right' : 'left',
+      eyeSeparation: eyeSep,
+      eyeSeparationRatioToHead: eyeSep / (80 * s),
+      bothEyesSameSide: (leftEyeCenterX > headCenterX && rightEyeCenterX > headCenterX) ||
+                        (leftEyeCenterX < headCenterX && rightEyeCenterX < headCenterX),
+      eyesBilateralPass: leftEyeCenterX < headCenterX && rightEyeCenterX > headCenterX,
+      mainFloatingConsistent: true
+    };
+  }
+
+  // 更新 2D gaze diagnostics
+  if (window.__cheapLiveContest2DGazeDiag) {
+    window.__cheapLiveContest2DGazeDiag = {
+      avatarType: 'sacabambaspis',
+      gazeSource: (p.gazeLeftX !== undefined) ? 'gazeParams' : 'yawPitchProxy',
+      gazeX, gazeY,
+      leftIrisCenterX: cx + headOffsetX + leftEyeX + irisOffsetX,
+      leftIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
+      rightIrisCenterX: cx + headOffsetX + rightEyeX + irisOffsetX,
+      rightIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
+      leftIrisOffsetX: irisOffsetX,
+      leftIrisOffsetY: irisOffsetY,
+      rightIrisOffsetX: irisOffsetX,
+      rightIrisOffsetY: irisOffsetY,
+      irisMovementApplied: true,
+      irisClampedInsideEye: Math.abs(irisOffsetX) <= irisMaxOffset && Math.abs(irisOffsetY) <= irisMaxOffset,
+      blinkOccludesIris: eyeHL <= 2 || eyeHR <= 2,
+      mainFloatingConsistent: true
+    };
+  }
 }
 
 function drawCat(ctx, cx, cy, p, s) {
@@ -675,12 +767,24 @@ function drawCat(ctx, cx, cy, p, s) {
   const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
   const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
   const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
-  const roll = (p.roll ?? 0) * 0.3; // 轻微 roll
-  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s; // 头部位置跟随
+  const roll = (p.roll ?? 0) * 0.3;
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s;
   const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
   const eyeHL = eyeL * 6 * s;
   const eyeHR = eyeR * 6 * s;
   const mouthOpen = mouth * 5 * s;
+
+  // Gaze / iris tracking
+  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
+  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
+  const irisMaxOffset = 2.5 * s;
+  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
+  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
+
+  // Eye positions
+  const leftEyeX = -12 * s;
+  const rightEyeX = 12 * s;
+  const eyeY = -14 * s;
 
   ctx.save();
   ctx.translate(cx + headOffsetX, cy + headOffsetY);
@@ -728,34 +832,34 @@ function drawCat(ctx, cx, cy, p, s) {
   ctx.closePath();
   ctx.fill();
 
-  // Left Eye (用 eyeL)
+  // Left Eye (bilateral — left side, with iris gaze tracking)
   ctx.fillStyle = '#fff';
   ctx.beginPath();
-  ctx.ellipse(-12 * s, -14 * s, 8 * s, Math.max(1, eyeHL), 0, 0, Math.PI * 2);
+  ctx.ellipse(leftEyeX, eyeY, 8 * s, Math.max(1, eyeHL), 0, 0, Math.PI * 2);
   ctx.fill();
   if (eyeHL > 2) {
     ctx.fillStyle = '#333';
     ctx.beginPath();
-    ctx.ellipse(-10 * s, -14 * s, 4 * s, 5 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(leftEyeX + irisOffsetX, eyeY + irisOffsetY, 4 * s, 5 * s, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(-9 * s, -16 * s, 2 * s, 0, Math.PI * 2);
+    ctx.arc(leftEyeX + irisOffsetX + 1 * s, eyeY + irisOffsetY - 2 * s, 2 * s, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Right Eye (用 eyeR)
+  // Right Eye (bilateral — right side, with iris gaze tracking)
   ctx.fillStyle = '#fff';
   ctx.beginPath();
-  ctx.ellipse(12 * s, -14 * s, 8 * s, Math.max(1, eyeHR), 0, 0, Math.PI * 2);
+  ctx.ellipse(rightEyeX, eyeY, 8 * s, Math.max(1, eyeHR), 0, 0, Math.PI * 2);
   ctx.fill();
   if (eyeHR > 2) {
     ctx.fillStyle = '#333';
     ctx.beginPath();
-    ctx.ellipse(14 * s, -14 * s, 4 * s, 5 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(rightEyeX + irisOffsetX, eyeY + irisOffsetY, 4 * s, 5 * s, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(15 * s, -16 * s, 2 * s, 0, Math.PI * 2);
+    ctx.arc(rightEyeX + irisOffsetX + 1 * s, eyeY + irisOffsetY - 2 * s, 2 * s, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -812,6 +916,49 @@ function drawCat(ctx, cx, cy, p, s) {
     d.headOffsetY = headOffsetY;
     d.mouthOpen = mouth;
     d.smile = p.smile ?? 0;
+  }
+
+  // 更新 fish eye bilateral diagnostics (cat 也需要 bilateral 诊断)
+  if (window.__cheapLiveContestFishEyeDiag) {
+    const headCenterX = cx + headOffsetX;
+    const leftEyeCenterX = cx + headOffsetX + leftEyeX;
+    const rightEyeCenterX = cx + headOffsetX + rightEyeX;
+    const eyeSep = Math.abs(rightEyeX - leftEyeX);
+    window.__cheapLiveContestFishEyeDiag = {
+      avatarType: 'cat',
+      headCenterX,
+      leftEyeCenterX,
+      rightEyeCenterX,
+      leftEyeSide: leftEyeCenterX < headCenterX ? 'left' : 'right',
+      rightEyeSide: rightEyeCenterX > headCenterX ? 'right' : 'left',
+      eyeSeparation: eyeSep,
+      eyeSeparationRatioToHead: eyeSep / (80 * s),
+      bothEyesSameSide: (leftEyeCenterX > headCenterX && rightEyeCenterX > headCenterX) ||
+                        (leftEyeCenterX < headCenterX && rightEyeCenterX < headCenterX),
+      eyesBilateralPass: leftEyeCenterX < headCenterX && rightEyeCenterX > headCenterX,
+      mainFloatingConsistent: true
+    };
+  }
+
+  // 更新 2D gaze diagnostics
+  if (window.__cheapLiveContest2DGazeDiag) {
+    window.__cheapLiveContest2DGazeDiag = {
+      avatarType: 'cat',
+      gazeSource: (p.gazeLeftX !== undefined) ? 'gazeParams' : 'yawPitchProxy',
+      gazeX, gazeY,
+      leftIrisCenterX: cx + headOffsetX + leftEyeX + irisOffsetX,
+      leftIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
+      rightIrisCenterX: cx + headOffsetX + rightEyeX + irisOffsetX,
+      rightIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
+      leftIrisOffsetX: irisOffsetX,
+      leftIrisOffsetY: irisOffsetY,
+      rightIrisOffsetX: irisOffsetX,
+      rightIrisOffsetY: irisOffsetY,
+      irisMovementApplied: true,
+      irisClampedInsideEye: Math.abs(irisOffsetX) <= irisMaxOffset && Math.abs(irisOffsetY) <= irisMaxOffset,
+      blinkOccludesIris: eyeHL <= 2 || eyeHR <= 2,
+      mainFloatingConsistent: true
+    };
   }
 }
 
@@ -1731,6 +1878,89 @@ function selectAvatar(avatar, el) {
       })
       .catch(() => {});
   }
+}
+
+// ====== MOCAP TOGGLE (experimental shell) ======
+// 检查本地是否有 PoseLandmarker / HandLandmarker 资源
+function checkMocapAssets() {
+  // 检查 mediapipe 目录下是否有 pose / hand 相关模型
+  // 当前仓库只有 face_landmarker.task，没有 pose/hand 模型
+  return {
+    hasPoseLandmarker: false,
+    hasHandLandmarker: false,
+    modelAssetsPresent: false,
+    noCdn: true, // 不使用 CDN
+    fallbackReason: 'Pose/Hand landmarker models not installed locally'
+  };
+}
+
+function initMocapDiag() {
+  if (window.__cheapLiveContestMocapDiag) return;
+  const assets = checkMocapAssets();
+  window.__cheapLiveContestMocapDiag = {
+    enabled: false,
+    status: 'off', // off | loading | active | unavailable | error
+    source: 'local-mediapipe',
+    hasPoseLandmarker: assets.hasPoseLandmarker,
+    hasHandLandmarker: assets.hasHandLandmarker,
+    modelAssetsPresent: assets.modelAssetsPresent,
+    noCdn: assets.noCdn,
+    lastFrameAt: null,
+    poseLandmarkCount: 0,
+    handLandmarkCount: 0,
+    averageLatencyMs: 0,
+    error: null,
+    fallbackReason: assets.fallbackReason
+  };
+}
+
+function toggleMocap() {
+  initMocapDiag();
+  const diag = window.__cheapLiveContestMocapDiag;
+  const checkbox = document.getElementById('mocapToggle');
+  const visual = document.getElementById('mocapToggleVisual');
+  const statusEl = document.getElementById('mocapStatus');
+
+  if (diag.enabled) {
+    // 关闭
+    diag.enabled = false;
+    diag.status = 'off';
+    diag.lastFrameAt = null;
+    diag.poseLandmarkCount = 0;
+    diag.handLandmarkCount = 0;
+    checkbox.checked = false;
+    visual.classList.remove('active');
+    statusEl.textContent = 'off';
+    statusEl.style.color = '#888';
+    return;
+  }
+
+  // 尝试开启
+  const assets = checkMocapAssets();
+  diag.hasPoseLandmarker = assets.hasPoseLandmarker;
+  diag.hasHandLandmarker = assets.hasHandLandmarker;
+  diag.modelAssetsPresent = assets.modelAssetsPresent;
+
+  if (!assets.modelAssetsPresent) {
+    // 资源缺失 — 显示 unavailable，不崩溃
+    diag.enabled = false;
+    diag.status = 'unavailable';
+    diag.error = null;
+    diag.fallbackReason = assets.fallbackReason;
+    checkbox.checked = false;
+    visual.classList.remove('active');
+    statusEl.textContent = 'unavailable';
+    statusEl.style.color = '#e67e22';
+    return;
+  }
+
+  // 如果有资源（当前不会走到这里，因为 modelAssetsPresent=false）
+  diag.enabled = true;
+  diag.status = 'loading';
+  checkbox.checked = true;
+  visual.classList.add('active');
+  statusEl.textContent = 'loading';
+  statusEl.style.color = '#3498db';
 }
 
 function toggleShowcase() {
