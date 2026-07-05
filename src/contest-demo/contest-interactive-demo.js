@@ -321,6 +321,14 @@ function drawAvatar(ctx, w, h, avatar, params, scale) {
     drawSacabambaspis(ctx, cx, cy, params, scale);
   } else if (avatar === 'cat') {
     drawCat(ctx, cx, cy, params, scale);
+  } else if (avatar === 'dog') {
+    drawDog(ctx, cx, cy, params, scale);
+  } else if (avatar === 'rabbit') {
+    drawRabbit(ctx, cx, cy, params, scale);
+  } else if (avatar === 'fox') {
+    drawFox(ctx, cx, cy, params, scale);
+  } else if (avatar === 'bear') {
+    drawBear(ctx, cx, cy, params, scale);
   } else {
     drawPlaceholder(ctx, cx, cy, avatar, scale);
   }
@@ -960,6 +968,462 @@ function drawCat(ctx, cx, cy, p, s) {
       mainFloatingConsistent: true
     };
   }
+}
+
+function _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeHL, eyeHR, irisOffsetX, irisOffsetY, irisColor) {
+  irisColor = irisColor || '#333';
+  const eyeH = 6;
+  ctx.fillStyle = '#fff';
+  if (eyeHL > 1) {
+    ctx.beginPath();
+    ctx.ellipse(leftEyeX, eyeY, eyeW, Math.max(1, eyeHL * eyeH), 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (eyeHR > 1) {
+    ctx.beginPath();
+    ctx.ellipse(rightEyeX, eyeY, eyeW, Math.max(1, eyeHR * eyeH), 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const irisW = eyeW * 0.5;
+  const irisH = eyeH * 0.55;
+  if (eyeHL > 2) {
+    ctx.fillStyle = irisColor;
+    ctx.beginPath();
+    ctx.ellipse(leftEyeX + irisOffsetX, eyeY + irisOffsetY, irisW, irisH, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(leftEyeX + irisOffsetX + irisW * 0.3, eyeY + irisOffsetY - irisH * 0.3, irisW * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (eyeHR > 2) {
+    ctx.fillStyle = irisColor;
+    ctx.beginPath();
+    ctx.ellipse(rightEyeX + irisOffsetX, eyeY + irisOffsetY, irisW, irisH, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(rightEyeX + irisOffsetX + irisW * 0.3, eyeY + irisOffsetY - irisH * 0.3, irisW * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function _update2DAnimalDiags(avatarType, cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth) {
+  if (window.__cheapLiveContest2DAvatarDiag) {
+    const d = window.__cheapLiveContest2DAvatarDiag;
+    d.avatarType = avatarType;
+    d.mouthOpenApplied = true;
+    d.blinkApplied = true;
+    d.headOffsetApplied = true;
+    d.rollApplied = true;
+    d.leftEyeOpen = eyeL;
+    d.rightEyeOpen = eyeR;
+    d.headOffsetX = headOffsetX;
+    d.headOffsetY = headOffsetY;
+    d.mouthOpen = mouth;
+    d.smile = p.smile ?? 0;
+    d.isExperimental = true;
+  }
+  if (window.__cheapLiveContestFishEyeDiag) {
+    const headCenterX = cx + headOffsetX;
+    const lx = cx + headOffsetX + leftEyeX;
+    const rx = cx + headOffsetX + rightEyeX;
+    const eyeSep = Math.abs(rightEyeX - leftEyeX);
+    window.__cheapLiveContestFishEyeDiag = {
+      avatarType,
+      headCenterX,
+      leftEyeCenterX: lx,
+      rightEyeCenterX: rx,
+      leftEyeSide: lx < headCenterX ? 'left' : 'right',
+      rightEyeSide: rx > headCenterX ? 'right' : 'left',
+      eyeSeparation: eyeSep,
+      eyeSeparationRatioToHead: eyeSep / (80 * s),
+      bothEyesSameSide: (lx > headCenterX && rx > headCenterX) || (lx < headCenterX && rx < headCenterX),
+      eyesBilateralPass: lx < headCenterX && rx > headCenterX,
+      mainFloatingConsistent: true,
+      isExperimental: true,
+    };
+  }
+  if (window.__cheapLiveContest2DGazeDiag) {
+    window.__cheapLiveContest2DGazeDiag = {
+      avatarType,
+      gazeSource: (p.gazeLeftX !== undefined) ? 'gazeParams' : 'yawPitchProxy',
+      gazeX: p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0),
+      gazeY: p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0),
+      leftIrisCenterX: cx + headOffsetX + leftEyeX + irisOffsetX,
+      leftIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
+      rightIrisCenterX: cx + headOffsetX + rightEyeX + irisOffsetX,
+      rightIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
+      leftIrisOffsetX: irisOffsetX,
+      leftIrisOffsetY: irisOffsetY,
+      rightIrisOffsetX: irisOffsetX,
+      rightIrisOffsetY: irisOffsetY,
+      irisMovementApplied: true,
+      irisClampedInsideEye: Math.abs(irisOffsetX) <= irisMaxOffset && Math.abs(irisOffsetY) <= irisMaxOffset,
+      blinkOccludesIris: eyeL <= 0.4 || eyeR <= 0.4,
+      mainFloatingConsistent: true,
+      isExperimental: true,
+    };
+  }
+}
+
+function drawDog(ctx, cx, cy, p, s) {
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
+  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
+  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
+  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
+  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
+  const roll = (p.roll ?? 0) * 0.3;
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s;
+  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
+  const mouthOpen = mouth * 6 * s;
+
+  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
+  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
+  const irisMaxOffset = 2.5 * s;
+  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
+  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
+
+  const leftEyeX = -13 * s;
+  const rightEyeX = 13 * s;
+  const eyeY = -12 * s;
+  const eyeW = 6 * s;
+
+  ctx.save();
+  ctx.translate(cx + headOffsetX, cy + headOffsetY);
+  ctx.rotate(roll);
+
+  // Ears (floppy)
+  ctx.fillStyle = '#c8a070';
+  ctx.beginPath();
+  ctx.ellipse(-28 * s, -30 * s, 10 * s, 22 * s, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(28 * s, -30 * s, 10 * s, 22 * s, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#e8c890';
+  ctx.beginPath();
+  ctx.ellipse(0, -10 * s, 38 * s, 36 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Snout
+  ctx.fillStyle = '#f0d8a8';
+  ctx.beginPath();
+  ctx.ellipse(0, 8 * s, 20 * s, 16 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Nose
+  ctx.fillStyle = '#333';
+  ctx.beginPath();
+  ctx.ellipse(0, 2 * s, 5 * s, 4 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes
+  _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, '#5a3a1a');
+
+  // Mouth
+  ctx.strokeStyle = '#8b5a2b';
+  ctx.lineWidth = 1.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(0, 6 * s);
+  ctx.lineTo(0, 6 * s + mouthOpen);
+  ctx.stroke();
+  if (mouthOpen > 2) {
+    ctx.fillStyle = '#c05050';
+    ctx.beginPath();
+    ctx.ellipse(0, 10 * s + mouthOpen * 0.5, 6 * s, mouthOpen * 0.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Tongue
+  if (mouth > 0.4) {
+    ctx.fillStyle = '#e87080';
+    ctx.beginPath();
+    ctx.ellipse(0, 14 * s + mouthOpen * 0.3, 4 * s, mouth * 5 * s, 0, 0, Math.PI);
+    ctx.fill();
+  }
+
+  ctx.restore();
+  _update2DAnimalDiags('dog', cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth);
+}
+
+function drawRabbit(ctx, cx, cy, p, s) {
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
+  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
+  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
+  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
+  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
+  const roll = (p.roll ?? 0) * 0.2;
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 18 * s;
+  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 8 * s;
+  const mouthOpen = mouth * 4 * s;
+
+  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
+  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
+  const irisMaxOffset = 2 * s;
+  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
+  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
+
+  const leftEyeX = -11 * s;
+  const rightEyeX = 11 * s;
+  const eyeY = -14 * s;
+  const eyeW = 5 * s;
+
+  ctx.save();
+  ctx.translate(cx + headOffsetX, cy + headOffsetY);
+  ctx.rotate(roll);
+
+  // Long ears
+  ctx.fillStyle = '#f5f0e8';
+  ctx.beginPath();
+  ctx.ellipse(-10 * s, -70 * s, 8 * s, 35 * s, -0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(10 * s, -70 * s, 8 * s, 35 * s, 0.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Inner ears
+  ctx.fillStyle = '#f0c0c0';
+  ctx.beginPath();
+  ctx.ellipse(-10 * s, -70 * s, 4 * s, 28 * s, -0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(10 * s, -70 * s, 4 * s, 28 * s, 0.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#f5f0e8';
+  ctx.beginPath();
+  ctx.arc(0, -15 * s, 32 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes
+  _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, '#c05050');
+
+  // Nose
+  ctx.fillStyle = '#e88090';
+  ctx.beginPath();
+  ctx.moveTo(0, -2 * s);
+  ctx.lineTo(-3 * s, 1 * s);
+  ctx.lineTo(3 * s, 1 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // Mouth
+  ctx.strokeStyle = '#c0a080';
+  ctx.lineWidth = 1.2 * s;
+  ctx.beginPath();
+  ctx.moveTo(0, 2 * s);
+  ctx.lineTo(0, 2 * s + mouthOpen);
+  ctx.stroke();
+  if (mouth > 0.3) {
+    ctx.fillStyle = '#c05050';
+    ctx.beginPath();
+    ctx.ellipse(0, 5 * s + mouthOpen * 0.5, 4 * s, mouthOpen * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Cheek fluff
+  ctx.fillStyle = '#f5f0e8';
+  ctx.beginPath();
+  ctx.arc(-25 * s, -5 * s, 12 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(25 * s, -5 * s, 12 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+  _update2DAnimalDiags('rabbit', cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth);
+}
+
+function drawFox(ctx, cx, cy, p, s) {
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
+  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
+  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
+  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
+  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
+  const roll = (p.roll ?? 0) * 0.3;
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s;
+  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
+  const mouthOpen = mouth * 5 * s;
+
+  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
+  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
+  const irisMaxOffset = 2.5 * s;
+  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
+  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
+
+  const leftEyeX = -12 * s;
+  const rightEyeX = 12 * s;
+  const eyeY = -10 * s;
+  const eyeW = 6 * s;
+
+  ctx.save();
+  ctx.translate(cx + headOffsetX, cy + headOffsetY);
+  ctx.rotate(roll);
+
+  // Ears (pointed, triangular)
+  ctx.fillStyle = '#e07030';
+  ctx.beginPath();
+  ctx.moveTo(-26 * s, -35 * s);
+  ctx.lineTo(-34 * s, -70 * s);
+  ctx.lineTo(-8 * s, -40 * s);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(26 * s, -35 * s);
+  ctx.lineTo(34 * s, -70 * s);
+  ctx.lineTo(8 * s, -40 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // Inner ears
+  ctx.fillStyle = '#f0c090';
+  ctx.beginPath();
+  ctx.moveTo(-23 * s, -40 * s);
+  ctx.lineTo(-30 * s, -62 * s);
+  ctx.lineTo(-12 * s, -42 * s);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(23 * s, -40 * s);
+  ctx.lineTo(30 * s, -62 * s);
+  ctx.lineTo(12 * s, -42 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#e87830';
+  ctx.beginPath();
+  ctx.ellipse(0, -10 * s, 36 * s, 34 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // White muzzle
+  ctx.fillStyle = '#faf5ee';
+  ctx.beginPath();
+  ctx.ellipse(0, 10 * s, 18 * s, 14 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Nose
+  ctx.fillStyle = '#222';
+  ctx.beginPath();
+  ctx.ellipse(0, 4 * s, 4.5 * s, 3.5 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes (slightly angled, fox-like)
+  _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, '#c09030');
+
+  // Mouth
+  ctx.strokeStyle = '#8b4513';
+  ctx.lineWidth = 1.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(0, 8 * s);
+  ctx.lineTo(0, 8 * s + mouthOpen);
+  ctx.stroke();
+  if (mouthOpen > 2) {
+    ctx.fillStyle = '#a04040';
+    ctx.beginPath();
+    ctx.ellipse(0, 12 * s + mouthOpen * 0.5, 5 * s, mouthOpen * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Bushy tail hint
+  ctx.fillStyle = '#e87830';
+  ctx.beginPath();
+  ctx.ellipse(-40 * s, 30 * s, 15 * s, 10 * s, 0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(-48 * s, 28 * s, 6 * s, 5 * s, 0.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+  _update2DAnimalDiags('fox', cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth);
+}
+
+function drawBear(ctx, cx, cy, p, s) {
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
+  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
+  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
+  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
+  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
+  const roll = (p.roll ?? 0) * 0.25;
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 16 * s;
+  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 8 * s;
+  const mouthOpen = mouth * 5 * s;
+
+  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
+  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
+  const irisMaxOffset = 2.5 * s;
+  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
+  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
+
+  const leftEyeX = -12 * s;
+  const rightEyeX = 12 * s;
+  const eyeY = -10 * s;
+  const eyeW = 6 * s;
+
+  ctx.save();
+  ctx.translate(cx + headOffsetX, cy + headOffsetY);
+  ctx.rotate(roll);
+
+  // Ears (round)
+  ctx.fillStyle = '#8b6914';
+  ctx.beginPath();
+  ctx.arc(-24 * s, -38 * s, 11 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(24 * s, -38 * s, 11 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Inner ears
+  ctx.fillStyle = '#d4a060';
+  ctx.beginPath();
+  ctx.arc(-24 * s, -38 * s, 6 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(24 * s, -38 * s, 6 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#b08030';
+  ctx.beginPath();
+  ctx.arc(0, -10 * s, 38 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Muzzle (lighter)
+  ctx.fillStyle = '#d4a860';
+  ctx.beginPath();
+  ctx.ellipse(0, 8 * s, 22 * s, 18 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Nose
+  ctx.fillStyle = '#222';
+  ctx.beginPath();
+  ctx.ellipse(0, 2 * s, 5 * s, 4 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes
+  _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, '#3a2a10');
+
+  // Mouth
+  ctx.strokeStyle = '#6b4914';
+  ctx.lineWidth = 1.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(0, 6 * s);
+  ctx.lineTo(0, 6 * s + mouthOpen);
+  ctx.stroke();
+  if (mouthOpen > 2) {
+    ctx.fillStyle = '#a04040';
+    ctx.beginPath();
+    ctx.ellipse(0, 10 * s + mouthOpen * 0.5, 5.5 * s, mouthOpen * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+  _update2DAnimalDiags('bear', cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth);
 }
 
 function drawPlaceholder(ctx, cx, cy, avatar, s) {

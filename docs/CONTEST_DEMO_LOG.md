@@ -83,9 +83,12 @@
 - [ ] 虹膜 radius stability 验证
 - [ ] 虹膜 movementNotSizePass 验证
 - [ ] 主 panel vs 右侧 panel irisRatioToHead 一致性验证
-- [ ] 线上 GitHub Pages 部署后验证
-- [x] Android 正式仓库 CONFIRMED — 路径 `/Users/samzebrado/Documents/PersonalCodingLocal/CheapLive/android-capture`，applicationId=com.cheaplive.capture，但 Android 加载旧 demo.html，不含 contest-demo
-- [ ] Android 真机视觉同步验证（Android 不加载 contest-demo，需后续集成）
+- [x] Android 正式仓库 CONFIRMED — 路径 `/Users/samzebrado/Documents/PersonalCodingLocal/CheapLive/android-capture`，applicationId=com.cheaplive.capture，namespace=com.cheaplive.capture，versionName=0.1.0，versionCode=1
+- [ ] Android assembleDebug 构建验证
+- [ ] Android 真机视觉同步验证（Android 当前不加载 contest-demo，需后续集成方案）
+- [ ] 平板浏览器交互验证（屏幕 PIN 锁定，待人工解锁）
+- [ ] 用户视觉验收（鱼/猫形象主观评价）
+- [ ] mocap 真实 active 状态（资源未安装）
 
 ---
 

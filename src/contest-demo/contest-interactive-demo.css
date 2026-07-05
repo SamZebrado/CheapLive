@@ -567,6 +567,16 @@ body {
   padding: 0 3px;
   border-radius: 2px;
 }
+.avatar-btn.exp-tag::after {
+  content: '实验';
+  position: absolute;
+  bottom: 2px; right: 2px;
+  font-size: 7px;
+  background: #946bde;
+  color: #fff;
+  padding: 0 3px;
+  border-radius: 2px;
+}
 .avatar-btn { position: relative; }
 
 /* ====== Voice Preset Grid ====== */

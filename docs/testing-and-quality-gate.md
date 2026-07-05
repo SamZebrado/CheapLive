@@ -192,9 +192,12 @@ https://samzebrado.github.io/CheapLive/src/contest-demo/contest-interactive-demo
 ### 11.5 测试门禁
 
 - Playwright 测试必须覆盖：URL query 版本号显示、无 query 时 fallback 不崩。
-- **Fish eye bilateral 门禁**：2D fish / cat 的两只眼睛必须分布在头部中线两侧，`bothEyesSameSide=false`，`eyesBilateralPass=true`。
-- **2D iris gaze 门禁**：cat/fish 的 iris 必须随 gaze 左右/上下移动，`irisMovementApplied=true`，`irisClampedInsideEye=true`，blink 时 `blinkOccludesIris=true`。
+- **Fish eye bilateral 门禁**：2D fish / cat / dog / rabbit / fox / bear 的两只眼睛必须分布在头部中线两侧，`bothEyesSameSide=false`，`eyesBilateralPass=true`。
+- **2D iris gaze 门禁**：cat/fish/dog/rabbit/fox/bear 的 iris 必须随 gaze 左右/上下移动，`irisMovementApplied=true`，`irisClampedInsideEye=true`，blink 时 `blinkOccludesIris=true`。
 - **Mocap toggle 门禁**：默认 off，点击后进入 active 或 unavailable 状态，不崩溃，face tracking 不受影响，no CDN。
+- **Experimental avatar 门禁**：dog/rabbit/fox/bear 点击后不崩溃，有基础 diagnostics（blink/mouth/headOffset/roll），标注 `isExperimental=true`。
+- **2D avatar 同步门禁**：所有 2D avatar 在 main panel 和 floating panel 之间必须同步切换，`panelsInSync=true`。
+- **No CDN 门禁**：全页面加载及 avatar 切换过程中不得触发 CDN 请求，不得有致命 console error。
 - 测试不通过不准 push。
 
 ### 11.6 验收级别区分

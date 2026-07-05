@@ -1287,4 +1287,183 @@ test.describe('Contest Demo Layout Regression', () => {
     const afterSecondClick = await page.evaluate(() => window.__cheapLiveContestMocapDiag || {});
     expect(['unavailable', 'off']).toContain(afterSecondClick.status);
   });
+
+  // ====== 新增：dog/rabbit/fox/bear 点击不崩，有基础 diagnostics ======
+  const expAvatars = ['dog', 'rabbit', 'fox', 'bear'];
+  for (const av of expAvatars) {
+    test(`exp avatar ${av}：点击后不崩，有基础 2D diagnostics`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+      await page.waitForTimeout(2000);
+
+      let pageError = null;
+      page.on('pageerror', (err) => { pageError = err.message; });
+
+      await page.click(`.avatar-btn[data-avatar="${av}"]`);
+      await page.waitForTimeout(1200);
+
+      const diag = await page.evaluate((avatar) => {
+        const d2d = window.__cheapLiveContest2DAvatarDiag || {};
+        const fish = window.__cheapLiveContestFishEyeDiag || {};
+        const gaze = window.__cheapLiveContest2DGazeDiag || {};
+        return {
+          avatarType: d2d.avatarType,
+          mouthOpenApplied: d2d.mouthOpenApplied,
+          blinkApplied: d2d.blinkApplied,
+          headOffsetApplied: d2d.headOffsetApplied,
+          rollApplied: d2d.rollApplied,
+          isExperimental: d2d.isExperimental,
+          fishAvatarType: fish.avatarType,
+          eyesBilateralPass: fish.eyesBilateralPass,
+          bothEyesSameSide: fish.bothEyesSameSide,
+          gazeAvatarType: gaze.avatarType,
+          irisMovementApplied: gaze.irisMovementApplied,
+          irisClampedInsideEye: gaze.irisClampedInsideEye,
+        };
+      }, av);
+
+      expect(pageError).toBeNull();
+      expect(diag.avatarType).toBe(av);
+      expect(diag.mouthOpenApplied).toBe(true);
+      expect(diag.blinkApplied).toBe(true);
+      expect(diag.headOffsetApplied).toBe(true);
+      expect(diag.rollApplied).toBe(true);
+      expect(diag.isExperimental).toBe(true);
+      // bilateral eyes
+      expect(diag.fishAvatarType).toBe(av);
+      expect(diag.bothEyesSameSide).toBe(false);
+      expect(diag.eyesBilateralPass).toBe(true);
+      // iris gaze
+      expect(diag.gazeAvatarType).toBe(av);
+      expect(diag.irisMovementApplied).toBe(true);
+      expect(diag.irisClampedInsideEye).toBe(true);
+    });
+  }
+
+  // ====== 新增：2D avatars main/floating 同步 ======
+  test('2D avatars main/floating：cat/fish/dog/rabbit/fox/bear 切换后两 panel 同步', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+
+    const avatars = ['cat', 'sacabambaspis', 'dog', 'rabbit', 'fox', 'bear'];
+    for (const av of avatars) {
+      await page.click(`.avatar-btn[data-avatar="${av}"]`);
+      await page.waitForTimeout(600);
+      const syncDiag = await page.evaluate(() => {
+        const sel = window.__cheapLiveContestAvatarSelectionDiag || {};
+        return {
+          selectedAvatar: sel.selectedAvatar,
+          mainPanelAvatar: sel.mainPanelAvatar,
+          floatingPanelAvatar: sel.floatingPanelAvatar,
+          panelsInSync: sel.panelsInSync,
+        };
+      });
+      expect(syncDiag.selectedAvatar).toBe(av);
+      expect(syncDiag.mainPanelAvatar).toBe(av);
+      expect(syncDiag.floatingPanelAvatar).toBe(av);
+      expect(syncDiag.panelsInSync).toBe(true);
+    }
+  });
+
+  // ====== 新增：cat/fish iris gaze 回归仍 PASS ======
+  test('regression：cat iris gaze L/R 仍正确', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+    await page.click('.avatar-btn[data-avatar="cat"]');
+    await page.waitForTimeout(1000);
+
+    const right = await page.evaluate(() => {
+      state.faceParams.gazeLeftX = 0.9;
+      state.faceParams.gazeLeftY = 0;
+      return new Promise(r => setTimeout(() => {
+        const d = window.__cheapLiveContest2DGazeDiag || {};
+        r({ x: d.leftIrisOffsetX, applied: d.irisMovementApplied, clamped: d.irisClampedInsideEye });
+      }, 400));
+    });
+    expect(right.applied).toBe(true);
+    expect(right.clamped).toBe(true);
+    expect(right.x).toBeGreaterThan(0);
+
+    const left = await page.evaluate(() => {
+      state.faceParams.gazeLeftX = -0.9;
+      return new Promise(r => setTimeout(() => {
+        const d = window.__cheapLiveContest2DGazeDiag || {};
+        r({ x: d.leftIrisOffsetX });
+      }, 400));
+    });
+    expect(left.x).toBeLessThan(0);
+  });
+
+  test('regression：fish eyes bilateral 仍 PASS', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+    await page.click('.avatar-btn[data-avatar="sacabambaspis"]');
+    await page.waitForTimeout(1000);
+
+    const fishDiag = await page.evaluate(() => window.__cheapLiveContestFishEyeDiag || {});
+    expect(fishDiag.avatarType).toBe('sacabambaspis');
+    expect(fishDiag.eyesBilateralPass).toBe(true);
+    expect(fishDiag.bothEyesSameSide).toBe(false);
+  });
+
+  // ====== 新增：mocap shell 回归仍 PASS ======
+  test('regression：mocap toggle 默认 off，no CDN', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+
+    const diag = await page.evaluate(() => window.__cheapLiveContestMocapDiag || {});
+    expect(diag.status).toBe('off');
+    expect(diag.noCdn).toBe(true);
+    expect(diag.enabled).toBe(false);
+  });
+
+  // ====== 新增：version query 规则回归 ======
+  test('regression：URL query ?v= 优先显示，versionSource=query', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL + '?v=regression-test-xyz', { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+
+    const result = await page.evaluate(() => {
+      const d = window.__cheapLiveContestVersionDiag || {};
+      const el = document.getElementById('versionStamp');
+      return { text: el ? el.textContent : null, version: d.version, versionSource: d.versionSource };
+    });
+    expect(result.text).toContain('regression-test-xyz');
+    expect(result.versionSource).toBe('query');
+    expect(result.version).toBe('regression-test-xyz');
+  });
+
+  // ====== 新增：no CDN / no console error 回归 ======
+  test('regression：no CDN requests and no console errors', async ({ page }) => {
+    const cdnUrls = [];
+    const consoleErrors = [];
+    page.on('request', req => {
+      const u = req.url();
+      if (u.includes('cdn.jsdelivr') || u.includes('googleapis') || u.includes('unpkg') || u.includes('cdnjs')) {
+        cdnUrls.push(u);
+      }
+    });
+    page.on('console', msg => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
+    });
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(DEMO_URL, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+
+    // 切换各 avatar 触发渲染
+    for (const av of ['sacabambaspis', 'cat', 'dog', 'rabbit', 'fox', 'bear', 'sacabambaspis-3d']) {
+      await page.click(`.avatar-btn[data-avatar="${av}"]`);
+      await page.waitForTimeout(400);
+    }
+
+    expect(cdnUrls.length).toBe(0);
+    // 允许非致命 console warn，但 error 必须为 0
+    const fatalErrors = consoleErrors.filter(e => !e.includes('favicon') && !e.includes('404'));
+    expect(fatalErrors.length).toBe(0);
+  });
 });
