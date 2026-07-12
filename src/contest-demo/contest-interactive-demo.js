@@ -3,6 +3,65 @@
  * 纯本地运行，无外部依赖
  */
 
+// ====== VERSION STAMP ======
+function initVersionStamp() {
+  const el = document.getElementById('versionStamp');
+  if (!el) return;
+  if (!window.__cheapLiveContestVersionDiag) {
+    window.__cheapLiveContestVersionDiag = {
+      version: null, versionSource: null, buildTime: null,
+      stampGitShortSha: null, queryV: null, stampLoaded: false,
+    };
+  }
+  const diag = window.__cheapLiveContestVersionDiag;
+  const params = new URLSearchParams(window.location.search);
+  const queryV = params.get('v');
+  diag.queryV = queryV;
+
+  function loadBuildStamp(callback) {
+    fetch('contest-build.json', { cache: 'no-cache' })
+      .then(r => { if (!r.ok) throw new Error('build stamp http ' + r.status); return r.json(); })
+      .then(stamp => callback(null, stamp))
+      .catch(err => callback(err));
+  }
+
+  if (queryV && queryV.trim()) {
+    const v = queryV.trim();
+    diag.version = v;
+    diag.versionSource = 'query';
+    el.textContent = `v${v}`;
+    loadBuildStamp((err, stamp) => {
+      if (!err && stamp) {
+        diag.stampLoaded = true;
+        diag.stampGitShortSha = stamp.gitShortSha || null;
+        const time = stamp.buildTimeLocal || '';
+        diag.buildTime = time;
+        if (time) el.textContent = `v${v} · updated ${time}`;
+      }
+    });
+    return;
+  }
+  loadBuildStamp((err, stamp) => {
+    if (!err && stamp) {
+      const sha = stamp.gitShortSha || 'unknown';
+      const time = stamp.buildTimeLocal || '';
+      let text = `v${sha}`;
+      if (time) text += ` · updated ${time}`;
+      el.textContent = text;
+      diag.version = sha;
+      diag.versionSource = 'build-json';
+      diag.buildTime = time || null;
+      diag.stampGitShortSha = sha;
+      diag.stampLoaded = true;
+    } else {
+      el.textContent = 'version unknown';
+      diag.version = 'unknown';
+      diag.versionSource = 'fallback';
+      diag.stampLoaded = false;
+    }
+  });
+}
+
 // ====== STATE ======
 const state = {
   currentAvatar: 'sacabambaspis-3d',
@@ -91,6 +150,7 @@ const GUIDE_STEPS = [
 
 // ====== INIT ======
 document.addEventListener('DOMContentLoaded', () => {
+  initVersionStamp();
   initAvatarCanvas();
   initGameCanvas();
   initFWAvatarCanvas();
@@ -148,7 +208,7 @@ function faceParamsToRendererParams(fp) {
     eyeLeft: 1 - (fp.blink ?? 0),
     eyeRight: 1 - (fp.blink ?? 0),
     headYaw: (fp.yaw ?? 0) * 0.5 + 0.5,
-    headPitch: (fp.pitch ?? 0) * 0.5 + 0.5,
+    headPitch: (-(fp.pitch ?? 0)) * 0.5 + 0.5,
     headRoll: (fp.roll ?? 0) * 0.5 + 0.5,
     browLeft: 0,
     browRight: 0,

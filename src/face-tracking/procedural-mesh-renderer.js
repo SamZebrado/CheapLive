@@ -1133,8 +1133,8 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const centerDown = smile * 2 * scale;
       // 上唇几乎不动（<= openH 的 12%），下唇主导（>= openH 的 80%）
       // 要求：上唇位移 <= 下唇位移的 15-20%
-      const upperLift = openH * 0.12;
-      const lowerDrop = openH * 0.80;
+      const upperLift = openH * 0.15;
+      const lowerDrop = openH * 0.82;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';

@@ -358,42 +358,14 @@ export function createSpindleMesh(options = {}) {
       isTop: true, isBottom: false, faceWeight: 0, isHead: false,
     };
 
-    // 厚度偏移点（用于创建有厚度的尾鳍）
-    const vBaseThick = {
-      x: bodyEndCenterX + flukeThickness, y: bodyEndCenterY, z: flukeBaseZ,
-      nx: 1, ny: 0, nz: 0, t: 1.02, angle: 0, col: columns + 1, row: 0,
-      isTop: false, isBottom: false, faceWeight: 0, isHead: false,
-    };
-
-    const vTopThick = {
-      x: bodyEndCenterX + flukeThickness * 0.5, y: bodyEndCenterY - flukeHalfHeight, z: flukeBaseZ - 15,
-      nx: 1, ny: 0, nz: 0, t: 1.05, angle: 0, col: columns + 1, row: 0,
-      isTop: true, isBottom: false, faceWeight: 0, isHead: false,
-    };
-
-    const vBottomThick = {
-      x: bodyEndCenterX + flukeThickness * 0.5, y: bodyEndCenterY + flukeHalfHeight, z: flukeBaseZ - 15,
-      nx: 1, ny: 0, nz: 0, t: 1.05, angle: 0, col: columns + 1, row: 0,
-      isTop: false, isBottom: true, faceWeight: 0, isHead: false,
-    };
-
-    const vTipThick = {
-      x: bodyEndCenterX + flukeThickness * 0.3, y: bodyEndCenterY - headY * 0.05, z: flukeTipBackZ,
-      nx: 1, ny: 0, nz: 0, t: 1.1, angle: 0, col: columns + 2, row: 0,
-      isTop: true, isBottom: false, faceWeight: 0, isHead: false,
-    };
-
-    vertices.push(vBase, vTop, vBottom, vTip, vBaseThick, vTopThick, vBottomThick, vTipThick);
+    // 尾鳍主面（Y-Z 平面，doubleSided 保证正反两面都渲染）
+    vertices.push(vBase, vTop, vBottom, vTip);
     const iBase = flukeStartIdx + 0;
     const iTop = flukeStartIdx + 1;
     const iBottom = flukeStartIdx + 2;
     const iTip = flukeStartIdx + 3;
-    const iBaseT = flukeStartIdx + 4;
-    const iTopT = flukeStartIdx + 5;
-    const iBottomT = flukeStartIdx + 6;
-    const iTipT = flukeStartIdx + 7;
 
-    // 上尾鳍面（主平面 Y-Z）
+    // 上尾鳍面（主平面 Y-Z，doubleSided 保证正反两面都渲染）
     faces.push({
       indices: [iBase, iTop, iTip],
       vertices: [vBase, vTop, vTip],
@@ -401,25 +373,11 @@ export function createSpindleMesh(options = {}) {
       column: columns + 1, row: 0,
       doubleSided: true,
     });
-    faces.push({
-      indices: [iBaseT, iTipT, iTopT],
-      vertices: [vBaseThick, vTipThick, vTopThick],
-      isTop: true, isBottom: false,
-      column: columns + 1, row: 0,
-      doubleSided: true,
-    });
 
-    // 下尾鳍面（主平面 Y-Z）
+    // 下尾鳍面（主平面 Y-Z，doubleSided 保证正反两面都渲染）
     faces.push({
       indices: [iBase, iTip, iBottom],
       vertices: [vBase, vTip, vBottom],
-      isTop: false, isBottom: true,
-      column: columns + 1, row: 0,
-      doubleSided: true,
-    });
-    faces.push({
-      indices: [iBaseT, iBottomT, iTipT],
-      vertices: [vBaseThick, vBottomThick, vTipThick],
       isTop: false, isBottom: true,
       column: columns + 1, row: 0,
       doubleSided: true,
