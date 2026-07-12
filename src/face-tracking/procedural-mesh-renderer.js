@@ -965,6 +965,41 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
   }
 
   /**
+   * Find the nearest vertex on the spindle mesh surface to a given point.
+   * Used for eye-surface attachment diagnostics.
+   */
+  _findNearestMeshPoint(targetPoint) {
+    const mesh = this.spindleMesh;
+    if (!mesh || !mesh.vertices || mesh.vertices.length === 0) {
+      return { x: targetPoint.x, y: targetPoint.y, z: targetPoint.z, nx: 0, ny: 0, nz: 1, dist: 0 };
+    }
+
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < mesh.vertices.length; i++) {
+      const v = mesh.vertices[i];
+      const dx = v.x - targetPoint.x;
+      const dy = v.y - targetPoint.y;
+      const dz = v.z - targetPoint.z;
+      const dist = dx * dx + dy * dy + dz * dz;
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestIdx = i;
+      }
+    }
+
+    const v = mesh.vertices[bestIdx];
+    return {
+      x: v.x, y: v.y, z: v.z,
+      nx: v.nx, ny: v.ny, nz: v.nz,
+      dist: Math.sqrt(bestDist),
+      vertexIndex: bestIdx,
+      s: v.t,
+      angle: v.angle,
+    };
+  }
+
+  /**
    * 五官锚点：基于头部椭球前表面的 (x, y) 偏移，z 固定在头部前方。
    *   - 左右眼：x = ±headX * 0.30
    *   - 嘴：在两眼下方中央
@@ -984,8 +1019,8 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const browSpacing = hx * 0.30;  // 眉水平间距与眼一致
 
     return {
-      leftEye:  { bodyT: 0, horizOffset: -eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0.5 },
-      rightEye: { bodyT: 0, horizOffset:  eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0.5 },
+      leftEye:  { bodyT: 0, horizOffset: -eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0 },
+      rightEye: { bodyT: 0, horizOffset:  eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0 },
       mouth:    { bodyT: 0, horizOffset: 0,            vertOffset: mouthHeight, surfaceOffset: 0.5, mouthWidth: mouthHalfWidth },
       browLeft: { bodyT: 0, horizOffset: -browSpacing, vertOffset: browOffset, surfaceOffset: 0.8 },
       browRight:{ bodyT: 0, horizOffset:  browSpacing, vertOffset: browOffset, surfaceOffset: 0.8 },
@@ -1093,6 +1128,57 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     // Tail direction
     const headForwardWorld = this._transformVec(0, 0, 1, rot);
 
+    // Eye surface attachment diag: find nearest point on mesh surface
+    const leftEyeSurfaceLocal = this._findNearestMeshPoint(leftEyeLocal);
+    const rightEyeSurfaceLocal = this._findNearestMeshPoint(rightEyeLocal);
+    const leftEyeSurfaceWorld = this._transformVec(leftEyeSurfaceLocal.x, leftEyeSurfaceLocal.y, leftEyeSurfaceLocal.z, rot);
+    const rightEyeSurfaceWorld = this._transformVec(rightEyeSurfaceLocal.x, rightEyeSurfaceLocal.y, rightEyeSurfaceLocal.z, rot);
+
+    const leftEyeToSurfaceDist = Math.sqrt(
+      (leftEyeLocal.x - leftEyeSurfaceLocal.x) ** 2 +
+      (leftEyeLocal.y - leftEyeSurfaceLocal.y) ** 2 +
+      (leftEyeLocal.z - leftEyeSurfaceLocal.z) ** 2
+    );
+
+    // Normal angle difference
+    const eyeN = { x: leftEyeLocal.nx, y: leftEyeLocal.ny, z: leftEyeLocal.nz };
+    const surfN = { x: leftEyeSurfaceLocal.nx, y: leftEyeSurfaceLocal.ny, z: leftEyeSurfaceLocal.nz };
+    const normalDot = eyeN.x * surfN.x + eyeN.y * surfN.y + eyeN.z * surfN.z;
+    const normalAngleDiff = Math.acos(Math.max(-1, Math.min(1, normalDot))) * 180 / Math.PI;
+
+    // Tail runtime diag
+    const tailRootLocal = { x: 0, y: 0, z: mesh.headZ - 0.8 * (mesh.headZ + mesh.bodyLength) };
+    const tailTipLocal = { x: 0, y: 0, z: mesh.headZ - 1.0 * (mesh.headZ + mesh.bodyLength) - 20 };
+    const tailRootWorld = this._transformVec(tailRootLocal.x, tailRootLocal.y, tailRootLocal.z, rot);
+    const tailTipWorld = this._transformVec(tailTipLocal.x, tailTipLocal.y, tailTipLocal.z, rot);
+    const tailRootScreen = { x: originX + tailRootWorld.x * scale, y: originY + tailRootWorld.y * scale };
+    const tailTipScreen = { x: originX + tailTipWorld.x * scale, y: originY + tailTipWorld.y * scale };
+
+    // Body centerline: sample mesh vertices along the spine (angle ≈ 0) for tail-direction diagnostics
+    const bodyCenterlinePoints = [];
+    for (let ci = 0; ci <= 10; ci++) {
+      const targetS = ci / 10;
+      let bestV = null;
+      let bestScore = Infinity;
+      for (const v of mesh.vertices) {
+        const tDiff = Math.abs(v.t - targetS);
+        const angleAbs = Math.abs(v.angle);
+        // Weight t-match heavily; use angle closeness to 0 as tiebreaker
+        const score = tDiff * 100 + angleAbs;
+        if (score < bestScore) {
+          bestScore = score;
+          bestV = v;
+        }
+      }
+      if (bestV) {
+        const cw = this._transformVec(bestV.x, bestV.y, bestV.z, rot);
+        bodyCenterlinePoints.push({
+          x: originX + cw.x * scale,
+          y: originY + cw.y * scale,
+        });
+      }
+    }
+
     // Store on window
     if (typeof window !== 'undefined') {
       window.__cheapLiveFishPoseDiag = {
@@ -1126,6 +1212,56 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         eyeAttachedToHead,
 
         headForwardWorld,
+
+        // Eye surface attachment diag
+        leftEyeSurfaceLocal,
+        rightEyeSurfaceLocal,
+        leftEyeSurfaceWorld: { x: leftEyeSurfaceWorld.x, y: leftEyeSurfaceWorld.y, z: leftEyeSurfaceWorld.z },
+        rightEyeSurfaceWorld: { x: rightEyeSurfaceWorld.x, y: rightEyeSurfaceWorld.y, z: rightEyeSurfaceWorld.z },
+        leftEyeToSurfaceDist,
+        leftEyeNormalAngleDiff: normalAngleDiff,
+        leftEyeSurfaceS: leftEyeSurfaceLocal.s,
+        leftEyeSurfaceAngle: leftEyeSurfaceLocal.angle,
+
+        // Tail runtime diag
+        tailRootLocal,
+        tailTipLocal,
+        tailRootWorld: { x: tailRootWorld.x, y: tailRootWorld.y, z: tailRootWorld.z },
+        tailTipWorld: { x: tailTipWorld.x, y: tailTipWorld.y, z: tailTipWorld.z },
+        tailRootScreen,
+        tailTipScreen,
+        tailVectorScreen: { x: tailTipScreen.x - tailRootScreen.x, y: tailTipScreen.y - tailRootScreen.y },
+      };
+
+      // Eye surface attachment diagnostics
+      window.__cheapLiveEyeSurfaceDiag = {
+        inputPitch: np.headPitch,
+        inputYaw: np.headYaw,
+        eyeAnchorLocal: { x: leftEyeLocal.x, y: leftEyeLocal.y, z: leftEyeLocal.z },
+        eyeAnchorWorld: { x: leftEyeTrans.worldX, y: leftEyeTrans.worldY, z: leftEyeTrans.worldZ },
+        nearestHeadSurfacePointLocal: { x: leftEyeSurfaceLocal.x, y: leftEyeSurfaceLocal.y, z: leftEyeSurfaceLocal.z },
+        nearestHeadSurfacePointWorld: { x: leftEyeSurfaceWorld.x, y: leftEyeSurfaceWorld.y, z: leftEyeSurfaceWorld.z },
+        nearestHeadSurfacePointScreen: { x: originX + leftEyeSurfaceWorld.x * scale, y: originY + leftEyeSurfaceWorld.y * scale },
+        eyeToSurfaceDistance: leftEyeSurfaceLocal.dist,
+        eyeSurfaceNormal: { x: leftEyeLocal.nx, y: leftEyeLocal.ny, z: leftEyeLocal.nz },
+        headSurfaceNormal: { x: leftEyeSurfaceLocal.nx, y: leftEyeSurfaceLocal.ny, z: leftEyeSurfaceLocal.nz },
+        normalAngleDifference: normalAngleDiff,
+        localSurfaceU: leftEyeSurfaceLocal.s,
+        localSurfaceV: leftEyeSurfaceLocal.angle,
+      };
+
+      // Tail runtime diagnostics
+      window.__cheapLiveTailRuntimeDiag = {
+        inputYaw: np.headYaw,
+        effectiveHeadYaw: rot.angleY,
+        effectiveTailYaw: rot.angleY * (1 - 0.60),
+        headForwardScreen: { x: headForwardWorld.x * scale, y: headForwardWorld.y * scale },
+        tailRootScreen,
+        tailTipScreen,
+        tailVectorScreen: { x: tailTipScreen.x - tailRootScreen.x, y: tailTipScreen.y - tailRootScreen.y },
+        bodyCenterlinePoints,
+        expectedTailSide: np.headYaw > 0 ? 'left' : (np.headYaw < 0 ? 'right' : 'center'),
+        actualTailSide: (tailTipScreen.x - tailRootScreen.x) > 0 ? 'right' : ((tailTipScreen.x - tailRootScreen.x) < 0 ? 'left' : 'center'),
       };
 
       // Mouth runtime diag
@@ -1135,6 +1271,36 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
           mouthOpen: np.mouthOpen,
           smile: np.mouthSmile,
           ...this.mouthDiag,
+        };
+      }
+
+      // Tail fluke duplication diagnostic
+      {
+        const mesh = this.spindleMesh;
+        const columns = mesh.columns || 32;
+        const flukeVerts = [];
+        for (const v of mesh.vertices) {
+          if (v.col > columns) {
+            flukeVerts.push(v);
+          }
+        }
+        let maxSepX = 0;
+        for (let i = 0; i < flukeVerts.length; i++) {
+          for (let j = i + 1; j < flukeVerts.length; j++) {
+            const dx = Math.abs(flukeVerts[i].x - flukeVerts[j].x);
+            if (dx > maxSepX) maxSepX = dx;
+          }
+        }
+        const thicknessPlane = flukeVerts.filter(v => Math.abs(v.x) > 0.01);
+        const mainPlane = flukeVerts.filter(v => Math.abs(v.x) <= 0.01);
+        const maxSepPixels = maxSepX * scale;
+        window.__cheapLiveTailFlukeDiag = {
+          totalFlukeVerts: flukeVerts.length,
+          mainPlaneCount: mainPlane.length,
+          thicknessPlaneCount: thicknessPlane.length,
+          maxSeparationUnits: maxSepX,
+          maxSeparationPixels: maxSepPixels,
+          duplicateTailDetected: maxSepPixels > 5,
         };
       }
 
@@ -1403,7 +1569,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * funnelNarrow;
       const baseOpenHeight = 20 * scale;
       const openH = (3 * scale + baseOpenHeight * effectiveOpen) * funnelTall;
-      const upperLipRatio = 0.28;
+      const upperLipRatio = 0.15;
       const lowerLipRatio = 0.85;
       // 坐标系：v 正=屏幕向下，v 负=屏幕向上
       // 嘴角真正上扬：smile 越大，嘴角越向上（v 越小，取负值）

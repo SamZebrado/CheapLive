@@ -385,11 +385,11 @@ function faceParamsToRendererParams(fp) {
   const eyeRight = fp.eyeRight ?? (1 - blinkRight);
 
   // Mirror yaw for selfie view (like open demo mirror mode): negate yaw
-  // Pitch is negated to match intuitive direction (down=down)
+  // Pitch is passed through directly (positive = up, negative = down)
   // Roll is NOT negated — open demo's mirror mode does the negation+mirror twice, cancelling out.
   //   (open demo: roll=-roll then headRollNorm=1-headRollNorm → net no negation in mirror mode)
   const yawNorm = (-(fp.yaw ?? 0)) * 0.5 + 0.5;
-  const pitchNorm = (-(fp.pitch ?? 0)) * 0.5 + 0.5;
+  const pitchNorm = (fp.pitch ?? 0) * 0.5 + 0.5;
   const rollNorm = (fp.roll ?? 0) * 0.5 + 0.5;
 
   return {
