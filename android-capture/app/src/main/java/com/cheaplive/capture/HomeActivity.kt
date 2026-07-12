@@ -3,6 +3,7 @@ package com.cheaplive.capture
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -11,6 +12,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.cheaplive.capture.BuildConfig
 
@@ -61,6 +63,8 @@ class HomeActivity : AppCompatActivity() {
         buildAvatarEntryCard(root)
         buildCaptureEntryCard(root)
         buildAudioEntryCard(root)
+        buildContestDemoLocalCard(root)
+        buildContestDemoOnlineCard(root)
         buildInfoCard(root)
 
         setContentView(scroll)
@@ -224,6 +228,92 @@ class HomeActivity : AppCompatActivity() {
         val btn = makeSecondaryButton("开始声音输入测试")
         btn.setOnClickListener {
             startActivity(Intent(this, MainActivity::class.java).putExtra("MODE", "MIN_AUDIO_TEST"))
+        }
+        card.addView(btn)
+
+        root.addView(card)
+    }
+
+    private fun buildContestDemoLocalCard(root: LinearLayout) {
+        val card = makeCard()
+        addCardTitle(card, "📱 Contest Demo 本地版", "Offline")
+
+        val desc = TextView(this).apply {
+            text = "完整参赛演示页面（含经典圆球、鱼、猫等形象）。离线可用，无需网络。"
+            textSize = 12f
+            setTextColor(cTextSec)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        card.addView(desc)
+
+        val featureList = TextView(this).apply {
+            text = buildString {
+                append("✓ 经典圆球（灰色圆球 + 黑点眼睛嘴巴）\n")
+                append("✓ 2D/3D 鱼 + 猫/狗/兔/狐狸/熊\n")
+                append("✓ 完整表情系统：张嘴/微笑/眨眼/视线\n")
+                append("✓ 本地 assets：无需网络即可使用\n")
+                append("✓ 支持摄像头面捕（需授权）\n")
+            }
+            textSize = 11f
+            setTextColor(cTextMuted)
+            setPadding(20, 12, 20, 12)
+            setBackgroundColor(cBgSecondary)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        card.addView(featureList)
+
+        val btn = makePrimaryButton("打开本地 Contest Demo")
+        btn.setOnClickListener {
+            startActivity(Intent(this, ContestDemoActivity::class.java))
+        }
+        card.addView(btn)
+
+        root.addView(card)
+    }
+
+    private fun buildContestDemoOnlineCard(root: LinearLayout) {
+        val card = makeCard()
+        addCardTitle(card, "🌐 Contest Demo 在线版", "Online")
+
+        val desc = TextView(this).apply {
+            text = "最新参赛演示页面（含完整形象与交互）。依赖网络，需 Chrome 浏览器。"
+            textSize = 12f
+            setTextColor(cTextSec)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        card.addView(desc)
+
+        val featureList = TextView(this).apply {
+            text = buildString {
+                append("✓ 最新形象：cat/fish/dog/rabbit/fox/bear\n")
+                append("✓ 2D 程序化渲染 + 虹膜追踪\n")
+                append("✓ 可开关 mocap shell\n")
+                append("○ 依赖网络：无法离线使用\n")
+            }
+            textSize = 11f
+            setTextColor(cTextMuted)
+            setPadding(20, 12, 20, 12)
+            setBackgroundColor(cBgSecondary)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 16
+            layoutParams = lp
+        }
+        card.addView(featureList)
+
+        val btn = makePrimaryButton("打开线上 Contest Demo")
+        btn.setOnClickListener {
+            val url = "https://samzebrado.github.io/CheapLive/src/contest-demo/contest-interactive-demo.html?v=c4868a2"
+            try {
+                startActivity(Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+            } catch (_: Throwable) {
+                Toast.makeText(this, "没有浏览器可用", Toast.LENGTH_SHORT).show()
+            }
         }
         card.addView(btn)
 

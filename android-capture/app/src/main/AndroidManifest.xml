@@ -44,6 +44,12 @@
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
         <activity
+            android:name=".ContestDemoActivity"
+            android:exported="true"
+            android:label="Contest Demo"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <activity
             android:name=".ScreensaverActivity"
             android:exported="true"
             android:label="Screen Saver"
