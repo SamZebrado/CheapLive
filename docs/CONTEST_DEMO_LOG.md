@@ -208,3 +208,73 @@
 - [未验证] 3D 鱼眼睛修复在平板真实视觉效果（待 Pages 部署）
 - [未验证] 2D 鱼新版正面视角在平板真实视觉效果（待 Pages 部署）
 - [未验证] 用户视觉验收（鱼形象主观评价）
+
+---
+
+## 2026-07-12 14:30 — Android 统一 Contest Demo 集成与同步
+
+### Context
+- Web HEAD: df6c6db (CheapLive_demo_full_regression_repair)
+- Android HEAD: ??? (CheapLive/android-capture)
+- 平板: 已解锁 (Xiaomi Pad 6 Pro, Android 16, com.cheaplive.capture 已安装)
+- 本轮任务: 经典圆球移植 + 鱼眼睛修复 + Android 本地 Contest Demo 集成 + 同步方案
+
+### 经典圆球 avatar（classic-sphere）
+- 来源: Android 发送端页面底部的二维圆球（灰色球体 + 黑色点眼睛嘴巴）
+- 移植到 contest demo: 新增 `drawClassicSphere()` 函数
+- 参数支持: mouthOpen, blinkLeft/Right, headOffset, roll, gaze
+- 颜色: 球体 `#9ca3af`（灰色），眼睛和嘴巴 `#000`（黑色）
+- 诊断: `window.__cheapLiveContestClassicSphereDiag`
+
+### 鱼眼睛修复（前序任务）
+- 3D 鱼: yaw 转头时 eye aspect ratio clamp（minAspect=0.55）
+- 2D 鱼: 统一正面视角重新设计
+- 诊断: `window.__cheapLiveContestFishEyeDiag`
+
+### Web → Android 同步方案
+- 同步脚本: `scripts/sync-contest-demo-to-android.mjs`
+- Source: `src/contest-demo/` + `src/face-tracking/`
+- Target: `app/src/main/assets/web/contest-demo/`
+- Allowlist: 19 个核心文件（不含 .automation, docs, tests, visual-history）
+- 幂等性: 连续运行两次无额外 diff
+- Manifest: `contest-demo-assets-manifest.json`（含 file hashes）
+
+### Android 本地 Contest Demo 集成
+- 新增 Activity: `ContestDemoActivity.kt`
+- WebView 配置: file:///android_asset 协议支持、JS enabled、权限请求
+- HomeActivity 新增入口: "📱 Contest Demo 本地版"
+- Fetch API 兼容: file:// 协议改用 XMLHttpRequest
+- 权限: CAMERA + RECORD_AUDIO 运行时请求
+
+### Files changed (Web)
+- `src/contest-demo/contest-interactive-demo.js` — 新增 drawClassicSphere, 修复 file:// fetch
+- `src/contest-demo/contest-interactive-demo.html` — 新增 classic-sphere avatar 按钮
+- `scripts/sync-contest-demo-to-android.mjs` — 同步脚本
+- `docs/CONTEST_DEMO_LOG.md` — 本日志条目
+
+### Files changed (Android)
+- `app/src/main/java/com/cheaplive/capture/ContestDemoActivity.kt` — 新 Activity
+- `app/src/main/java/com/cheaplive/capture/HomeActivity.kt` — 新增本地 Contest Demo 入口
+- `app/src/main/AndroidManifest.xml` — 注册 ContestDemoActivity
+- `app/src/main/assets/web/contest-demo/` — 同步的 19 个文件
+- `app/src/main/assets/web/contest-demo/contest-demo-assets-manifest.json` — manifest
+
+### Tests run
+- [已运行本地测试] git diff --check: passed
+- [已运行本地测试] Playwright contest-layout-regression: 53/53 passed (58.1s)
+- [已运行本地测试] 同步脚本幂等性: 第二次运行 Copied: 0 files
+- [已运行本地测试] Android assembleDebug: BUILD SUCCESSFUL
+
+### Verified
+- [已运行端到端测试] Android 平板: Contest Demo 页面成功加载，无 JS errors
+- [已核对] Android WebView 加载: file:///android_asset/web/contest-demo/contest-interactive-demo.html
+- [已核对] 同步脚本生成 manifest 包含所有文件 hash
+- [已核对] 旧 demo (web/demo/) 保留作为 fallback
+- [已核对] Playwright 53/53 测试全部通过
+
+### Not verified
+- [未验证] Android 圆球 avatar 视觉效果（已加载页面，待点击测试）
+- [未验证] Android 摄像头面捕真实效果（需用户授权）
+- [未验证] 用户视觉验收（圆球/鱼形象主观评价）
+- [未验证] 线上 GitHub Pages 部署后验证
+- [未验证] 平板触摸屏交互详细验证

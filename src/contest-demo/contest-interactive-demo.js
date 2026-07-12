@@ -80,6 +80,7 @@ const AVATAR_NAMES = {
   rabbit: '兔子 Rabbit',
   fox: '狐狸 Fox',
   bear: '小熊 Bear',
+  'classic-sphere': '⚪ 经典圆球',
 };
 
 let _3dReady = false;
@@ -251,15 +252,40 @@ function initVersionStamp() {
   const queryV = params.get('v');
   diag.queryV = queryV;
 
+  function loadBuildStamp(callback) {
+    if (window.location.protocol === 'file:') {
+      const xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = () => {
+        if (xhr.readyState === 4) {
+          if (xhr.status === 0 || xhr.status === 200) {
+            try {
+              callback(null, JSON.parse(xhr.responseText));
+            } catch (e) {
+              callback(e);
+            }
+          } else {
+            callback(new Error('xhr status ' + xhr.status));
+          }
+        }
+      };
+      xhr.onerror = () => callback(new Error('xhr error'));
+      xhr.open('GET', 'contest-build.json', true);
+      xhr.send();
+    } else {
+      fetch('contest-build.json', { cache: 'no-cache' })
+        .then(r => { if (!r.ok) throw new Error('build stamp http ' + r.status); return r.json(); })
+        .then(stamp => callback(null, stamp))
+        .catch(err => callback(err));
+    }
+  }
+
   if (queryV && queryV.trim()) {
     const v = queryV.trim();
     diag.version = v;
     diag.versionSource = 'query';
     el.textContent = `v${v}`;
-    // 仍然尝试加载 build.json 拿 build time，但不阻塞显示
-    fetch('contest-build.json', { cache: 'no-cache' })
-      .then(r => { if (!r.ok) throw new Error('build stamp http ' + r.status); return r.json(); })
-      .then(stamp => {
+    loadBuildStamp((err, stamp) => {
+      if (!err && stamp) {
         diag.stampLoaded = true;
         diag.stampGitShortSha = stamp.gitShortSha || null;
         const time = stamp.buildTimeLocal || '';
@@ -267,18 +293,15 @@ function initVersionStamp() {
         if (time) {
           el.textContent = `v${v} · updated ${time}`;
         }
-      })
-      .catch(() => { diag.stampLoaded = false; });
+      } else {
+        diag.stampLoaded = false;
+      }
+    });
     return;
   }
 
-  // fallback: 读 contest-build.json
-  fetch('contest-build.json', { cache: 'no-cache' })
-    .then(r => {
-      if (!r.ok) throw new Error('build stamp http ' + r.status);
-      return r.json();
-    })
-    .then(stamp => {
+  loadBuildStamp((err, stamp) => {
+    if (!err && stamp) {
       const sha = (stamp && stamp.gitShortSha) ? stamp.gitShortSha : 'unknown';
       const time = (stamp && stamp.buildTimeLocal) ? stamp.buildTimeLocal : '';
       let text = `v${sha}`;
@@ -289,13 +312,13 @@ function initVersionStamp() {
       diag.buildTime = time || null;
       diag.stampGitShortSha = sha;
       diag.stampLoaded = true;
-    })
-    .catch(() => {
+    } else {
       el.textContent = 'version unknown';
       diag.version = 'unknown';
       diag.versionSource = 'fallback';
       diag.stampLoaded = false;
-    });
+    }
+  });
 }
 
 // ====== AVATAR CANVAS (Middle Panel) ======
@@ -329,6 +352,8 @@ function drawAvatar(ctx, w, h, avatar, params, scale) {
     drawFox(ctx, cx, cy, params, scale);
   } else if (avatar === 'bear') {
     drawBear(ctx, cx, cy, params, scale);
+  } else if (avatar === 'classic-sphere') {
+    drawClassicSphere(ctx, cx, cy, params, scale);
   } else {
     drawPlaceholder(ctx, cx, cy, avatar, scale);
   }
@@ -1452,6 +1477,27 @@ function drawBear(ctx, cx, cy, p, s) {
 
   ctx.restore();
   _update2DAnimalDiags('bear', cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth);
+}
+
+function drawClassicSphere(ctx, cx, cy, p, s) {
+  const radius = Math.min(ctx.canvas.width, ctx.canvas.height) * 0.25;
+  const eyeY = cy + (p.headY - 0.5) * 80;
+  ctx.fillStyle = '#9ca3af';
+  ctx.beginPath();
+  ctx.arc(cx + (p.headX - 0.5) * 80, eyeY, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.arc(cx - 25 * s, eyeY - 5 * s, Math.max(2, 6 * p.eyeLeft * s), 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + 25 * s, eyeY - 5 * s, Math.max(2, 6 * p.eyeRight * s), 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  if (p.mouthOpen > 0.1) {
+    ctx.ellipse(cx, cy + 20 * s, 8 * s, (4 + p.mouthOpen * 12) * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.moveTo(cx - 8 * s, cy + 20 * s); ctx.quadraticCurveTo(cx, cy + 20 * s + p.mouthSmile * 4 * s, cx + 8 * s, cy + 20 * s);
+    ctx.stroke();
+  }
 }
 
 function drawPlaceholder(ctx, cx, cy, avatar, s) {
