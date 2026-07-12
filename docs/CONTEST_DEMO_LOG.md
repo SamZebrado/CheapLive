@@ -37,17 +37,39 @@
 
 ---
 
-## a935929 修复内容（待验证）
+## f5f4d00 修复内容：3D鱼完整姿态链、嘴唇运动
 
-### 悬浮透明
-- 给 `ProceduralMeshRenderer` 基类添加了 `transparentMode` 属性和 `setTransparentMode()` 方法
-- `draw()` 中 `transparentMode=true` 时跳过 `fillRect` 背景，只 `clearRect`
-- fwAvatarCanvas 初始化时已调用 `setTransparentMode(true)`，现在 3D renderer 有了这个方法，会生效
-- CSS 已在 c2e4271 设置 `background: transparent`
+### 姿态链修复
+- 眼睛在鱼头局部坐标中固定，与鱼头顶点使用同一模型旋转
+- 眼睛只经过一次 yaw/pitch/roll，再统一投影到屏幕
+- 低头和抬头时，眼睛相对头部位置基本固定，不出现反向抬起或向外翘起
+- 眼皮方向由头部局部 right/down/normal 向量投影得出，随头部旋转
 
-### 虹膜大小
-- 3D 路径 `irisBaseR` 从 `eyeBase * 0.50` 改为 `eyeHalfW * 0.50`
-- `eyeHalfW = eyeBase * scale`，所以现在 3D 路径 iris radius 和 baseline 0569e00 正脸 neutral 一致
+### 眨眼机制
+- 使用不透明眼皮覆盖方案，而非梭形/树叶形眨眼
+- 半眨眼时眼皮覆盖虹膜，全眨眼时完全遮住虹膜和瞳孔
+- 眼白基础 rx/ry 不随 openness 压扁
+- 左右眼独立眨眼
+
+### 上嘴唇运动
+- 嘴角端点在 mouthOpen 过程中基本固定
+- 张嘴时上嘴唇中部轻微向上移动（upperLipRatio = 0.15）
+- 下嘴唇中部明显向下移动（lowerLipRatio = 0.70）
+- 下唇位移约为上唇的 4.7 倍
+
+### 尾巴坐标
+- tail root 固定在身体后端局部坐标
+- tail tip 经过和身体一致的模型变换
+- bend 在局部空间应用
+- 镜像不改变 tail bend 符号
+
+### 诊断系统
+- 新增 `window.__cheapLiveFishPoseDiag` 包含头部/眼睛局部和世界坐标
+- 新增 `window.__cheapLiveMouthDiag` 包含嘴唇位置和位移比例
+
+### 测试结果
+- 全部 53 个 Playwright 测试通过
+- 生成了完整的姿态和嘴巴 contact sheets
 - 2D fallback 路径不受影响（`eyeBase = 10 * scale` 已包含 scale）
 
 ### Panel 一致性
@@ -75,8 +97,59 @@
 
 ---
 
-## 未验证项
+## 2026-07-12 17:00 — 3D 鱼完整姿态链修复 + 嘴唇运动 + receiver 抠图（阶段0基线）
 
+### Context
+- Web HEAD: f5f4d00 (demo-full-regression-repair)
+- Android HEAD: 9284363 (migration/android-source-from-verify)
+- 平板: 已解锁 (bbda35e, Android 16, com.cheaplive.capture versionName=0.1.0)
+- 平板 APK lastUpdateTime: 2026-07-12 16:17:45
+- 当前公开页面 URL: https://samzebrado.github.io/CheapLive/src/contest-demo/contest-interactive-demo.html
+- 本轮任务: 修复 3D 鱼完整姿态链、嘴唇运动、receiver 抠图，统一 Web 与 Android 实现
+
+### 当前确认问题
+1. 公开 contest demo: 低头时眼睛相对鱼头反向抬起；抬头时眼睛相对鱼头向外翘起
+2. APK receiver: 眼睛不稳定贴头；眼皮方向不随头部姿态；旧式梭形/树叶形眨眼风险；左右转头时尾巴方向异常
+3. 公开 demo 与 APK 当前不能直接互相证明正确
+4. 左右镜像不是 bug: 用户闭左眼 → 屏幕靠左鱼眼闭合；用户闭右眼 → 屏幕靠右鱼眼闭合
+5. 嘴巴需要统一: 上嘴唇两端基本固定；中部随张嘴轻微上抬；下嘴唇移动和弯曲明显更大
+6. receiver 背景没有被悬浮浏览器正确抠除
+7. 公开 demo 版本时间和 Git commit 标记需要更新
+
+### 禁止事项
+- 不要使用 git checkout / restore / reset / clean / stash / rebase / force push
+- 不要把当前镜像映射当作 bug
+- 不要继续只替换 `_drawFaceFeatures`
+- 不要分别手工维护两套逐渐分叉的 renderer
+- 不要用 diagnostics 自己写的 `matchesPublicDemo=true` 代替视觉证据
+- 不要容忍测试 5/7 后继续宣布 renderer 正确
+- 不要因为 contact sheet 缺 canvas npm 依赖就放弃截图
+- 不要继续修改眼睛颜色，除非真实抠图实验明确要求
+- 任一子任务阻塞时，记录阻塞并继续其他可独立阶段
+
+### 实施顺序
+1. 复现并修复公开 demo
+2. 完成公开 demo 的测试和视觉证据
+3. 更新版本时间与 Git commit 标记
+4. commit/push 公开 demo
+5. 将已验证实现同步到 Android receiver
+6. 构建、安装和真机验证
+7. 测量并修复悬浮浏览器抠图
+8. 分别提交 Web 和 Android 改动
+
+### 未验证项（本轮开始）
+- [ ] 公开 demo pitch 眼睛反向抬起/向外翘起修复
+- [ ] 公开 demo 尾巴方向正确
+- [ ] 公开 demo 上嘴唇运动通过
+- [ ] 公开 demo 时间和 Git 标记更新
+- [ ] Web 全部测试通过
+- [ ] Web 线上版本显示新 SHA
+- [ ] receiver 同步同一实现
+- [ ] receiver 全部测试通过
+- [ ] APK 构建安装成功
+- [ ] 真机姿态与嘴巴通过
+- [ ] 悬浮浏览器真实抠图通过
+- [ ] contact sheet 已生成
 - [ ] 变声纯音真实听感验证
 - [ ] 悬浮窗真实像素级 alpha 验证
 - [ ] 虹膜默认大小视觉验证（是否恢复到好看版本）

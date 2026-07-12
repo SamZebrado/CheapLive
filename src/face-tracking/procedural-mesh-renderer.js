@@ -335,15 +335,9 @@ class ProceduralMeshRenderer {
         ctx.fillStyle = '#1A1A2E';
         ctx.fillRect(0, 0, w, h);
       } else {
-        // 应用模式下用浅色背景，保证面部灰度对比明显
-        ctx.fillStyle = '#F7F5EE';
+        // 应用模式：纯黑背景，方便 chroma key 抠图
+        ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, w, h);
-        // 显示背景色16进制编号，方便抠图
-        ctx.fillStyle = '#888888';
-        ctx.font = '14px monospace';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText('#F7F5EE', 10, 20);
       }
     }
 
@@ -744,7 +738,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
 
         ctx.beginPath();
         ctx.ellipse(gazeOffsetX, gazeOffsetY, pupilR2, pupilR2, 0, 0, Math.PI * 2);
-        ctx.fillStyle = '#1a1a1a';
+        ctx.fillStyle = '#2a2420';
         ctx.fill();
 
         if (easedOpen > 0.3) {
@@ -842,7 +836,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
 
       ctx.save();
       ctx.globalAlpha = facing;
-      ctx.fillStyle = '#1a1a1a';
+      ctx.fillStyle = '#2a2420';
 
       // 倒三角形：上边水平，尖角向下
       const left = mapFaceLocalPoint(t, -halfW, 0);
@@ -857,7 +851,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.fill();
 
       // 黑色描边
-      ctx.strokeStyle = '#1a1a1a';
+      ctx.strokeStyle = '#2a2420';
       ctx.lineWidth = Math.max(1, 1.5 * scale);
       ctx.stroke();
 
@@ -1048,6 +1042,123 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     });
 
     this._drawFaceFeatures(ctx, np, rot, originX, originY, scale);
+
+    // Runtime diagnostics
+    this._updateRuntimeDiag(np, rot, originX, originY, scale);
+  }
+
+  _updateRuntimeDiag(np, rot, originX, originY, scale) {
+    const mesh = this.spindleMesh;
+    const anchors = this.getAnchors(np);
+
+    // Head center (local origin at bodyT=0, face center on +Z surface)
+    const headCenterWorld = this._transformVec(0, 0, mesh.headZ, rot);
+    const headCenterScreen = { x: originX + headCenterWorld.x * scale, y: originY + headCenterWorld.y * scale };
+
+    // Eyes
+    const leftEyeLocal = computeFaceAnchorXYZ(mesh, anchors.leftEye.bodyT, anchors.leftEye.horizOffset, anchors.leftEye.vertOffset, anchors.leftEye.surfaceOffset);
+    const rightEyeLocal = computeFaceAnchorXYZ(mesh, anchors.rightEye.bodyT, anchors.rightEye.horizOffset, anchors.rightEye.vertOffset, anchors.rightEye.surfaceOffset);
+    const leftEyeTrans = this._transformAnchor(leftEyeLocal, rot, originX, originY, scale);
+    const rightEyeTrans = this._transformAnchor(rightEyeLocal, rot, originX, originY, scale);
+
+    // Relative to head center (local)
+    const leftEyeRelLocal = {
+      x: leftEyeLocal.x - 0,
+      y: leftEyeLocal.y - 0,
+      z: leftEyeLocal.z - mesh.headZ,
+    };
+    const rightEyeRelLocal = {
+      x: rightEyeLocal.x - 0,
+      y: rightEyeLocal.y - 0,
+      z: rightEyeLocal.z - mesh.headZ,
+    };
+
+    // Relative to head center (world)
+    const leftEyeRelWorld = {
+      x: leftEyeTrans.worldX - headCenterWorld.x,
+      y: leftEyeTrans.worldY - headCenterWorld.y,
+      z: leftEyeTrans.worldZ - headCenterWorld.z,
+    };
+    const rightEyeRelWorld = {
+      x: rightEyeTrans.worldX - headCenterWorld.x,
+      y: rightEyeTrans.worldY - headCenterWorld.y,
+      z: rightEyeTrans.worldZ - headCenterWorld.z,
+    };
+
+    // Distance check (should be stable under rotation)
+    const leftDistLocal = Math.sqrt(leftEyeRelLocal.x**2 + leftEyeRelLocal.y**2 + leftEyeRelLocal.z**2);
+    const leftDistWorld = Math.sqrt(leftEyeRelWorld.x**2 + leftEyeRelWorld.y**2 + leftEyeRelWorld.z**2);
+    const eyeAttachedToHead = Math.abs(leftDistLocal - leftDistWorld) / leftDistLocal < 0.05;
+
+    // Tail direction
+    const headForwardWorld = this._transformVec(0, 0, 1, rot);
+
+    // Store on window
+    if (typeof window !== 'undefined') {
+      window.__cheapLiveFishPoseDiag = {
+        source: 'public-demo',
+        inputYaw: np.headYaw,
+        inputPitch: np.headPitch,
+        inputRoll: np.headRoll,
+        normalizedYawDeg: rot.angleY,
+        normalizedPitchDeg: rot.angleX,
+        normalizedRollDeg: rot.angleZ,
+        rotationOrder: 'Z-X-Y (roll-pitch-yaw)',
+
+        headCenterLocal: { x: 0, y: 0, z: mesh.headZ },
+        headCenterWorld: { x: headCenterWorld.x, y: headCenterWorld.y, z: headCenterWorld.z },
+        headCenterScreen,
+
+        leftEyeAnchorLocal: { x: leftEyeLocal.x, y: leftEyeLocal.y, z: leftEyeLocal.z },
+        rightEyeAnchorLocal: { x: rightEyeLocal.x, y: rightEyeLocal.y, z: rightEyeLocal.z },
+        leftEyeAnchorWorld: { x: leftEyeTrans.worldX, y: leftEyeTrans.worldY, z: leftEyeTrans.worldZ },
+        rightEyeAnchorWorld: { x: rightEyeTrans.worldX, y: rightEyeTrans.worldY, z: rightEyeTrans.worldZ },
+        leftEyeScreen: { x: leftEyeTrans.screenX, y: leftEyeTrans.screenY },
+        rightEyeScreen: { x: rightEyeTrans.screenX, y: rightEyeTrans.screenY },
+
+        leftEyeRelativeToHeadLocal: leftEyeRelLocal,
+        rightEyeRelativeToHeadLocal: rightEyeRelLocal,
+        leftEyeRelativeToHeadWorld: leftEyeRelWorld,
+        rightEyeRelativeToHeadWorld: rightEyeRelWorld,
+
+        eyeDistLocal: leftDistLocal,
+        eyeDistWorld: leftDistWorld,
+        eyeAttachedToHead,
+
+        headForwardWorld,
+      };
+
+      // Mouth runtime diag
+      if (this.mouthDiag) {
+        window.__cheapLiveMouthDiag = {
+          source: 'public-demo',
+          mouthOpen: np.mouthOpen,
+          smile: np.mouthSmile,
+          ...this.mouthDiag,
+        };
+      }
+
+      // Runtime trace
+      const drawFaceStr = this._drawFaceFeatures.toString();
+      const transformStr = this._transformAnchor.toString();
+
+      function simpleHash(s) {
+        let h = 0;
+        for (let i = 0; i < s.length; i++) {
+          h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+        }
+        return (h >>> 0).toString(16);
+      }
+
+      window.__cheapLiveRuntimeTrace = {
+        rendererClass: this.constructor.name,
+        drawFaceFunctionHash: simpleHash(drawFaceStr),
+        drawFaceFunctionLength: drawFaceStr.length,
+        transformAnchorHash: simpleHash(transformStr),
+        transformAnchorLength: transformStr.length,
+        sourceFile: 'procedural-mesh-renderer.js',
+      };
+    }
   }
 
   _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
@@ -1099,9 +1210,10 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       // clipped into a bar — visually reads as "eye falling forward off the
       // face".  Keep minimum width at 55% of height (and vice-versa) so the
       // eye always looks like an eye.
-      const minAspect = 0.55;
-      if (localRx < localRy * minAspect) localRx = localRy * minAspect;
-      if (localRy < localRx * minAspect) localRy = localRx * minAspect;
+      const minAspectVertical = 0.30;
+      const minAspectHorizontal = 0.55;
+      if (localRx < localRy * minAspectHorizontal) localRx = localRy * minAspectHorizontal;
+      if (localRy < localRx * minAspectVertical) localRy = localRx * minAspectVertical;
 
       // Linear mapping: openness 0=closed, 1=fully open
       const tOpen = Math.max(0, Math.min(1, openness));
@@ -1183,7 +1295,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         // Pupil: fixed-size circle
         ctx.beginPath();
         ctx.ellipse(gazeOffsetX, gazeOffsetY, pupilR2, pupilR2, 0, 0, Math.PI * 2);
-        ctx.fillStyle = '#1a1a1a';
+        ctx.fillStyle = '#2a2420';
         ctx.fill();
 
         // Highlight: small white dot
@@ -1289,15 +1401,20 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const funnelTall = 1 + (mouthFunnel || 0) * 0.8;
 
       const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * funnelNarrow;
-      const openH = (3 * scale + 12 * scale * effectiveOpen) * funnelTall;
+      const baseOpenHeight = 20 * scale;
+      const openH = (3 * scale + baseOpenHeight * effectiveOpen) * funnelTall;
+      const upperLipRatio = 0.28;
+      const lowerLipRatio = 0.85;
       // 坐标系：v 正=屏幕向下，v 负=屏幕向上
       // 嘴角真正上扬：smile 越大，嘴角越向上（v 越小，取负值）
       const cornerUp = -smile * 4 * scale;
-      // 上嘴唇：smile 时轻微向上弯（v 更小），但幅度极小；open 时几乎不动
-      // 上嘴唇位移保持很小，确保下嘴唇位移远大于上嘴唇
-      const topLipY = cornerUp - smile * 0.8 * scale - openH * 0.02;
+      // 上嘴唇：smile 时轻微向上弯（v 更小）；open 时中部向上抬
+      // 上嘴唇位移保持较小，但必须肉眼可见
+      const upperLift = effectiveOpen * baseOpenHeight * upperLipRatio;
+      const lowerDrop = effectiveOpen * baseOpenHeight * lowerLipRatio;
+      const topLipY = cornerUp - smile * 0.8 * scale - upperLift;
       // 下嘴唇：open 时大幅下移；smile 时也微下移
-      const bottomLipY = openH * 0.85 + smile * 2 * scale;
+      const bottomLipY = lowerDrop + smile * 2 * scale;
       const leftCornerY = cornerUp;
       const rightCornerY = cornerUp;
       // neutral 基线（smile=0, open=0）：topLipY=0, bottomLipY=0
@@ -1357,6 +1474,13 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       }
       ctx.restore();
 
+      // Screen-space coordinates for runtime verification
+      const leftCornerScreen = mapFaceLocalPoint(t, -halfW, cornerUp);
+      const rightCornerScreen = mapFaceLocalPoint(t, halfW, cornerUp);
+      const upperMidScreen = mapFaceLocalPoint(t, 0, topLipY);
+      const lowerMidScreen = mapFaceLocalPoint(t, 0, bottomLipY);
+      const anchorScreenY = t.screenY;
+
       return {
         smile,
         mouthOpen: open,
@@ -1376,6 +1500,13 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         neutralSmileBias,
         upperLipCurvePass,
         mainAndFloatingConsistent: true,
+        // Screen-space diagnostics (actual pixel positions)
+        leftCornerScreen,
+        rightCornerScreen,
+        upperMidScreen,
+        lowerMidScreen,
+        upperDeltaPixels: anchorScreenY + topLipY - anchorScreenY,
+        lowerDeltaPixels: bottomLipY - 0,
       };
     };
 
