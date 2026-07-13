@@ -138,7 +138,7 @@ describe('profile eye tests', () => {
     }
   });
 
-  it('irisToEyeRatio stability', async () => {
+  it('irisToEyeMinorRatio stability', async () => {
     const avatar = await createAvatar();
     try {
       const yawAngles = [-45, -30, 0, 30, 45];
@@ -148,17 +148,17 @@ describe('profile eye tests', () => {
         avatar.updateParams({ ...degBase, headYaw: yaw });
 
         const diag = avatar.irisDiag;
-        if (diag.right && diag.right.visible) {
-          const ratio = diag.right.radius / Math.max(diag.right.eyeRx, diag.right.eyeRy);
-          ratios.push(ratio);
+        if (diag.right && diag.right.visible && diag.right.irisToEyeMinorRatio !== undefined) {
+          ratios.push(diag.right.irisToEyeMinorRatio);
         }
       }
 
+      assert.ok(ratios.length >= 3, `Should have at least 3 samples, got ${ratios.length}`);
       const avgRatio = ratios.reduce((a, b) => a + b, 0) / ratios.length;
       const maxDeviation = Math.max(...ratios.map(r => Math.abs(r - avgRatio)));
 
-      assert.ok(maxDeviation < 0.1,
-        `irisToEyeRatio deviation should be < 0.1, got ${maxDeviation}`);
+      assert.ok(maxDeviation < 0.02,
+        `irisToEyeMinorRatio deviation should be < 0.02, got ${maxDeviation}`);
     } finally {
       avatar._cleanup();
     }
@@ -174,18 +174,40 @@ describe('profile eye tests', () => {
         avatar.updateParams({ ...degBase, headYaw: yaw });
 
         const diag = avatar.irisDiag;
-        if (diag.right && diag.right.visible) {
-          const pupilR = diag.right.radius * 0.55;
-          const ratio = pupilR / diag.right.radius;
-          ratios.push(ratio);
+        if (diag.right && diag.right.visible && diag.right.pupilToIrisRatio !== undefined) {
+          ratios.push(diag.right.pupilToIrisRatio);
         }
       }
 
+      assert.ok(ratios.length >= 3, `Should have at least 3 samples, got ${ratios.length}`);
       const avgRatio = ratios.reduce((a, b) => a + b, 0) / ratios.length;
       const maxDeviation = Math.max(...ratios.map(r => Math.abs(r - avgRatio)));
 
-      assert.ok(maxDeviation < 0.05,
-        `pupilToIrisRatio deviation should be < 0.05, got ${maxDeviation}`);
+      assert.ok(maxDeviation < 0.01,
+        `pupilToIrisRatio deviation should be < 0.01, got ${maxDeviation}`);
+    } finally {
+      avatar._cleanup();
+    }
+  });
+
+  it('basisBlend continuity', async () => {
+    const avatar = await createAvatar();
+    try {
+      const blends = [];
+      for (let yaw = 0; yaw <= 90; yaw += 5) {
+        avatar.updateParams({ ...degBase, headYaw: yaw });
+        const diag = avatar.irisDiag;
+        if (diag.right && diag.right.basisBlend !== undefined) {
+          blends.push(diag.right.basisBlend);
+        }
+      }
+      // basisBlend should be non-decreasing (more blend at larger yaw)
+      for (let i = 1; i < blends.length; i++) {
+        assert.ok(blends[i] >= blends[i - 1] - 0.001,
+          `basisBlend should be non-decreasing, step ${i}: ${blends[i-1]} -> ${blends[i]}`);
+      }
+      // At yaw=0, blend should be 0
+      assert.ok(blends[0] < 0.01, `basisBlend at yaw=0 should be ~0, got ${blends[0]}`);
     } finally {
       avatar._cleanup();
     }

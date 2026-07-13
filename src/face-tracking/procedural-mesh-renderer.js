@@ -1433,7 +1433,55 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       // localRx/localRy = eye radii in screen pixels along rightVec/downVec
       const rLen = t.rightLen || Math.sqrt(t.rightVec.x * t.rightVec.x + t.rightVec.y * t.rightVec.y);
       const dLen = t.downLen || Math.sqrt(t.downVec.x * t.downVec.x + t.downVec.y * t.downVec.y);
-      const eyeAngle = Math.atan2(t.rightVec.y, t.rightVec.x);
+      let rawRightX = t.rightVec.x;
+      let rawRightY = t.rightVec.y;
+      let rawDownX = t.downVec.x;
+      let rawDownY = t.downVec.y;
+      if (rLen > 0.001) {
+        rawRightX /= rLen;
+        rawRightY /= rLen;
+      }
+      if (dLen > 0.001) {
+        rawDownX /= dLen;
+        rawDownY /= dLen;
+      }
+      const rawEyeAngle = Math.atan2(rawRightY, rawRightX);
+
+      // Profile basis stabilization:
+      // When head yaws far to the side, the projected right vector degenerates
+      // and eyeAngle becomes unstable (eyes look like they fall forward).
+      // Blend from the true projected basis toward a roll-aligned stable basis
+      // as yaw increases past a threshold. No hard switch, no freezing at
+      // screen-horizontal; roll rotation is preserved throughout.
+      const yawAbs = Math.abs(np.headYaw);
+      const fadeBasisStartYaw = 50;
+      const fadeBasisEndYaw = 78;
+      let basisBlend = 0;
+      if (yawAbs > fadeBasisStartYaw && yawAbs < fadeBasisEndYaw) {
+        basisBlend = smoothstep(0, 1, (yawAbs - fadeBasisStartYaw) / (fadeBasisEndYaw - fadeBasisStartYaw));
+      } else if (yawAbs >= fadeBasisEndYaw) {
+        basisBlend = 1;
+      }
+
+      // Stable basis aligned to head roll in screen space
+      const headRollRad = np.headRoll * Math.PI / 180;
+      const stableRightX = Math.cos(headRollRad);
+      const stableRightY = Math.sin(headRollRad);
+      const stableDownX = -Math.sin(headRollRad);
+      const stableDownY = Math.cos(headRollRad);
+
+      // Smoothly interpolate basis vectors
+      const finalRightX = rawRightX * (1 - basisBlend) + stableRightX * basisBlend;
+      const finalRightY = rawRightY * (1 - basisBlend) + stableRightY * basisBlend;
+      const finalDownX = rawDownX * (1 - basisBlend) + stableDownX * basisBlend;
+      const finalDownY = rawDownY * (1 - basisBlend) + stableDownY * basisBlend;
+      const finalFRlen = Math.sqrt(finalRightX * finalRightX + finalRightY * finalRightY);
+      const finalFDlen = Math.sqrt(finalDownX * finalDownX + finalDownY * finalDownY);
+      const nfRightX = finalFRlen > 0.001 ? finalRightX / finalFRlen : 1;
+      const nfRightY = finalFRlen > 0.001 ? finalRightY / finalFRlen : 0;
+      const nfDownX = finalFDlen > 0.001 ? finalDownX / finalFDlen : 0;
+      const nfDownY = finalFDlen > 0.001 ? finalDownY / finalFDlen : 1;
+      const finalEyeAngle = Math.atan2(nfRightY, nfRightX);
 
       // eyeWide: only enlarge eye white, not iris
       const wideScale = 1 + (eyeWide || 0) * 0.47;
@@ -1460,14 +1508,16 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
-      // Iris/pupil: size based on eyeHalfW (screen-space, stable across head rotation),
-      // not on projected ellipse axes. eyeHalfW already includes overall scale.
-      // eyeWide slightly increases iris; squint/blink does not shrink it.
-      const irisBaseR = eyeHalfW * 0.50;
-      const pupilBaseR = eyeHalfW * 0.28;
-      const wideBoost = 1 + Math.max(0, (eyeWide || 0)) * 0.15;
-      const irisR = Math.min(irisBaseR * wideBoost, Math.min(localRx, localRy) * 0.85);
-      const pupilR2 = Math.min(pupilBaseR * wideBoost, Math.min(localRx, localRy) * 0.55);
+      // Iris/pupil: proportional to eye minor axis, so they scale together
+      // with the eye ellipse instead of collapsing independently.
+      // irisRadius ≈ finalEyeMinorRadius * 0.50
+      // pupilRadius ≈ irisRadius * 0.56
+      const eyeMinorR = Math.min(localRx, localRy);
+      const irisToEyeMinorRatio = 0.50;
+      const pupilToIrisRatio = 0.56;
+      const wideBoost = 1 + Math.max(0, (eyeWide || 0)) * 0.10;
+      const irisR = eyeMinorR * irisToEyeMinorRatio * wideBoost;
+      const pupilR2 = irisR * pupilToIrisRatio;
 
       // Gaze offset in eye-local coordinates
       const maxOffsetX = Math.max(0, localRx - irisR) * 0.55;
@@ -1479,7 +1529,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.save();
       ctx.globalAlpha = finalOpacity;
       ctx.translate(t.screenX, t.screenY);
-      ctx.rotate(eyeAngle);
+      ctx.rotate(finalEyeAngle);
 
       if (easedOpen < 0.05) {
         // Fully closed: draw natural closed-eye curve (downward dip), no eye white
@@ -1580,8 +1630,8 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       }
 
       const diagData = {
-        centerX: t.screenX + gazeOffsetX * Math.cos(eyeAngle) - gazeOffsetY * Math.sin(eyeAngle),
-        centerY: t.screenY + gazeOffsetX * Math.sin(eyeAngle) + gazeOffsetY * Math.cos(eyeAngle),
+        centerX: t.screenX + gazeOffsetX * Math.cos(finalEyeAngle) - gazeOffsetY * Math.sin(finalEyeAngle),
+        centerY: t.screenY + gazeOffsetX * Math.sin(finalEyeAngle) + gazeOffsetY * Math.cos(finalEyeAngle),
         radius: irisR,
         area: Math.PI * irisR * irisR,
         eyeCenterX: t.screenX,
@@ -1594,7 +1644,14 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         clippedByEyelid: easedClosed > 0.02,
         eyeRx: localRx,
         eyeRy: localRy,
-        eyeAngle: eyeAngle,
+        eyeAngle: finalEyeAngle,
+        rawEyeAngle: rawEyeAngle,
+        basisBlend: basisBlend,
+        irisRadius: irisR,
+        pupilRadius: pupilR2,
+        irisToEyeMinorRatio: irisToEyeMinorRatio,
+        pupilToIrisRatio: pupilToIrisRatio,
+        eyeMinorR: eyeMinorR,
         rightLen: rLen,
         downLen: dLen,
         facing: normalFacing,
@@ -1644,14 +1701,18 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * funnelNarrow;
       const baseOpenHeight = 20 * scale;
       const openH = (3 * scale + baseOpenHeight * effectiveOpen) * funnelTall;
-      const upperLipRatio = 0.15;
+      const upperLipRatio = 0.18;
       const lowerLipRatio = 0.85;
       // 坐标系：v 正=屏幕向下，v 负=屏幕向上
       // 嘴角真正上扬：smile 越大，嘴角越向上（v 越小，取负值）
       const cornerUp = -smile * 4 * scale;
       // 上嘴唇：smile 时轻微向上弯（v 更小）；open 时中部向上抬
       // 上嘴唇位移保持较小，但必须肉眼可见
-      const upperLift = effectiveOpen * baseOpenHeight * upperLipRatio;
+      // 对真实面捕中 mouthOpen 范围偏小的情况做视觉增益：
+      // upperVisualOpen 使用 smoothstep 在低开度时放大上唇运动，
+      // 低开度即可看到曲率变化，大开度不超过比例上限。
+      const upperVisualOpen = smoothstep(0.05, 0.50, effectiveOpen);
+      const upperLift = upperVisualOpen * baseOpenHeight * upperLipRatio;
       const lowerDrop = effectiveOpen * baseOpenHeight * lowerLipRatio;
       const topLipY = cornerUp - smile * 0.8 * scale - upperLift;
       // 下嘴唇：open 时大幅下移；smile 时也微下移
@@ -1741,6 +1802,9 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         neutralSmileBias,
         upperLipCurvePass,
         mainAndFloatingConsistent: true,
+        upperLipRatio,
+        upperVisualOpen,
+        effectiveOpen,
         // Screen-space diagnostics (actual pixel positions)
         leftCornerScreen,
         rightCornerScreen,
