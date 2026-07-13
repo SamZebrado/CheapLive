@@ -1,7 +1,7 @@
 {
   "branch": "demo-full-regression-repair",
-  "gitShortSha": "20346e5",
-  "buildTimeLocal": "2026-07-14 01:00 +0800",
-  "buildTimeUTC": "2026-07-13 17:00 UTC",
+  "gitShortSha": "23cac10",
+  "buildTimeLocal": "2026-07-14 02:10 +0800",
+  "buildTimeUTC": "2026-07-13 18:10 UTC",
   "note": "Static build stamp for GitHub Pages. Updated by scripts/update-contest-version.mjs before release. Self-referential SHA limitation applies: the SHA recorded here is the HEAD at build time, not the SHA of the commit that contains this file."
 }
