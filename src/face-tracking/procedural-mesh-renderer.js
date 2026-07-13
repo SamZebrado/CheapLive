@@ -36,6 +36,11 @@ function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+function smoothstep(edge0, edge1, x) {
+  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
 function isFiniteVec3(v) {
   return v != null && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
 }
@@ -237,9 +242,9 @@ function normalizeParams(p) {
     mouthPress: clamp(p.mouthPress ?? 0, 0, 1),
     browLeft: clamp(p.browLeft ?? 0, 0, 1),
     browRight: clamp(p.browRight ?? 0, 0, 1),
-    headYaw: (clamp(p.headYaw ?? 0.5, 0, 1) - 0.5) * 120,
-    headPitch: (clamp(p.headPitch ?? 0.5, 0, 1) - 0.5) * 90,
-    headRoll: (clamp(p.headRoll ?? 0.5, 0, 1) - 0.5) * 80,
+    headYaw: clamp(p.headYaw ?? 0, -90, 90),
+    headPitch: clamp(p.headPitch ?? 0, -45, 45),
+    headRoll: clamp(p.headRoll ?? 0, -40, 40),
     headX: clamp(p.headX ?? 0.5, 0, 1),
     headY: clamp(p.headY ?? 0.5, 0, 1),
     // 虹膜视线方向: [-1, 1]
@@ -247,6 +252,7 @@ function normalizeParams(p) {
     gazeLeftY: clamp(p.gazeLeftY ?? 0, -1, 1),
     gazeRightX: clamp(p.gazeRightX ?? 0, -1, 1),
     gazeRightY: clamp(p.gazeRightY ?? 0, -1, 1),
+    blink: clamp(p.blink ?? 0, 0, 1),
     lightDir: p.lightDir,
     ambient: p.ambient,
   };
@@ -683,7 +689,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
 
       // Enter eye-local coordinate system
       ctx.save();
-      ctx.globalAlpha = facing;
+      ctx.globalAlpha = finalOpacity;
       ctx.translate(t.screenX, t.screenY);
       ctx.rotate(eyeAngle);
 
@@ -733,7 +739,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
         ctx.beginPath();
         ctx.ellipse(gazeOffsetX, gazeOffsetY, irisR, irisR, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#7a6b5c';
-        ctx.globalAlpha = Math.max(0.4, facing);
+        ctx.globalAlpha = Math.max(0.4, finalOpacity);
         ctx.fill();
 
         ctx.beginPath();
@@ -747,12 +753,12 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
           ctx.beginPath();
           ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
           ctx.fillStyle = '#ffffff';
-          ctx.globalAlpha = Math.max(0.3, facing) * 0.7;
+          ctx.globalAlpha = Math.max(0.3, finalOpacity) * 0.7;
           ctx.fill();
         }
 
         ctx.restore();
-        ctx.globalAlpha = facing;
+        ctx.globalAlpha = finalOpacity;
 
         // 3. Upper eyelid: cover from top down to eyelidY, clipped to eye white ellipse
         if (easedClosed > 0.02) {
@@ -858,8 +864,8 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    const leftIris = drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY);
-    const rightIris = drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY);
+    const leftIris = drawEye(anchors.leftEye, np.eyeLeft * (1 - np.blink), np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY, true);
+    const rightIris = drawEye(anchors.rightEye, np.eyeRight * (1 - np.blink), np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY, false);
     if (leftIris) this.irisDiag.left = leftIris;
     if (rightIris) this.irisDiag.right = rightIris;
     const rAvg = (this.irisDiag.left.radius + this.irisDiag.right.radius) / 2;
@@ -1345,11 +1351,52 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
 
     const eyeBase = Math.max(8, mesh.headX * 0.25);
 
-    const drawEye = (anchor, openness, eyeWide, eyeSquint, gazeX, gazeY) => {
+    const drawEye = (anchor, openness, eyeWide, eyeSquint, gazeX, gazeY, isLeftEye) => {
       const local = computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
-      const facing = clamp(t.nz, -0.2, 1.0);
-      if (facing <= 0) return;
+
+      const normalFacing = t.nz;
+
+      if (normalFacing <= 0.02) return;
+
+      const angleDeg = Math.abs(np.headYaw);
+      const fadeStart = 40;
+      const fadeEnd = 85;
+
+      let occlusionOpacity = 1;
+
+      const isFarEye = (isLeftEye && np.headYaw > 0) || (!isLeftEye && np.headYaw < 0);
+
+      if (angleDeg > fadeStart && isFarEye) {
+        const tFade = (angleDeg - fadeStart) / (fadeEnd - fadeStart);
+        occlusionOpacity = 1 - smoothstep(0, 1, tFade);
+      }
+
+      const finalOpacity = Math.max(0, Math.min(1, occlusionOpacity));
+
+      if (finalOpacity <= 0.02) {
+        return {
+          centerX: t.screenX,
+          centerY: t.screenY,
+          radius: 0,
+          area: 0,
+          eyeCenterX: t.screenX,
+          eyeCenterY: t.screenY,
+          localOffsetX: 0,
+          localOffsetY: 0,
+          gazeX: gazeX || 0,
+          gazeY: gazeY || 0,
+          visible: false,
+          clippedByEyelid: false,
+          eyeRx: 0,
+          eyeRy: 0,
+          rightLen: 0,
+          downLen: 0,
+          facing: normalFacing,
+          finalOpacity: 0,
+          anchorNz: t.nz,
+        };
+      }
 
       const eyeHalfW = eyeBase * scale;
       const eyeHalfH = eyeBase * scale;
@@ -1403,7 +1450,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
 
       // Enter eye-local coordinate system
       ctx.save();
-      ctx.globalAlpha = facing;
+      ctx.globalAlpha = finalOpacity;
       ctx.translate(t.screenX, t.screenY);
       ctx.rotate(eyeAngle);
 
@@ -1455,7 +1502,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.beginPath();
         ctx.ellipse(gazeOffsetX, gazeOffsetY, irisR, irisR, 0, 0, Math.PI * 2);
         ctx.fillStyle = '#7a6b5c';
-        ctx.globalAlpha = Math.max(0.4, facing);
+        ctx.globalAlpha = Math.max(0.4, finalOpacity);
         ctx.fill();
 
         // Pupil: fixed-size circle
@@ -1471,12 +1518,12 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
           ctx.beginPath();
           ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
           ctx.fillStyle = '#ffffff';
-          ctx.globalAlpha = Math.max(0.3, facing) * 0.7;
+          ctx.globalAlpha = Math.max(0.3, finalOpacity) * 0.7;
           ctx.fill();
         }
 
         ctx.restore();
-        ctx.globalAlpha = facing;
+        ctx.globalAlpha = finalOpacity;
 
         // 3. Upper eyelid: cover from top down to eyelidY, clipped to eye white ellipse
         // In eye-local coords: eyelidY goes from -localRy (top) to +localRy (bottom)
@@ -1501,7 +1548,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
           ctx.stroke();
 
           ctx.restore();
-          ctx.globalAlpha = facing;
+          ctx.globalAlpha = finalOpacity;
         }
       }
 
@@ -1523,7 +1570,8 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         eyeAngle: eyeAngle,
         rightLen: rLen,
         downLen: dLen,
-        facing: facing,
+        facing: normalFacing,
+        finalOpacity: finalOpacity,
         anchorNz: t.nz,
       };
 
@@ -1701,8 +1749,8 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    const leftIris = drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY);
-    const rightIris = drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY);
+    const leftIris = drawEye(anchors.leftEye, np.eyeLeft * (1 - np.blink), np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY, true);
+    const rightIris = drawEye(anchors.rightEye, np.eyeRight * (1 - np.blink), np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY, false);
     if (leftIris) this.irisDiag.left = leftIris;
     if (rightIris) this.irisDiag.right = rightIris;
     const rAvg = (this.irisDiag.left.radius + this.irisDiag.right.radius) / 2;
