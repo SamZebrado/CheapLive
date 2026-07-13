@@ -208,18 +208,10 @@
     border-radius: 0;
   }
   .app-mode-exit {
-    position: fixed;
-    top: 12px;
-    right: 12px;
-    z-index: 1000;
     display: none;
-    opacity: 0.3;
-    padding: 6px 10px;
-    font-size: 10px;
   }
-  body.app-mode .app-mode-exit { display: block; }
-  .app-mode-exit:hover { opacity: 1; }
-  body.app-mode { background: #0a0e1a; }
+  body.app-mode .app-mode-exit { display: none; }
+  body.app-mode { background: #000000; }
 
   .log-panel {
     background: rgba(0,0,0,0.3);
@@ -1509,9 +1501,13 @@
     document.body.classList.toggle('app-mode', appMode);
     var btn = document.getElementById('toggleAppModeBtn');
     if (btn) btn.textContent = appMode ? '退出应用模式' : '进入应用模式';
+    // 同步 appMode 到 renderer
+    if (typeof procRenderer !== 'undefined' && procRenderer && typeof procRenderer.setAppMode === 'function') {
+      procRenderer.setAppMode(appMode);
+    }
     // 重新计算 canvas 尺寸
     if (typeof resizeStage === 'function') resizeStage();
-    log(appMode ? '已进入应用模式（右上角按钮退出）' : '已退出应用模式', 'info');
+    log(appMode ? '已进入应用模式（双击屏幕退出）' : '已退出应用模式', 'info');
   }
 
   // ===== 绑定控制按钮 =====
@@ -1545,8 +1541,12 @@
     });
     var appModeBtn = document.getElementById('toggleAppModeBtn');
     if (appModeBtn) appModeBtn.addEventListener('click', function() { toggleAppMode(); });
-    var exitBtn = document.getElementById('appModeExitBtn');
-    if (exitBtn) exitBtn.addEventListener('click', function() { toggleAppMode(false); });
+    // 应用模式下双击屏幕退出
+    document.addEventListener('dblclick', function(e) {
+      if (appMode) {
+        toggleAppMode(false);
+      }
+    });
     // preset buttons
     var presetBtns = document.querySelectorAll('.preset-btn');
     presetBtns.forEach(function(btn) {
@@ -1681,12 +1681,20 @@
     if (chunkEl) chunkEl.textContent = audioChunkCount;
     if (btn) {
       if (audioUnlocked) {
-        btn.textContent = '音频已开启';
-        btn.disabled = true;
+        btn.textContent = '关闭音频';
+        btn.disabled = false;
       } else {
         btn.textContent = '打开音频';
         btn.disabled = false;
       }
+    }
+  }
+
+  function toggleAudio() {
+    if (audioUnlocked) {
+      disableAudio();
+    } else {
+      enableAudio();
     }
   }
 
@@ -1705,11 +1713,50 @@
     // 用户手势期间，直接 play() 以解锁 autoplay
     if (audioElement && audioElement.paused) {
       audioElement.play().then(function() {
+        if (!audioUnlocked) return;
         console.error('[CheapLiveAudioReceiver] audio_unlocked_by_user_gesture');
       }).catch(function(e) {
+        if (!audioUnlocked) return;
         console.error('[CheapLiveAudioReceiver] unlock_play_failed:', e.message);
       });
     }
+  }
+
+  function disableAudio() {
+    if (!audioUnlocked) return;
+    console.error('[CheapLiveAudioReceiver] audio_disable_clicked');
+    audioUnlocked = false;
+    window.__cheapLiveReceiverDiag.audioUnlocked = false;
+
+    // 停止播放
+    if (audioElement) {
+      try { audioElement.pause(); } catch (e) {}
+      try {
+        if (audioObjectUrl) {
+          URL.revokeObjectURL(audioObjectUrl);
+          audioObjectUrl = null;
+        }
+      } catch (e) {}
+      audioElement.src = '';
+      try { audioElement.remove(); } catch (e) {}
+      audioElement = null;
+    }
+
+    // 清理 MediaSource
+    mediaSource = null;
+    sourceBuffer = null;
+    mediaSourceReady = false;
+    audioMimeType = '';
+
+    // 清空队列
+    audioQueue = [];
+    audioChunkCount = 0;
+    window.__cheapLiveReceiverDiag.audioChunkCount = 0;
+
+    // 更新状态
+    audioPlaybackState = 'off';
+    window.__cheapLiveReceiverDiag.audioPlaybackState = 'off';
+    updateAudioStatusUI();
   }
 
   // 尝试播放音频（在有数据且已解锁时）— 不检查 readyState，直接尝试 play
@@ -1726,6 +1773,7 @@
     }
     // 直接尝试 play()，不检查 readyState
     audioElement.play().then(function() {
+      if (!audioUnlocked) return;
       if (audioPlaybackState !== 'playing') {
         audioPlaybackState = 'playing';
         window.__cheapLiveReceiverDiag.audioPlaybackState = 'playing';
@@ -1733,6 +1781,7 @@
         updateAudioStatusUI();
       }
     }).catch(function(e) {
+      if (!audioUnlocked) return;
       // play() 失败可能是 autoplay policy 或数据不足，保持 waiting 状态
       if (audioPlaybackState !== 'error' && audioPlaybackState !== 'playing') {
         audioPlaybackState = 'waiting';
@@ -1744,7 +1793,7 @@
 
   var enableAudioBtn = document.getElementById('enableAudioBtn');
   if (enableAudioBtn) {
-    enableAudioBtn.addEventListener('click', enableAudio);
+    enableAudioBtn.addEventListener('click', toggleAudio);
   }
 
   function initAudioPlayback() {
@@ -1755,10 +1804,12 @@
     log('音频播放元素已创建（点击页面启动声音）', 'info');
     // autoplay policy：首次用户交互时尝试 play
     var resumeOnce = function() {
-      if (audioElement && audioElement.readyState >= 2) {
+      if (audioUnlocked && audioElement && audioElement.readyState >= 2) {
         audioElement.play().then(function() {
+          if (!audioUnlocked) return;
           console.error('[CheapLiveAudioReceiver] audio_playback_started_by_user_gesture');
         }).catch(function(e) {
+          if (!audioUnlocked) return;
           console.error('[CheapLiveAudioReceiver] resume_play_error:', e.message);
         });
       }

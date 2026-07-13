@@ -269,6 +269,10 @@ export class ProceduralQuadrupedAvatar {
     return false;
   }
 
+  setAppMode(enabled) {
+    this._appMode = !!enabled;
+  }
+
   updateParams(params) {
     if (params.eyeLeft !== undefined) this.eyeLeft = params.eyeLeft;
     if (params.eyeRight !== undefined) this.eyeRight = params.eyeRight;
@@ -393,6 +397,10 @@ export class ProceduralQuadrupedAvatar {
     
     if (!this._appMode) {
       ctx.fillStyle = '#1A1A2E';
+      ctx.fillRect(0, 0, w, h);
+    } else {
+      // 应用模式：纯黑背景，方便 chroma key 抠图
+      ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, w, h);
     }
     
@@ -1362,7 +1370,7 @@ export class ProceduralQuadrupedAvatar {
       
       // Layer 4: Pupil
       const pupilR = irisR * 0.5;
-      ctx.fillStyle = '#0a0604';
+      ctx.fillStyle = '#2a2018';
       ctx.beginPath();
       ctx.arc(ex, eyeY + openH * 0.05, pupilR, 0, Math.PI * 2);
       ctx.fill();

@@ -1,6 +1,6 @@
 {
   "sourceSha": "unknown",
-  "syncTime": "2026-07-12T06:34:50.488Z",
+  "syncTime": "2026-07-12T07:00:38.845Z",
   "files": [
     {
       "src": "contest-demo/contest-interactive-demo.html",
@@ -11,8 +11,8 @@
     {
       "src": "contest-demo/contest-interactive-demo.js",
       "dest": "contest-interactive-demo.js",
-      "hash": "1ba13d123f61ea9500d2fc9589dc1572",
-      "size": 170891
+      "hash": "efcabf15f5ce3bb4c6a0f1097cc09aee",
+      "size": 170897
     },
     {
       "src": "contest-demo/contest-interactive-demo.css",
@@ -41,8 +41,8 @@
     {
       "src": "face-tracking/procedural-mesh-renderer.js",
       "dest": "procedural-mesh-renderer.js",
-      "hash": "d3794204c0cf322730d79f02d70f89ba",
-      "size": 54368
+      "hash": "a683c944fa66e1e5ef6559bef5f64602",
+      "size": 54124
     },
     {
       "src": "face-tracking/mesh-spindle-whale.js",

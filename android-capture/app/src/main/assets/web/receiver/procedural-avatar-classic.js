@@ -1346,8 +1346,8 @@ class ProceduralMeshRenderer {
       ctx.fillStyle = '#1A1A2E';
       ctx.fillRect(0, 0, w, h);
     } else {
-      // 应用模式下用浅色背景，保证面部灰度对比明显
-      ctx.fillStyle = '#F7F5EE';
+      // 应用模式：纯黑背景，方便 chroma key 抠图
+      ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, w, h);
     }
 
@@ -1667,7 +1667,7 @@ class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       const pupilRy = ry * 0.55 * easedOpen;
       ctx.beginPath();
       ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, ang, 0, Math.PI * 2);
-      ctx.fillStyle = '#1f1f1f';
+      ctx.fillStyle = '#2a2420';
       ctx.globalAlpha = facing * easedOpen;
       ctx.fill();
       ctx.globalAlpha = facing;
@@ -1933,7 +1933,7 @@ class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const pupilRy = ry * 0.55 * easedOpen;
       ctx.beginPath();
       ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, ang, 0, Math.PI * 2);
-      ctx.fillStyle = '#1f1f1f';
+      ctx.fillStyle = '#2a2420';
       ctx.globalAlpha = facing * easedOpen;
       ctx.fill();
       ctx.globalAlpha = facing;

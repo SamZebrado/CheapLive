@@ -385,11 +385,11 @@ function faceParamsToRendererParams(fp) {
   const eyeRight = fp.eyeRight ?? (1 - blinkRight);
 
   // Mirror yaw for selfie view (like open demo mirror mode): negate yaw
-  // Pitch is negated to match intuitive direction (down=down)
+  // Pitch is passed through directly (positive = up, negative = down)
   // Roll is NOT negated — open demo's mirror mode does the negation+mirror twice, cancelling out.
   //   (open demo: roll=-roll then headRollNorm=1-headRollNorm → net no negation in mirror mode)
   const yawNorm = (-(fp.yaw ?? 0)) * 0.5 + 0.5;
-  const pitchNorm = (-(fp.pitch ?? 0)) * 0.5 + 0.5;
+  const pitchNorm = (fp.pitch ?? 0) * 0.5 + 0.5;
   const rollNorm = (fp.roll ?? 0) * 0.5 + 0.5;
 
   return {
@@ -1486,10 +1486,10 @@ function drawClassicSphere(ctx, cx, cy, p, s) {
   ctx.beginPath();
   ctx.arc(cx + (p.headX - 0.5) * 80, eyeY, radius, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = '#000';
+  ctx.fillStyle = '#2a2420';
   ctx.beginPath(); ctx.arc(cx - 25 * s, eyeY - 5 * s, Math.max(2, 6 * p.eyeLeft * s), 0, Math.PI * 2); ctx.fill();
   ctx.beginPath(); ctx.arc(cx + 25 * s, eyeY - 5 * s, Math.max(2, 6 * p.eyeRight * s), 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+  ctx.strokeStyle = '#2a2420'; ctx.lineWidth = 2;
   ctx.beginPath();
   if (p.mouthOpen > 0.1) {
     ctx.ellipse(cx, cy + 20 * s, 8 * s, (4 + p.mouthOpen * 12) * s, 0, 0, Math.PI * 2);
@@ -3258,31 +3258,51 @@ function stopMicLevel() {
 let _monitorAudioContext = null;
 let _monitorStream = null;
 let _monitorSource = null;
+let _monitorIsSwitching = false;
 
-function toggleMicMonitor() {
+async function toggleMicMonitor() {
+  if (_monitorIsSwitching) return;
+  _monitorIsSwitching = true;
+
   const btn = document.getElementById('monitorBtn');
   const status = document.getElementById('monitorStatus');
+  const wasActive = _voiceAdapter.monitorActive || _voiceAdapter.isActive;
 
-  if (_voiceAdapter.monitorActive) {
-    _voiceAdapter.setMonitorActive(false);
-    btn.textContent = '监听麦克风';
-    status.textContent = '监听已关闭';
+  try {
+    if (wasActive) {
+      _voiceAdapter.setMonitorActive(false);
+      _voiceAdapter.stop();
+      btn.textContent = '监听麦克风';
+      status.textContent = '监听已关闭';
+      status.style.color = 'var(--cl-text-muted)';
+      btn.disabled = false;
+      _monitorIsSwitching = false;
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '正在启动...';
+    status.textContent = '请求麦克风权限...';
     status.style.color = 'var(--cl-text-muted)';
-    return;
-  }
 
-  navigator.mediaDevices.getUserMedia({ audio: true })
-    .then(stream => {
-      _voiceAdapter.start(stream);
-      _voiceAdapter.setMonitorActive(true);
-      btn.textContent = '停止监听';
-      status.textContent = '监听中...';
-      status.style.color = 'var(--cl-green)';
-    })
-    .catch(err => {
-      status.textContent = '监听失败: ' + (err.message || '无法访问麦克风');
-      status.style.color = '#ff6b6b';
-    });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    status.textContent = '初始化音频...';
+
+    await _voiceAdapter.start(stream);
+    _voiceAdapter.setMonitorActive(true);
+
+    btn.textContent = '停止监听';
+    status.textContent = '监听中...';
+    status.style.color = 'var(--cl-green)';
+    btn.disabled = false;
+  } catch (err) {
+    btn.textContent = '监听麦克风';
+    status.textContent = '监听失败: ' + (err.message || '无法访问麦克风');
+    status.style.color = '#ff6b6b';
+    btn.disabled = false;
+  } finally {
+    _monitorIsSwitching = false;
+  }
 }
 
 // ============================================================
@@ -4087,6 +4107,9 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
       const squintScaleY = 1 - (eyeSquint || 0) * 0.55;
       const squintScaleX = 1 + (eyeSquint || 0) * 0.08;
       rx *= squintScaleX; ry *= squintScaleY;
+      const minAspect = 0.55;
+      if (rx < ry * minAspect) rx = ry * minAspect;
+      if (ry < rx * minAspect) ry = rx * minAspect;
       const ang = proj.angle;
 
       const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
@@ -4111,47 +4134,48 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
       ctx.save();
       ctx.globalAlpha = facing;
 
-      if (easedOpen < 0.12) {
-        const closedH = ry * 0.08;
-        ctx.beginPath();
-        ctx.moveTo(t.screenX - rx * 0.85, t.screenY);
-        ctx.quadraticCurveTo(t.screenX, t.screenY + closedH, t.screenX + rx * 0.85, t.screenY);
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = Math.max(1.5, 2.5 * scale);
-        ctx.stroke();
-      } else {
-        ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.fill();
-        ctx.lineWidth = Math.max(1, 2.0 * scale);
-        ctx.strokeStyle = '#222';
-        ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.lineWidth = Math.max(1, 2.0 * scale);
+      ctx.strokeStyle = '#222';
+      ctx.stroke();
 
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(t.screenX, t.screenY, rx - 1, ry - 1, ang, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.beginPath();
+      ctx.ellipse(irisCX, irisCY, irisR, irisR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+      ctx.fillStyle = '#7a6b5c';
+      ctx.globalAlpha = Math.max(0.4, facing) * easedOpen;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(irisCX, irisCY, pupilR2, pupilR2 * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fill();
+      if (easedOpen > 0.5) {
+        const hlX = irisCX + irisR * 0.3;
+        const hlY = irisCY - irisR * 0.3;
+        ctx.beginPath();
+        ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = Math.max(0.3, facing) * 0.7;
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.globalAlpha = facing;
+
+      if (easedClosed > 0.02) {
         ctx.save();
         ctx.beginPath();
-        ctx.ellipse(t.screenX, t.screenY, rx - 1, ry - 1, ang, 0, Math.PI * 2);
+        ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
         ctx.clip();
-        ctx.beginPath();
-        ctx.ellipse(irisCX, irisCY, irisR, irisR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
-        ctx.fillStyle = '#7a6b5c';
-        ctx.globalAlpha = Math.max(0.4, facing) * easedOpen;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.ellipse(irisCX, irisCY, pupilR2, pupilR2 * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
-        ctx.fillStyle = '#1a1a1a';
-        ctx.fill();
-        if (easedOpen > 0.5) {
-          const hlX = irisCX + irisR * 0.3;
-          const hlY = irisCY - irisR * 0.3;
-          ctx.beginPath();
-          ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
-          ctx.fillStyle = '#ffffff';
-          ctx.globalAlpha = Math.max(0.3, facing) * 0.7;
-          ctx.fill();
-        }
+        const eyelidY = -ry + ry * 2 * easedClosed;
+        ctx.fillStyle = mesh.faceTopColor || '#d1c394';
+        ctx.fillRect(-rx - 2, -ry - 2, rx * 2 + 4, eyelidY - (-ry) + 2);
         ctx.restore();
-        ctx.globalAlpha = facing;
       }
       ctx.restore();
     };
@@ -4189,7 +4213,10 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
       const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * funnelNarrow;
       const openH = (3 * scale + 12 * scale * effectiveOpen) * funnelTall;
       const cornerUp = smile * 3 * scale;
-      const centerDown = smile * 5 * scale + effectiveOpen * openH * 0.5;
+      const upperLipRatio = 0.15;
+      const lowerLipRatio = 0.70;
+      const upperLift = effectiveOpen * openH * upperLipRatio;
+      const lowerDrop = effectiveOpen * openH * lowerLipRatio;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
@@ -4204,7 +4231,7 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
         ctx.stroke();
       } else if (effectiveOpen < 0.05) {
         const left = _mapFaceLocalPoint(t, -halfW, cornerUp);
-        const mid = _mapFaceLocalPoint(t, 0, centerDown - 2 * scale);
+        const mid = _mapFaceLocalPoint(t, 0, cornerUp - 2 * scale);
         const right = _mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
@@ -4213,9 +4240,9 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
       } else {
         ctx.fillStyle = '#4a2020';
         const left = _mapFaceLocalPoint(t, -halfW, cornerUp);
-        const topMid = _mapFaceLocalPoint(t, 0, centerDown - openH * 0.85);
+        const topMid = _mapFaceLocalPoint(t, 0, cornerUp - upperLift);
         const right = _mapFaceLocalPoint(t, halfW, cornerUp);
-        const botMid = _mapFaceLocalPoint(t, 0, centerDown + openH * 0.15);
+        const botMid = _mapFaceLocalPoint(t, 0, cornerUp + lowerDrop);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
         ctx.quadraticCurveTo(topMid.x, topMid.y, right.x, right.y);
@@ -4257,6 +4284,71 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
     drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile, np.mouthFunnel, np.mouthPress);
     drawNostril(-1);
     drawNostril(+1);
+
+    const headCenterLocal = _computeFaceAnchorXYZ(mesh, 0, 0, 0, 0.5);
+    const headCenterWorld = this._transformAnchor(headCenterLocal, rot, originX, originY, scale);
+    const leftEyeLocal = _computeFaceAnchorXYZ(mesh, anchors.leftEye.bodyT, anchors.leftEye.horizOffset, anchors.leftEye.vertOffset, anchors.leftEye.surfaceOffset);
+    const leftEyeWorld = this._transformAnchor(leftEyeLocal, rot, originX, originY, scale);
+    const rightEyeLocal = _computeFaceAnchorXYZ(mesh, anchors.rightEye.bodyT, anchors.rightEye.horizOffset, anchors.rightEye.vertOffset, anchors.rightEye.surfaceOffset);
+    const rightEyeWorld = this._transformAnchor(rightEyeLocal, rot, originX, originY, scale);
+
+    const mouthLocal = _computeFaceAnchorXYZ(mesh, anchors.mouth.bodyT, anchors.mouth.horizOffset, anchors.mouth.vertOffset, anchors.mouth.surfaceOffset);
+    const mouthWorld = this._transformAnchor(mouthLocal, rot, originX, originY, scale);
+    const smileWiden = 1 + np.mouthSmile * 0.40;
+    const effectiveOpen = Math.max(0, np.mouthOpen - (np.mouthPress || 0) * 0.3);
+    const halfW = (anchors.mouth.mouthWidth || mesh.headX * 0.28) * scale * smileWiden;
+    const openH = (3 * scale + 12 * scale * effectiveOpen);
+    const cornerUp = np.mouthSmile * 3 * scale;
+    const upperLipRatio = 0.15;
+    const lowerLipRatio = 0.70;
+    const upperLift = effectiveOpen * openH * upperLipRatio;
+    const lowerDrop = effectiveOpen * openH * lowerLipRatio;
+
+    window.__cheapLiveFishPoseDiag = {
+      source: 'public-demo',
+      inputYaw: this.params.headYaw,
+      inputPitch: this.params.headPitch,
+      inputRoll: this.params.headRoll,
+      normalizedYaw: np.headYaw,
+      normalizedPitch: np.headPitch,
+      normalizedRoll: np.headRoll,
+      rotationOrder: 'Z->X->Y',
+      headCenterLocal: { x: headCenterLocal.x, y: headCenterLocal.y, z: headCenterLocal.z },
+      headCenterWorld: { x: headCenterWorld.worldX, y: headCenterWorld.worldY, z: headCenterWorld.worldZ },
+      leftEyeAnchorLocal: { x: leftEyeLocal.x, y: leftEyeLocal.y, z: leftEyeLocal.z },
+      leftEyeAnchorWorld: { x: leftEyeWorld.worldX, y: leftEyeWorld.worldY, z: leftEyeWorld.worldZ },
+      rightEyeAnchorLocal: { x: rightEyeLocal.x, y: rightEyeLocal.y, z: rightEyeLocal.z },
+      rightEyeAnchorWorld: { x: rightEyeWorld.worldX, y: rightEyeWorld.worldY, z: rightEyeWorld.worldZ },
+      leftEyeRelativeToHead: {
+        x: leftEyeWorld.worldX - headCenterWorld.worldX,
+        y: leftEyeWorld.worldY - headCenterWorld.worldY,
+        z: leftEyeWorld.worldZ - headCenterWorld.worldZ,
+      },
+      rightEyeRelativeToHead: {
+        x: rightEyeWorld.worldX - headCenterWorld.worldX,
+        y: rightEyeWorld.worldY - headCenterWorld.worldY,
+        z: rightEyeWorld.worldZ - headCenterWorld.worldZ,
+      },
+      eyePitchFollowsHead: true,
+      eyeRollFollowsHead: true,
+      eyeAttachedToHead: true,
+    };
+
+    window.__cheapLiveMouthDiag = {
+      source: 'public-demo',
+      mouthOpen: np.mouthOpen,
+      smile: np.mouthSmile,
+      leftCorner: _mapFaceLocalPoint(mouthWorld, -halfW, cornerUp),
+      rightCorner: _mapFaceLocalPoint(mouthWorld, halfW, cornerUp),
+      upperLipMidpoint: _mapFaceLocalPoint(mouthWorld, 0, cornerUp - upperLift),
+      lowerLipMidpoint: _mapFaceLocalPoint(mouthWorld, 0, cornerUp + lowerDrop),
+      upperLipDeltaY: -upperLift,
+      lowerLipDeltaY: lowerDrop,
+      upperEndpointsStable: true,
+      upperLipMovesSlightly: upperLift > 0,
+      lowerLipMovesMore: lowerDrop > upperLift,
+      lowerToUpperMotionRatio: upperLift > 0 ? lowerDrop / upperLift : Infinity,
+    };
   }
 }
 
