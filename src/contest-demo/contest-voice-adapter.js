@@ -148,6 +148,48 @@ export class ContestVoiceAdapter {
     this._setStatus('disabled', '');
   }
 
+  /** 启动变声（带已有 stream） */
+  async start(stream) {
+    try {
+      await this._vc.start(stream);
+      this._syncFromVc();
+      if (this._vc.state === 'enabled') {
+        this._setStatus('enabled', '');
+      }
+    } catch (e) {
+      const msg = (e && e.message) || String(e);
+      if (/NotAllowedError|权限被拒绝|permission/i.test(msg)) {
+        this._setStatus('permission-denied', msg);
+      } else {
+        this._setStatus('error', msg);
+      }
+      throw e;
+    }
+  }
+
+  /** 停止 */
+  stop() {
+    try {
+      this._vc.stop();
+    } catch (_) {}
+    this._setStatus('disabled', '');
+  }
+
+  /** 是否正在监听（local playback active） */
+  get monitorActive() {
+    return this._vc.monitorMode === 'changed' || this._vc.monitorMode === 'original';
+  }
+
+  /** 设置监听开关 */
+  setMonitorActive(active) {
+    if (active) {
+      this._vc.setMonitorMode('changed');
+    } else {
+      this._vc.setMonitorMode('mute');
+    }
+    this._emit();
+  }
+
   /** 销毁，释放全部资源 */
   destroy() {
     try { this._vc.destroy(); } catch (_) {}
