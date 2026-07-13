@@ -226,9 +226,36 @@ function parseRGB(c) {
 }
 
 /**
- * 将 face-tracker 的 [0, 1] 归一化参数转为渲染器可用的值。
+ * 将 face-tracker 的参数转为渲染器可用的值。
+ *
+ * 姿态参数契约（显式兼容）：
+ *
+ * - poseUnit 未指定或 !== "degrees"（默认旧契约，normalized）：
+ *   headYaw / headPitch / headRoll 为 [0, 1] 归一化值，0.5 = 正前方。
+ *   内部转换为度数：
+ *     headYaw   = (clamp(v, 0, 1) - 0.5) * 120   → [-60, 60]
+ *     headPitch = (clamp(v, 0, 1) - 0.5) * 90    → [-45, 45]
+ *     headRoll  = (clamp(v, 0, 1) - 0.5) * 80    → [-40, 40]
+ *
+ * - poseUnit === "degrees"（显式度数契约）：
+ *   headYaw / headPitch / headRoll 直接按度数读取并 clamp。
  */
 function normalizeParams(p) {
+  const poseUnit = p.poseUnit;
+  const useDegrees = poseUnit === 'degrees';
+
+  let headYaw, headPitch, headRoll;
+
+  if (useDegrees) {
+    headYaw = clamp(p.headYaw ?? 0, -90, 90);
+    headPitch = clamp(p.headPitch ?? 0, -45, 45);
+    headRoll = clamp(p.headRoll ?? 0, -40, 40);
+  } else {
+    headYaw = (clamp(p.headYaw ?? 0.5, 0, 1) - 0.5) * 120;
+    headPitch = (clamp(p.headPitch ?? 0.5, 0, 1) - 0.5) * 90;
+    headRoll = (clamp(p.headRoll ?? 0.5, 0, 1) - 0.5) * 80;
+  }
+
   return {
     eyeLeft: clamp(p.eyeLeft ?? 1, 0, 1),
     eyeRight: clamp(p.eyeRight ?? 1, 0, 1),
@@ -242,9 +269,9 @@ function normalizeParams(p) {
     mouthPress: clamp(p.mouthPress ?? 0, 0, 1),
     browLeft: clamp(p.browLeft ?? 0, 0, 1),
     browRight: clamp(p.browRight ?? 0, 0, 1),
-    headYaw: clamp(p.headYaw ?? 0, -90, 90),
-    headPitch: clamp(p.headPitch ?? 0, -45, 45),
-    headRoll: clamp(p.headRoll ?? 0, -40, 40),
+    headYaw: headYaw,
+    headPitch: headPitch,
+    headRoll: headRoll,
     headX: clamp(p.headX ?? 0.5, 0, 1),
     headY: clamp(p.headY ?? 0.5, 0, 1),
     // 虹膜视线方向: [-1, 1]

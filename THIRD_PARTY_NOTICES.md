@@ -9,7 +9,7 @@ These components are bundled with the web application and distributed to end use
 ### MediaPipe Face Landmarker
 
 - **Name**: MediaPipe Tasks Vision (Face Landmarker)
-- **Version**: 0.10.x (approximate, based on vision_bundle.mjs)
+- **Version**: Vendored snapshot (exact npm version not determinable from bundle)
 - **License**: Apache-2.0
 - **SPDX**: Apache-2.0
 - **Homepage**: https://github.com/google-ai-edge/mediapipe
@@ -17,7 +17,7 @@ These components are bundled with the web application and distributed to end use
 - **Distribution**: Bundled with web application (WASM + JS + model)
 - **Files**:
   - `src/face-tracking/mediapipe/vision_bundle.mjs`
-  - `src/face-tracking/mediapipe/wasm/vision_wasm_internal.wasm`
+  - `src/face-tracking/mediapipe/wasm/vision_wasm_internal.wasm` (SHA256: `3431f70071f3980bf13e638551e9bb333335223e35542ee768db06501f7a26f2`)
   - `src/face-tracking/mediapipe/wasm/vision_wasm_internal.js`
   - `src/face-tracking/mediapipe/wasm/vision_wasm_nosimd_internal.wasm`
   - `src/face-tracking/mediapipe/wasm/vision_wasm_nosimd_internal.js`
@@ -28,16 +28,20 @@ These components are bundled with the web application and distributed to end use
 ### SoundTouchJS
 
 - **Name**: SoundTouchJS
-- **Version**: 0.1.29
-- **License**: MIT
-- **SPDX**: MIT
-- **Homepage**: https://github.com/cotejp/soundtouchjs
+- **Version**: 0.1.29 (npm package, exact)
+- **License**: LGPL-2.1
+- **SPDX**: LGPL-2.1
+- **Homepage**: https://github.com/cutterbl/SoundTouchJS
 - **Purpose**: Audio pitch shifting for voice effects
 - **Distribution**: Bundled with web application (minified)
 - **Files**:
   - `src/face-tracking/lib/soundtouch.min.js`
-- **License File**: Not included (original license: MIT)
-- **Attribution**: Copyright (c) 2014-2020 cotejp and contributors. Licensed under MIT.
+- **File SHA256**: `44509e71d37d75e808261f4eb977c4c5acba3ae6874ec1f3b1c97c90ae5d31ac`
+- **Source**: jsDelivr CDN minified from `npm:soundtouchjs@0.1.29/dist/soundtouch.js`
+- **License File**: `third_party/soundtouchjs/LICENSE`
+- **Copyright**: Copyright (c) Steve 'Cutter' Blades and contributors. Based on SoundTouch by Olli Parviainen.
+- **Modifications**: None (vendored as-is from jsDelivr minified output)
+- **Note**: This is a copyleft (LGPL-2.1) runtime dependency. The library source is inherently available in web distribution (JavaScript is sent to the browser). The minified file includes the original jsDelivr header identifying the upstream npm package and version.
 
 ## Dev-Only Components
 
@@ -159,9 +163,14 @@ All code not explicitly listed above is original work by SamZebrado and is licen
 
 ## License Summary
 
-| License | Count | Risk Level |
-|---------|-------|------------|
-| MIT | 3 | Low |
-| Apache-2.0 | 10 | Low |
+| License | Count | Components | Risk Level |
+|---------|-------|------------|------------|
+| MIT | 2 | http-server, Project original code | Low |
+| Apache-2.0 | 12 | MediaPipe, Playwright, @playwright/test, AndroidX (5), Material, ZXing (2) | Low |
+| LGPL-2.1 | 1 | SoundTouchJS | Medium (copyleft) |
+
+### Copyleft Notice
+
+SoundTouchJS (LGPL-2.1) is a copyleft runtime dependency. For web distribution, the JavaScript source is inherently available to end users (sent to browser), satisfying LGPL source availability requirements. The original license text is included at `third_party/soundtouchjs/LICENSE`.
 
 No GPL, AGPL, SSPL, or non-commercial licenses are used in this project.
