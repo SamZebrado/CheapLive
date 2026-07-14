@@ -97,8 +97,13 @@ function faceParamsToRendererParams(fp) {
   const blinkRight = fp.blinkRight ?? fp.blink ?? 0;
   const eyeLeft = fp.eyeLeft ?? (1 - blinkLeft);
   const eyeRight = fp.eyeRight ?? (1 - blinkRight);
+  // Mirror yaw for selfie view (like open demo mirror mode): negate yaw
+  // Pitch: Web-only sign flip so the fish tilts the same way the user does.
+  //   - user looks down (fp.pitch < 0 in MediaPipe space) → visual head down → headPitch < 0
+  //   - user looks up   (fp.pitch > 0 in MediaPipe space) → visual head up   → headPitch > 0
+  // Roll is NOT negated — open demo's mirror mode does the negation+mirror twice, cancelling out.
   const yawNorm = (-(fp.yaw ?? 0)) * 0.5 + 0.5;
-  const pitchNorm = (fp.pitch ?? 0) * 0.5 + 0.5;
+  const pitchNorm = (-(fp.pitch ?? 0)) * 0.5 + 0.5;
   const rollNorm = (fp.roll ?? 0) * 0.5 + 0.5;
   return {
     mouthOpen: fp.mouthOpen ?? 0,

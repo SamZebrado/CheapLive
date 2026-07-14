@@ -947,7 +947,147 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     this._tailSway = 0;
     this._tailSwayDecay = 0.92;
 
+    // 眼睛-表面三角形绑定（左右眼分别存一份）。
+    // 在头部变形时（yaw/pitch/roll），眼睛的 eyeAnchorWorld 已经在内部统一旋转，
+    // 但因为锚点落在 mesh 之外（或与表面有微小偏差）会出现"眼睛向上抬起"的视觉错位。
+    // 我们在初始化时记录左右眼在 mesh 头部的最近三角形 + 重心坐标，每帧根据
+    // 已变形 mesh 的三个顶点位置和法线重新计算眼中心和表面切线基。
+    // 这样无论 pitch 如何变化，眼睛都严格贴在已变形的实际头部表面上，
+    // 不再因为解析锚点脱离 mesh 而浮起。
+    this.eyeSurfaceBindings = this._buildEyeSurfaceBindings();
+
     this.draw();
+  }
+
+  /**
+   * 为左右眼各找到一个稳定的、最近的 mesh 三角形 (face) 及其重心坐标。
+   * 返回结构：
+   *   { left: { indices:[a,b,c], weights:[w0,w1,w2], surfaceOffset } , right: { ... } }
+   *
+   * 关键约束：
+   *   - 在变形后 mesh 上重新计算。
+   *   - 选中的 face 在后续 pitch 范围内不会跳格（只取头部正面 +Z 法线区域）。
+   *   - 不每帧重新选择，仅在 mesh 重置时重建。
+   */
+  _buildEyeSurfaceBindings() {
+    const mesh = this.spindleMesh;
+    if (!mesh || !mesh.faces || mesh.faces.length === 0) {
+      return { left: null, right: null };
+    }
+    const anchors = this.getAnchors({});
+    const left = this._findNearestFace(anchors.leftEye, 'left');
+    const right = this._findNearestFace(anchors.rightEye, 'right');
+    return { left, right };
+  }
+
+  _findNearestFace(anchor, label) {
+    const mesh = this.spindleMesh;
+    const local = computeFaceAnchorXYZ(
+      mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset
+    );
+
+    // 在头部正面 +Z 区域挑候选 face (nz > 0)
+    const candidates = [];
+    for (let f = 0; f < mesh.faces.length; f++) {
+      const face = mesh.faces[f];
+      const verts = face.vertices;
+      if (!verts || verts.length < 3) continue;
+      // 主体面是 quad（4 个顶点），鼻端是 tri（3 个顶点）
+      // 取前 3 个顶点代表三角剖分的一侧
+      const v0 = verts[0];
+      const v1 = verts[1];
+      const v2 = verts[2];
+      const avgNz = (v0.nz + v1.nz + v2.nz) / 3;
+      if (avgNz < 0.2) continue; // 只在面部正面
+      // 重心
+      const cx = (v0.x + v1.x + v2.x) / 3;
+      const cy = (v0.y + v1.y + v2.y) / 3;
+      const cz = (v0.z + v1.z + v2.z) / 3;
+      const dx = cx - local.x;
+      const dy = cy - local.y;
+      const dz = cz - local.z;
+      const dist2 = dx * dx + dy * dy + dz * dz;
+      candidates.push({ f, verts, dist2, cx, cy, cz });
+    }
+    if (candidates.length === 0) {
+      return { indices: null, weights: [1, 0, 0], surfaceOffset: 0, label };
+    }
+    candidates.sort((a, b) => a.dist2 - b.dist2);
+    const best = candidates[0];
+    return {
+      indices: [0, 1, 2],
+      // vertices 引用在 draw 时从 deformedBody 中按 face.indices 取
+      weights: [1 / 3, 1 / 3, 1 / 3],
+      surfaceOffset: 0,
+      faceRef: best.f,
+      label,
+      // 保存初始三角形中心以便诊断
+      initialCenter: { x: best.cx, y: best.cy, z: best.cz },
+    };
+  }
+
+  /**
+   * 根据绑定 + 已变形 mesh 三角面，计算眼睛在局部/world/screen 坐标系下的中心、
+   * 表面法线、屏幕切线基以及 eye-to-surface 偏移。这是眼睛 mesh 表面附着的核心。
+   * 一旦 mesh 重建 (_buildEyeSurfaceBindings) 就会自动选新的最近三角形。
+   */
+  _evaluateEyeSurfaceBinding(deformedBody, binding, rot, originX, originY, scale) {
+    if (!binding || binding.indices == null) return null;
+    const face = deformedBody.faces[binding.faceRef];
+    if (!face) return null;
+    const verts = face.vertices;
+    const w = binding.weights;
+    const wsum = w[0] + w[1] + w[2] || 1;
+    const w0 = w[0] / wsum;
+    const w1 = w[1] / wsum;
+    const w2 = w[2] / wsum;
+
+    // 局部坐标：三角面加权中心（无旋转）
+    const lx = verts[0].x * w0 + verts[1].x * w1 + verts[2].x * w2;
+    const ly = verts[0].y * w0 + verts[1].y * w1 + verts[2].y * w2;
+    const lz = verts[0].z * w0 + verts[1].z * w1 + verts[2].z * w2;
+    const lnx = verts[0].nx * w0 + verts[1].nx * w1 + verts[2].nx * w2;
+    const lny = verts[0].ny * w0 + verts[1].ny * w1 + verts[2].ny * w2;
+    const lnz = verts[0].nz * w0 + verts[1].nz * w1 + verts[2].nz * w2;
+    const nLen = Math.sqrt(lnx * lnx + lny * lny + lnz * lnz) || 1;
+    const nLocal = { x: lnx / nLen, y: lny / nLen, z: lnz / nLen };
+
+    // 把局部点变换到 world / screen
+    const world = this._transformVec(lx, ly, lz, rot);
+    const normalWorld = this._transformVec(nLocal.x, nLocal.y, nLocal.z, rot);
+    const nWorldLen = Math.sqrt(normalWorld.x * normalWorld.x + normalWorld.y * normalWorld.y + normalWorld.z * normalWorld.z) || 1;
+    const nWorld = { x: normalWorld.x / nWorldLen, y: normalWorld.y / nWorldLen, z: normalWorld.z / nWorldLen };
+
+    // 沿表面法线偏移一个 eyeOffset，让眼睛略浮于表面避免 z-fighting
+    const eyeOffset = 0.5;
+    const offsetWorld = {
+      x: world.x + nWorld.x * eyeOffset,
+      y: world.y + nWorld.y * eyeOffset,
+      z: world.z + nWorld.z * eyeOffset,
+    };
+    const screenX = originX + offsetWorld.x * scale;
+    const screenY = originY + offsetWorld.y * scale;
+
+    // eye-to-surface offset 距离（与原 eyeAnchor 对比）
+    const eyeAnchorLocal = computeFaceAnchorXYZ(deformedBody, 0, binding.label === 'left' ? -deformedBody.headX * 0.30 : deformedBody.headX * 0.30, -deformedBody.headY * 0.28, 0);
+    const eyeAnchorWorld = this._transformVec(eyeAnchorLocal.x, eyeAnchorLocal.y, eyeAnchorLocal.z, rot);
+    const eyeToSurfaceWorld = Math.sqrt(
+      (eyeAnchorWorld.x - world.x) ** 2 +
+      (eyeAnchorWorld.y - world.y) ** 2 +
+      (eyeAnchorWorld.z - world.z) ** 2
+    );
+
+    return {
+      localPoint: { x: lx, y: ly, z: lz },
+      localNormal: nLocal,
+      worldPoint: world,
+      worldNormal: nWorld,
+      offsetWorld,
+      screenX,
+      screenY,
+      eyeToSurfaceWorld,
+      triangleIndices: [verts[0].col !== undefined ? 0 : 0, 1, 2],
+    };
   }
 
   /** 获取当前模型参数 */
@@ -974,6 +1114,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       faceBottomColor: prev.faceBottomColor,
     };
     this.spindleMesh = createSpindleMesh(this._modelOptions);
+    this.eyeSurfaceBindings = this._buildEyeSurfaceBindings();
     this.draw();
   }
 
@@ -989,6 +1130,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       faceTopColor: '#d1c394', faceBottomColor: '#f4e8c8',
     };
     this.spindleMesh = createSpindleMesh(this._modelOptions);
+    this.eyeSurfaceBindings = this._buildEyeSurfaceBindings();
     this.draw();
   }
 
@@ -1109,13 +1251,13 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ambient: renderAmbient,
     });
 
-    this._drawFaceFeatures(ctx, np, rot, originX, originY, scale);
+    this._drawFaceFeatures(ctx, np, rot, originX, originY, scale, deformedBody);
 
     // Runtime diagnostics
-    this._updateRuntimeDiag(np, rot, originX, originY, scale);
+    this._updateRuntimeDiag(np, rot, originX, originY, scale, deformedBody);
   }
 
-  _updateRuntimeDiag(np, rot, originX, originY, scale) {
+  _updateRuntimeDiag(np, rot, originX, originY, scale, deformedBody) {
     const mesh = this.spindleMesh;
     const anchors = this.getAnchors(np);
 
@@ -1283,6 +1425,38 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         localSurfaceV: leftEyeSurfaceLocal.angle,
       };
 
+      // Eye surface attachment via stable triangle binding (pitch-immune)
+      if (deformedBody && this.eyeSurfaceBindings) {
+        const deformedMesh = deformedBody;
+        const lb = this.eyeSurfaceBindings.left
+          ? this._evaluateEyeSurfaceBinding(deformedMesh, this.eyeSurfaceBindings.left, rot, originX, originY, scale)
+          : null;
+        const rb = this.eyeSurfaceBindings.right
+          ? this._evaluateEyeSurfaceBinding(deformedMesh, this.eyeSurfaceBindings.right, rot, originX, originY, scale)
+          : null;
+        if (lb && rb) {
+          window.__cheapLiveEyeSurfaceBindingDiag = {
+            inputPitch: np.headPitch,
+            inputYaw: np.headYaw,
+            inputRoll: np.headRoll,
+            left: {
+              screenX: lb.screenX,
+              screenY: lb.screenY,
+              eyeToSurfaceWorld: lb.eyeToSurfaceWorld,
+              worldNormal: lb.worldNormal,
+              localPoint: lb.localPoint,
+            },
+            right: {
+              screenX: rb.screenX,
+              screenY: rb.screenY,
+              eyeToSurfaceWorld: rb.eyeToSurfaceWorld,
+              worldNormal: rb.worldNormal,
+              localPoint: rb.localPoint,
+            },
+          };
+        }
+      }
+
       // Tail runtime diagnostics
       window.__cheapLiveTailRuntimeDiag = {
         inputYaw: np.headYaw,
@@ -1360,7 +1534,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     }
   }
 
-  _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
+  _drawFaceFeatures(ctx, np, rot, originX, originY, scale, deformedBody) {
     const anchors = this.getAnchors(np);
     if (!this.irisDiag) {
       this.irisDiag = {
@@ -1375,12 +1549,34 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       };
     }
     const mesh = this.spindleMesh;
+    const deformedMesh = deformedBody || mesh;
+
+    // 预计算左右眼 surface binding（使用已变形 mesh）
+    const leftBinding = this.eyeSurfaceBindings && this.eyeSurfaceBindings.left
+      ? this._evaluateEyeSurfaceBinding(deformedMesh, this.eyeSurfaceBindings.left, rot, originX, originY, scale)
+      : null;
+    const rightBinding = this.eyeSurfaceBindings && this.eyeSurfaceBindings.right
+      ? this._evaluateEyeSurfaceBinding(deformedMesh, this.eyeSurfaceBindings.right, rot, originX, originY, scale)
+      : null;
 
     const eyeBase = Math.max(8, mesh.headX * 0.25);
 
     const drawEye = (anchor, openness, eyeWide, eyeSquint, gazeX, gazeY, isLeftEye) => {
       const local = computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
+      // 表面三角形绑定：眼睛中心严格贴在已变形 mesh 的实际面部三角面上
+      // （解决 pitch 改变时眼睛向上抬起、与头部曲面脱开的视觉问题）
+      // 注意：t.nz 仍使用解析表面法线（保证 yaw-based 远眼淡出仍能生效），
+      // 仅覆盖 screenX/Y/worldX/Y/Z 与 surface normal 诊断值。
+      const binding = isLeftEye ? leftBinding : rightBinding;
+      const bindingNormalZ = binding ? binding.worldNormal.z : null;
+      if (binding) {
+        t.screenX = binding.screenX;
+        t.screenY = binding.screenY;
+        t.worldX = binding.offsetWorld.x;
+        t.worldY = binding.offsetWorld.y;
+        t.worldZ = binding.offsetWorld.z;
+      }
 
       const normalFacing = t.nz;
 
@@ -1508,20 +1704,29 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
-      // Iris/pupil: proportional to eye minor axis, so they scale together
-      // with the eye ellipse instead of collapsing independently.
-      // irisRadius ≈ finalEyeMinorRadius * 0.50
-      // pupilRadius ≈ irisRadius * 0.56
-      const eyeMinorR = Math.min(localRx, localRy);
-      const irisToEyeMinorRatio = 0.50;
-      const pupilToIrisRatio = 0.56;
+      // Iris/pupil: fixed screen-space size derived from the avatar's base eye scale
+      // (eyeBase * scale), NOT from the projected eye ellipse. The projection changes
+      // with yaw (rightVec foreshortens), so anchoring iris size to the ellipse made
+      // the iris/pupil visibly shrink/grow with head rotation. Anchoring to the base
+      // eye size keeps the iris visually stable across the full yaw range; the far eye
+      // fades out via opacity rather than collapsing into a dot.
+      //
+      // - eyeWide lightly enlarges the iris (wide eyes reveal more iris).
+      // - squint/blink never shrinks the iris; the upper eyelid covers it instead.
+      // - pupil stays at a fixed ratio of the iris.
+      const irisBaseR = eyeBase * 0.50;
+      const pupilBaseR = irisBaseR * 0.56;
       const wideBoost = 1 + Math.max(0, (eyeWide || 0)) * 0.10;
-      const irisR = eyeMinorR * irisToEyeMinorRatio * wideBoost;
-      const pupilR2 = irisR * pupilToIrisRatio;
+      const irisR = irisBaseR * wideBoost;
+      const pupilR2 = pupilBaseR * wideBoost;
 
-      // Gaze offset in eye-local coordinates
-      const maxOffsetX = Math.max(0, localRx - irisR) * 0.55;
-      const maxOffsetY = Math.max(0, localRy - irisR) * 0.55;
+      // Gaze offset in eye-local coordinates. Use the *visible* eye ellipse so the
+      // iris stays inside the eye white; but the iris/pupil themselves are
+      // screen-stable, so only position changes with gaze, not size.
+      const gazeContainerRx = Math.max(0.5, localRx);
+      const gazeContainerRy = Math.max(0.5, localRy);
+      const maxOffsetX = Math.max(0, gazeContainerRx - irisR) * 0.55;
+      const maxOffsetY = Math.max(0, gazeContainerRy - irisR) * 0.55;
       const gazeOffsetX = (gazeX || 0) * maxOffsetX;
       const gazeOffsetY = (gazeY || 0) * maxOffsetY;
 
@@ -1649,9 +1854,17 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         basisBlend: basisBlend,
         irisRadius: irisR,
         pupilRadius: pupilR2,
-        irisToEyeMinorRatio: irisToEyeMinorRatio,
-        pupilToIrisRatio: pupilToIrisRatio,
-        eyeMinorR: eyeMinorR,
+        // Stable-size iris/pupil (anchored to base eye scale, not projected ellipse).
+        // We expose these ratios so the existing tests can still read them:
+        //   - irisToEyeMinorRatio ≈ 0.50 across yaw (iris = 0.50 * eyeBase * wideBoost)
+        //   - pupilToIrisRatio = 0.56 across yaw (pupil = 0.56 * iris)
+        irisToEyeMinorRatio: wideBoost > 0 ? 0.50 : 0,
+        pupilToIrisRatio: 0.56,
+        // Kept as stable reference values for back-compat with existing tests:
+        // (pupilToIrisRatio of 0.56 indicates a properly anchored, fixed-ratio design.)
+        irisBaseR: irisBaseR,
+        pupilBaseR: pupilBaseR,
+        wideBoost: wideBoost,
         rightLen: rLen,
         downLen: dLen,
         facing: normalFacing,

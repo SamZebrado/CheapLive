@@ -34,6 +34,23 @@ let _idleActive = true;
 let _frameTimeoutId = null;
 const FRAME_IDLE_TIMEOUT_MS = 3000;
 
+// 真实 iris gaze 平滑状态
+// EMA(α=0.30) 让真实 gaze 平滑避免抖动；gain=1.8 让真实眼动肉眼可见；
+// deadzone=0.03 抑制微小漂移被识别成注视；clamp 到 [-1, 1]。
+const GAZE_EMA_ALPHA = 0.30;
+const GAZE_DEADZONE = 0.03;
+const GAZE_GAIN = 1.8;
+let _smoothGazeLeftX = 0, _smoothGazeLeftY = 0;
+let _smoothGazeRightX = 0, _smoothGazeRightY = 0;
+let _gazeSource = 'idle';
+
+let _rafInstanceCount = 0;
+let _idleFrameCount = 0;
+let _trackingFrameCount = 0;
+let _lastTransitionReason = 'initial';
+let _lastIdleFrameTime = 0;
+let _lastTrackingFrameTime = 0;
+
 let _lastCameraFrameAt = 0;
 let _cameraFrameErrorCount = 0;
 let _lastCameraError = null;
@@ -374,7 +391,10 @@ function update3DRenderers(params) {
 function faceParamsToRendererParams(fp) {
   // Aligned with open demo mapping conventions (mirror mode):
   // - yaw: state.yaw in [-1,1]; negated for selfie mirror, then mapped to 0..1 (0.5=center)
-  // - pitch: state.pitch in [-1,1]; negated to match intuitive direction (down=down)
+  // - pitch: state.pitch in [-1,1]; NEGATED (Web-specific) so user look-down → fish look-down
+  //   and user look-up → fish look-up. (The underlying MediaPipe pitch sign in this build
+  //   produces the opposite visual direction; the sign fix lives ONLY at this Web adapter
+  //   layer. The Android receiver keeps its own mapping and must NOT inherit this negation.)
   // - roll: state.roll in [-1,1]; negated to match intuitive direction (left tilt=left tilt)
   // - eyeLeft/eyeRight: 0 = closed, 1 = fully open (derived from blink values)
   // - headX/headY: 0..1, 0.5=center (nose position, mirrored for selfie)
@@ -385,11 +405,13 @@ function faceParamsToRendererParams(fp) {
   const eyeRight = fp.eyeRight ?? (1 - blinkRight);
 
   // Mirror yaw for selfie view (like open demo mirror mode): negate yaw
-  // Pitch is passed through directly (positive = up, negative = down)
+  // Pitch: Web-only sign flip so the fish tilts the same way the user does.
+  //   - user looks down (fp.pitch < 0 in MediaPipe space) → visual head down → headPitch < 0
+  //   - user looks up   (fp.pitch > 0 in MediaPipe space) → visual head up   → headPitch > 0
   // Roll is NOT negated — open demo's mirror mode does the negation+mirror twice, cancelling out.
   //   (open demo: roll=-roll then headRollNorm=1-headRollNorm → net no negation in mirror mode)
   const yawNorm = (-(fp.yaw ?? 0)) * 0.5 + 0.5;
-  const pitchNorm = (fp.pitch ?? 0) * 0.5 + 0.5;
+  const pitchNorm = (-(fp.pitch ?? 0)) * 0.5 + 0.5;
   const rollNorm = (fp.roll ?? 0) * 0.5 + 0.5;
 
   return {
@@ -577,10 +599,34 @@ function _applyFaceFrameInternal(frame) {
     state.faceParams.headY = Math.max(0, Math.min(1, frame.headY));
   }
   // Iris gaze ([-1,1] per eye per axis)
-  if (typeof frame.gazeLeftX === 'number') state.faceParams.gazeLeftX = Math.max(-1, Math.min(1, frame.gazeLeftX));
-  if (typeof frame.gazeLeftY === 'number') state.faceParams.gazeLeftY = Math.max(-1, Math.min(1, frame.gazeLeftY));
-  if (typeof frame.gazeRightX === 'number') state.faceParams.gazeRightX = Math.max(-1, Math.min(1, frame.gazeRightX));
-  if (typeof frame.gazeRightY === 'number') state.faceParams.gazeRightY = Math.max(-1, Math.min(1, frame.gazeRightY));
+  // Real-camera iris positions live in a much smaller range than the [-1, 1] renderer
+  // expects (the iris only moves a tiny fraction of the eye white in real life).
+  // Apply: deadzone → EMA smoothing → gain → clamp to [-1, 1] so the avatar's
+  // iris visibly compensates when the user turns their head while keeping gaze on screen.
+  function _processGaze(raw) {
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return 0;
+    let v = Math.abs(raw) < GAZE_DEADZONE ? 0 : (Math.abs(raw) - GAZE_DEADZONE) / (1 - GAZE_DEADZONE);
+    v = Math.sign(raw) * v * GAZE_GAIN;
+    return Math.max(-1, Math.min(1, v));
+  }
+  if (typeof frame.gazeLeftX === 'number') {
+    _smoothGazeLeftX = _smoothGazeLeftX + GAZE_EMA_ALPHA * (_processGaze(frame.gazeLeftX) - _smoothGazeLeftX);
+    state.faceParams.gazeLeftX = _smoothGazeLeftX;
+  }
+  if (typeof frame.gazeLeftY === 'number') {
+    _smoothGazeLeftY = _smoothGazeLeftY + GAZE_EMA_ALPHA * (_processGaze(frame.gazeLeftY) - _smoothGazeLeftY);
+    state.faceParams.gazeLeftY = _smoothGazeLeftY;
+  }
+  if (typeof frame.gazeRightX === 'number') {
+    _smoothGazeRightX = _smoothGazeRightX + GAZE_EMA_ALPHA * (_processGaze(frame.gazeRightX) - _smoothGazeRightX);
+    state.faceParams.gazeRightX = _smoothGazeRightX;
+  }
+  if (typeof frame.gazeRightY === 'number') {
+    _smoothGazeRightY = _smoothGazeRightY + GAZE_EMA_ALPHA * (_processGaze(frame.gazeRightY) - _smoothGazeRightY);
+    state.faceParams.gazeRightY = _smoothGazeRightY;
+  }
+  _gazeSource = (frame.source === 'real-camera' || frame.source === 'mediapipe' || frame.source === 'android-receiver')
+    ? 'iris-landmarks' : 'head-compensation-fallback';
 
   _lastAppliedValues = {
     yaw: state.faceParams.yaw,
@@ -2060,13 +2106,18 @@ function onFWEnd() {
 
 // ====== SIM LOOP ======
 let simTime = 0;
+let _rafId = null;
 function startSimLoop() {
   if (!gameRunning) startGame();
-  requestAnimationFrame(simLoop);
+  if (_rafId != null) return; // 不要重复创建 RAF
+  _rafInstanceCount = 1;
+  _rafId = requestAnimationFrame(simLoop);
 }
 
 function simLoop(ts) {
   simTime = ts * 0.001;
+  _rafId = null; // 上一帧结束，准备本帧
+  _rafId = requestAnimationFrame(simLoop);
 
   // Simulate face params (only when real face tracking is NOT running
   // AND no mock/real face frame is active)
@@ -2091,7 +2142,18 @@ function simLoop(ts) {
     }
   }
   if ((!_faceLandmarker && !_faceFrameActive) || _cameraIdleFallback) {
+    if (!_idleActive) _lastTransitionReason = 'idle-resume';
     _idleActive = true;
+    _gazeSource = 'idle';
+    // 缓慢衰减 gaze 平滑值（避免从 tracking 切到 idle 时虹膜突然跳回中心）
+    _smoothGazeLeftX *= 0.95;
+    _smoothGazeLeftY *= 0.95;
+    _smoothGazeRightX *= 0.95;
+    _smoothGazeRightY *= 0.95;
+    state.faceParams.gazeLeftX = _smoothGazeLeftX;
+    state.faceParams.gazeLeftY = _smoothGazeLeftY;
+    state.faceParams.gazeRightX = _smoothGazeRightX;
+    state.faceParams.gazeRightY = _smoothGazeRightY;
     state.faceParams.mouthOpen = 0.5 + 0.5 * Math.sin(simTime * 1.2);
     state.faceParams.blink = Math.max(0, Math.sin(simTime * 3) > 0.95 ? 1 : 0);
     state.faceParams.yaw = Math.sin(simTime * 0.5);
@@ -2099,10 +2161,19 @@ function simLoop(ts) {
     state.faceParams.roll = Math.sin(simTime * 0.3) * 0.2;
     state.faceParams.smile = 0.3 + 0.3 * Math.sin(simTime * 0.8);
   } else {
+    if (_idleActive) _lastTransitionReason = 'tracking-engage';
     _idleActive = false;
   }
 
-  // Sync diagnostic
+  if (_idleActive) {
+    _idleFrameCount++;
+    _lastIdleFrameTime = ts;
+  } else {
+    _trackingFrameCount++;
+    _lastTrackingFrameTime = ts;
+  }
+
+  // 同步诊断
   const diag = window.__cheapLiveContestAvatarDiag;
   if (diag) {
     diag.idleActive = _idleActive;
@@ -2125,6 +2196,56 @@ function simLoop(ts) {
     diag.mediapipeInitDiag = _mediapipeInitDiag;
     const statusEl = document.getElementById('faceCamStatus');
     diag.faceCamStatus = statusEl ? statusEl.textContent : null;
+
+    // Web pose diagnostics — pitch 方向修正独立记录
+    const mapped = faceParamsToRendererParams(state.faceParams);
+    diag.webPoseDiag = {
+      rawPitch: state.faceParams.pitch,
+      rawYaw: state.faceParams.yaw,
+      rawRoll: state.faceParams.roll,
+      mirrorEnabled: true,
+      mappedNormalizedPitch: mapped.headPitch,
+      mappedNormalizedYaw: mapped.headYaw,
+      mappedNormalizedRoll: mapped.headRoll,
+      rendererPitchDegrees: (mapped.headPitch - 0.5) * 90,
+      visualDirection: (state.faceParams.pitch < 0) ? 'visual-down' : (state.faceParams.pitch > 0) ? 'visual-up' : 'neutral',
+    };
+    window.__cheapLiveWebPoseDiag = diag.webPoseDiag;
+
+    // Idle 状态机诊断
+    diag.idleDiag = {
+      rendererReady: _3dReady,
+      cameraRunning: !!_faceLandmarker,
+      faceDetected: _faceFrameActive,
+      faceFrameActive: _faceFrameActive,
+      idleActive: _idleActive,
+      rafRunning: _rafInstanceCount > 0,
+      rafInstanceCount: _rafInstanceCount,
+      lastFaceFrameTime: _lastTrackingFrameTime,
+      lastIdleFrameTime: _lastIdleFrameTime,
+      idleFrameCount: _idleFrameCount,
+      trackingFrameCount: _trackingFrameCount,
+      transitionReason: _lastTransitionReason,
+    };
+    window.__cheapLiveIdleDiag = diag.idleDiag;
+
+    // Gaze 流动诊断
+    diag.gazeFlowDiag = {
+      gazeSource: _gazeSource,
+      rawGazeLeftX: state.faceParams.gazeLeftX,
+      rawGazeLeftY: state.faceParams.gazeLeftY,
+      rawGazeRightX: state.faceParams.gazeRightX,
+      rawGazeRightY: state.faceParams.gazeRightY,
+      smoothedGazeLeftX: _smoothGazeLeftX,
+      smoothedGazeLeftY: _smoothGazeLeftY,
+      smoothedGazeRightX: _smoothGazeRightX,
+      smoothedGazeRightY: _smoothGazeRightY,
+      rendererGazeLeftX: mapped.gazeLeftX,
+      rendererGazeLeftY: mapped.gazeLeftY,
+      rendererGazeRightX: mapped.gazeRightX,
+      rendererGazeRightY: mapped.gazeRightY,
+    };
+    window.__cheapLiveGazeFlowDiag = diag.gazeFlowDiag;
 
     // Raw pose from face params (before mapping to renderer)
     diag.rawPoseDiag = {
@@ -2339,7 +2460,7 @@ function simLoop(ts) {
   const bl = document.getElementById('blinkVal');
   if (bl) bl.textContent = state.faceParams.blink.toFixed(2);
 
-  requestAnimationFrame(simLoop);
+  // (requestAnimationFrame is dispatched at the top of simLoop to keep RAF count = 1)
 }
 
 // ====== UI HANDLERS ======
