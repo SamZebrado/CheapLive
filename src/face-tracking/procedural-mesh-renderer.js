@@ -1595,9 +1595,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         occlusionOpacity = 1 - smoothstep(0, 1, tFade);
       }
 
-      const finalOpacity = Math.max(0, Math.min(1, occlusionOpacity));
-
-      if (finalOpacity <= 0.02) {
+      if (occlusionOpacity <= 0.02) {
         return {
           centerX: t.screenX,
           centerY: t.screenY,
@@ -1643,41 +1641,18 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       }
       const rawEyeAngle = Math.atan2(rawRightY, rawRightX);
 
-      // Profile basis stabilization:
-      // When head yaws far to the side, the projected right vector degenerates
-      // and eyeAngle becomes unstable (eyes look like they fall forward).
-      // Blend from the true projected basis toward a roll-aligned stable basis
-      // as yaw increases past a threshold. No hard switch, no freezing at
-      // screen-horizontal; roll rotation is preserved throughout.
+      // Profile basis behavior (after stability fix):
+      //  - Always use the raw projected right/down vectors; no screen-roll blend.
+      //  - The eye foreshortens naturally as the head yaws toward profile.
+      //  - When the projected basis becomes degenerate (very narrow eye), the
+      //    whole eye opacity fades so we never produce a paper disc.
       const yawAbs = Math.abs(np.headYaw);
-      const fadeBasisStartYaw = 50;
-      const fadeBasisEndYaw = 78;
-      let basisBlend = 0;
-      if (yawAbs > fadeBasisStartYaw && yawAbs < fadeBasisEndYaw) {
-        basisBlend = smoothstep(0, 1, (yawAbs - fadeBasisStartYaw) / (fadeBasisEndYaw - fadeBasisStartYaw));
-      } else if (yawAbs >= fadeBasisEndYaw) {
-        basisBlend = 1;
-      }
-
-      // Stable basis aligned to head roll in screen space
-      const headRollRad = np.headRoll * Math.PI / 180;
-      const stableRightX = Math.cos(headRollRad);
-      const stableRightY = Math.sin(headRollRad);
-      const stableDownX = -Math.sin(headRollRad);
-      const stableDownY = Math.cos(headRollRad);
-
-      // Smoothly interpolate basis vectors
-      const finalRightX = rawRightX * (1 - basisBlend) + stableRightX * basisBlend;
-      const finalRightY = rawRightY * (1 - basisBlend) + stableRightY * basisBlend;
-      const finalDownX = rawDownX * (1 - basisBlend) + stableDownX * basisBlend;
-      const finalDownY = rawDownY * (1 - basisBlend) + stableDownY * basisBlend;
-      const finalFRlen = Math.sqrt(finalRightX * finalRightX + finalRightY * finalRightY);
-      const finalFDlen = Math.sqrt(finalDownX * finalDownX + finalDownY * finalDownY);
-      const nfRightX = finalFRlen > 0.001 ? finalRightX / finalFRlen : 1;
-      const nfRightY = finalFRlen > 0.001 ? finalRightY / finalFRlen : 0;
-      const nfDownX = finalFDlen > 0.001 ? finalDownX / finalFDlen : 0;
-      const nfDownY = finalFDlen > 0.001 ? finalDownY / finalFDlen : 1;
-      const finalEyeAngle = Math.atan2(nfRightY, nfRightX);
+      const basisBlend = 0;
+      const nfRightX = rawRightX;
+      const nfRightY = rawRightY;
+      const nfDownX = rawDownX;
+      const nfDownY = rawDownY;
+      const finalEyeAngle = rawEyeAngle;
 
       // eyeWide: only enlarge eye white, not iris
       const wideScale = 1 + (eyeWide || 0) * 0.47;
@@ -1689,15 +1664,52 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       let localRy = Math.max(0.1, eyeHalfH * dLen * wideScale * squintScaleY);
 
       // Cartoon eye aspect-ratio clamp: prevent eye from collapsing into a
-      // vertical slit when head yaws (rightVec foreshortens).  Without this,
-      // the far eye at ~60° yaw becomes a 1:3.7 vertical oval with the iris
-      // clipped into a bar — visually reads as "eye falling forward off the
-      // face".  Keep minimum width at 55% of height (and vice-versa) so the
-      // eye always looks like an eye.
+      // vertical slit when head yaws (rightVec foreshortens).  The minimum
+      // width scales down with yaw, so the eye becomes a slim ellipse at
+      // profile angles rather than a paper disc facing the camera.
+      //  - At |yaw| <= 45° the clamp stays at 0.55, matching the previous
+      //    behavior (no visible change at normal angles).
+      //  - At |yaw| >= 80° the clamp drops to 0.15, allowing strong
+      //    foreshortening.
       const minAspectVertical = 0.30;
-      const minAspectHorizontal = 0.55;
+      const profileT = smoothstep(45, 80, yawAbs);
+      const minAspectHorizontal = lerp(0.55, 0.15, profileT);
       if (localRx < localRy * minAspectHorizontal) localRx = localRy * minAspectHorizontal;
       if (localRy < localRx * minAspectVertical) localRy = localRx * minAspectVertical;
+
+      // When the projected basis is degenerate (very narrow ellipse), fade the
+      // whole eye opacity instead of letting it read as a paper disc sticking
+      // out of the head.  Triggered by aspect ratio falling below threshold.
+      const visibleAspect = localRx / Math.max(localRy, 0.0001);
+      const basisDegeneracy = Math.max(0, Math.min(1, (0.45 - visibleAspect) / 0.30));
+      const degenerateOpacity = 1 - smoothstep(0, 1, basisDegeneracy);
+      occlusionOpacity *= degenerateOpacity;
+
+      // Iris size exceeds available width → whole eye fades rather than the
+      // iris turning into a black bar.
+      const irisBaseR_pre = eyeBase * 0.50;
+      if (localRx < irisBaseR_pre * 0.9) {
+        const irisBar = Math.max(0, (irisBaseR_pre * 0.9 - localRx) / (irisBaseR_pre * 0.4));
+        occlusionOpacity *= 1 - smoothstep(0, 1, irisBar);
+      }
+
+      const finalOpacity = Math.max(0, Math.min(1, occlusionOpacity));
+
+      if (typeof diag === 'object' && diag) {
+        diag.eyeBasisDiag = {
+          yawDeg: yawAbs,
+          profileT,
+          minAspectHorizontal,
+          localRx,
+          localRy,
+          visibleAspect,
+          basisDegeneracy,
+          degenerateOpacity,
+          basisBlend: 0,
+          basisMode: 'projected-face-basis',
+          finalEyeAngleDeg: rawEyeAngle * 180 / Math.PI,
+        };
+      }
 
       // Linear mapping: openness 0=closed, 1=fully open
       const tOpen = Math.max(0, Math.min(1, openness));

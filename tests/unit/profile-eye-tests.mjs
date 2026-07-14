@@ -195,6 +195,70 @@ describe('profile eye tests', () => {
     }
   });
 
+  it('basisBlend = 0 at every yaw (no screen-roll blend)', async () => {
+    const avatar = await createAvatar();
+    try {
+      let allZero = true;
+      let seen = 0;
+      for (let yaw = 0; yaw <= 90; yaw += 5) {
+        avatar.updateParams({ ...degBase, headYaw: yaw });
+        const diag = avatar.irisDiag;
+        if (diag.right && diag.right.basisBlend !== undefined) {
+          seen++;
+          if (Math.abs(diag.right.basisBlend) > 0.0001) allZero = false;
+        }
+      }
+      assert.ok(seen > 0, `expected at least one basisBlend sample, got ${seen}`);
+      assert.ok(allZero, 'basisBlend must stay exactly 0 at every yaw');
+    } finally {
+      avatar._cleanup();
+    }
+  });
+
+  it('near-eye localRx/localRy aspect decreases monotonically for 45..75 yaw', async () => {
+    const avatar = await createAvatar();
+    try {
+      const aspects = [];
+      for (let yaw = 45; yaw <= 75; yaw += 5) {
+        avatar.updateParams({ ...degBase, headYaw: yaw });
+        const diag = avatar.irisDiag;
+        const right = diag.right;
+        if (right && right.eyeRx && right.eyeRy) {
+          aspects.push({ yaw, a: right.eyeRx / right.eyeRy });
+        }
+      }
+      assert.ok(aspects.length >= 4, `expected >=4 samples, got ${aspects.length}`);
+      for (let i = 1; i < aspects.length; i++) {
+        assert.ok(aspects[i].a <= aspects[i - 1].a + 0.001,
+          `near-eye aspect should not increase as yaw grows: yaw ${aspects[i - 1].yaw} (${aspects[i - 1].a.toFixed(3)}) -> yaw ${aspects[i].yaw} (${aspects[i].a.toFixed(3)})`);
+      }
+      // explicit comparison: 75 must be substantially narrower than 45
+      const a45 = aspects[0].a;
+      const a75 = aspects[aspects.length - 1].a;
+      assert.ok(a75 < a45 * 0.7,
+        `aspect at 75° (${a75.toFixed(3)}) should be < 70% of aspect at 45° (${a45.toFixed(3)})`);
+    } finally {
+      avatar._cleanup();
+    }
+  });
+
+  it('finalEyeAngle tracks the projected basis, not a roll-aligned fallback', async () => {
+    const avatar = await createAvatar();
+    try {
+      for (const yaw of [0, 30, 60, 75]) {
+        avatar.updateParams({ ...degBase, headYaw: yaw });
+        const diag = avatar.irisDiag;
+        const right = diag.right;
+        if (right && right.rawEyeAngle !== undefined) {
+          assert.ok(Math.abs(right.eyeAngle - right.rawEyeAngle) < 0.01,
+            `eyeAngle (${right.eyeAngle}) should equal rawEyeAngle (${right.rawEyeAngle}) at yaw=${yaw} (no basis blending)`);
+        }
+      }
+    } finally {
+      avatar._cleanup();
+    }
+  });
+
   it('basisBlend continuity', async () => {
     const avatar = await createAvatar();
     try {
