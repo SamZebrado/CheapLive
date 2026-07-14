@@ -986,77 +986,28 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset
     );
 
+    // 在头部正面 +Z 区域挑候选 face (nz > 0)
     const candidates = [];
     for (let f = 0; f < mesh.faces.length; f++) {
       const face = mesh.faces[f];
       const verts = face.vertices;
       if (!verts || verts.length < 3) continue;
+      // 主体面是 quad（4 个顶点），鼻端是 tri（3 个顶点）
+      // 取前 3 个顶点代表三角剖分的一侧
       const v0 = verts[0];
       const v1 = verts[1];
       const v2 = verts[2];
       const avgNz = (v0.nz + v1.nz + v2.nz) / 3;
-      if (avgNz < 0.2) continue;
-
-      const triangles = [];
-      if (verts.length >= 4) {
-        const v3 = verts[3];
-        triangles.push([v0, v1, v2]);
-        triangles.push([v0, v2, v3]);
-      } else {
-        triangles.push([v0, v1, v2]);
-      }
-
-      for (const tri of triangles) {
-        const [a, b, c] = tri;
-        const abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z;
-        const acx = c.x - a.x, acy = c.y - a.y, acz = c.z - a.z;
-        const apX = local.x - a.x, apY = local.y - a.y, apZ = local.z - a.z;
-
-        const d1 = apX * abx + apY * aby + apZ * abz;
-        const d2 = apX * acx + apY * acy + apZ * acz;
-        if (d1 < 0 || d2 < 0) continue;
-
-        const d3 = d1 * (acy * abz - aby * acz) + d2 * (abz * apY - aby * apZ) + (aby * acz - abz * acy) * apX;
-        if (d3 < 0) continue;
-
-        const denom = abx * (acy * apZ - acz * apY) + aby * (acz * apX - acx * apZ) + abz * (acx * apY - acy * apX);
-        if (Math.abs(denom) < 1e-10) continue;
-
-        const v = d3 / denom;
-        const w = (d2 - v * (acx * abx + acy * aby + acz * abz)) / (acx * acx + acy * acy + acz * acz);
-        const u = 1 - v - w;
-
-        if (u < -1e-6 || v < -1e-6 || w < -1e-6 || u > 1 + 1e-6 || v > 1 + 1e-6 || w > 1 + 1e-6) {
-          const px = local.x, py = local.y, pz = local.z;
-          const closest = this._closestPointOnTriangle(a, b, c, { x: px, y: py, z: pz });
-          const dx = closest.x - px, dy = closest.y - py, dz = closest.z - pz;
-          const dist2 = dx * dx + dy * dy + dz * dz;
-          candidates.push({
-            f,
-            triangleIndices: verts.length >= 4 ? (tri[0] === v0 && tri[1] === v1 ? [0, 1, 2] : [0, 2, 3]) : [0, 1, 2],
-            globalVertexIndices: face.indices && face.indices.length >= 3 ? [face.indices[0], face.indices[1], face.indices[2]] : [0, 1, 2],
-            weights: [1/3, 1/3, 1/3],
-            dist2,
-            centroid: { x: (a.x + b.x + c.x) / 3, y: (a.y + b.y + c.y) / 3, z: (a.z + b.z + c.z) / 3 },
-            label,
-          });
-        } else {
-          const projX = a.x * u + b.x * v + c.x * w;
-          const projY = a.y * u + b.y * v + c.y * w;
-          const projZ = a.z * u + b.z * v + c.z * w;
-          const dx = projX - local.x, dy = projY - local.y, dz = projZ - local.z;
-          const dist2 = dx * dx + dy * dy + dz * dz;
-          candidates.push({
-            f,
-            triangleIndices: verts.length >= 4 ? (tri[0] === v0 && tri[1] === v1 ? [0, 1, 2] : [0, 2, 3]) : [0, 1, 2],
-            globalVertexIndices: face.indices && face.indices.length >= 3 ? [face.indices[0], face.indices[1], face.indices[2]] : [0, 1, 2],
-            weights: [u, v, w],
-            dist2,
-            centroid: { x: (a.x + b.x + c.x) / 3, y: (a.y + b.y + c.y) / 3, z: (a.z + b.z + c.z) / 3 },
-            label,
-          });
-        }
-      }
+      if (avgNz < 0.2) continue; // 只在面部正面
+      // 重心
+      const cx = (v0.x + v1.x + v2.x) / 3;
+      const cy = (v0.y + v1.y + v2.y) / 3;
+      const cz = (v0.z + v1.z + v2.z) / 3;
+      const dx = cx - local.x;
+      const dy = cy - local.y;
+      const dz = cz - local.z;
+      const dist2 = dx * dx + dy * dy + dz * dz;
+      candidates.push({ f, verts, dist2, cx, cy, cz });
     }
     if (candidates.length === 0) {
       return { indices: null, weights: [1, 0, 0], surfaceOffset: 0, label };
@@ -1064,54 +1015,14 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     candidates.sort((a, b) => a.dist2 - b.dist2);
     const best = candidates[0];
     return {
-      indices: best.triangleIndices,
-      globalVertexIndices: best.globalVertexIndices,
-      weights: best.weights,
+      indices: [0, 1, 2],
+      // vertices 引用在 draw 时从 deformedBody 中按 face.indices 取
+      weights: [1 / 3, 1 / 3, 1 / 3],
       surfaceOffset: 0,
       faceRef: best.f,
       label,
-      initialCenter: best.centroid,
-    };
-  }
-
-  _closestPointOnTriangle(a, b, c, p) {
-    const abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z;
-    const acx = c.x - a.x, acy = c.y - a.y, acz = c.z - a.z;
-    const apX = p.x - a.x, apY = p.y - a.y, apZ = p.z - a.z;
-
-    const d1 = apX * abx + apY * aby + apZ * abz;
-    const d2 = apX * acx + apY * acy + apZ * acz;
-
-    if (d1 <= 0 && d2 <= 0) return { x: a.x, y: a.y, z: a.z };
-
-    const bcx = c.x - b.x, bcy = c.y - b.y, bcz = c.z - b.z;
-    const bpX = p.x - b.x, bpY = p.y - b.y, bpZ = p.z - b.z;
-    const d3 = bpX * bcx + bpY * bcy + bpZ * bcz;
-
-    if (d1 >= 0 && d3 <= 0) return { x: b.x, y: b.y, z: b.z };
-
-    const d4 = apX * acx + apY * acy + apZ * acz;
-    if (d2 >= 0 && d4 <= 0) return { x: c.x, y: c.y, z: c.z };
-
-    const denom = abx * (acy * bcz - aby * acz) + aby * (acz * bcx - abz * acx) + abz * (acx * bcy - acy * bcx);
-    if (Math.abs(denom) < 1e-10) {
-      const px = p.x, py = p.y, pz = p.z;
-      const da = (px - a.x)**2 + (py - a.y)**2 + (pz - a.z)**2;
-      const db = (px - b.x)**2 + (py - b.y)**2 + (pz - b.z)**2;
-      const dc = (px - c.x)**2 + (py - c.y)**2 + (pz - c.z)**2;
-      if (da <= db && da <= dc) return { x: a.x, y: a.y, z: a.z };
-      if (db <= dc) return { x: b.x, y: b.y, z: b.z };
-      return { x: c.x, y: c.y, z: c.z };
-    }
-
-    const v = (d1 * (acy * bcz - aby * acz) + d2 * (abz * bcy - aby * bcz) + (aby * acz - abz * acy) * bpX) / denom;
-    const w = (d2 - v * (acx * abx + acy * aby + acz * abz)) / (acx * acx + acy * acy + acz * acz);
-    const u = 1 - v - w;
-
-    return {
-      x: a.x * u + b.x * v + c.x * w,
-      y: a.y * u + b.y * v + c.y * w,
-      z: a.z * u + b.z * v + c.z * w,
+      // 保存初始三角形中心以便诊断
+      initialCenter: { x: best.cx, y: best.cy, z: best.cz },
     };
   }
 
@@ -1121,7 +1032,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
    * 一旦 mesh 重建 (_buildEyeSurfaceBindings) 就会自动选新的最近三角形。
    */
   _evaluateEyeSurfaceBinding(deformedBody, binding, rot, originX, originY, scale) {
-    if (!binding || binding.weights == null) return null;
+    if (!binding || binding.indices == null) return null;
     const face = deformedBody.faces[binding.faceRef];
     if (!face) return null;
     const verts = face.vertices;
@@ -1131,66 +1042,23 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const w1 = w[1] / wsum;
     const w2 = w[2] / wsum;
 
-    const idx0 = binding.indices[0];
-    const idx1 = binding.indices[1];
-    const idx2 = binding.indices[2];
-    const v0 = verts[idx0];
-    const v1 = verts[idx1];
-    const v2 = verts[idx2];
+    // 局部坐标：三角面加权中心（无旋转）
+    const lx = verts[0].x * w0 + verts[1].x * w1 + verts[2].x * w2;
+    const ly = verts[0].y * w0 + verts[1].y * w1 + verts[2].y * w2;
+    const lz = verts[0].z * w0 + verts[1].z * w1 + verts[2].z * w2;
+    const lnx = verts[0].nx * w0 + verts[1].nx * w1 + verts[2].nx * w2;
+    const lny = verts[0].ny * w0 + verts[1].ny * w1 + verts[2].ny * w2;
+    const lnz = verts[0].nz * w0 + verts[1].nz * w1 + verts[2].nz * w2;
+    const nLen = Math.sqrt(lnx * lnx + lny * lny + lnz * lnz) || 1;
+    const nLocal = { x: lnx / nLen, y: lny / nLen, z: lnz / nLen };
 
-    const lx = v0.x * w0 + v1.x * w1 + v2.x * w2;
-    const ly = v0.y * w0 + v1.y * w1 + v2.y * w2;
-    const lz = v0.z * w0 + v1.z * w1 + v2.z * w2;
-
-    const edge1x = v1.x - v0.x, edge1y = v1.y - v0.y, edge1z = v1.z - v0.z;
-    const edge2x = v2.x - v0.x, edge2y = v2.y - v0.y, edge2z = v2.z - v0.z;
-    const crsx = edge1y * edge2z - edge1z * edge2y;
-    const crsy = edge1z * edge2x - edge1x * edge2z;
-    const crsz = edge1x * edge2y - edge1y * edge2x;
-    const crsLen = Math.sqrt(crsx * crsx + crsy * crsy + crsz * crsz) || 1;
-    let lnx = crsx / crsLen;
-    let lny = crsy / crsLen;
-    let lnz = crsz / crsLen;
-
-    if (lnz < 0) {
-      lnx = -lnx;
-      lny = -lny;
-      lnz = -lnz;
-    }
-
-    const tanx = edge1x, tany = edge1y, tanz = edge1z;
-    const tanLen = Math.sqrt(tanx * tanx + tany * tany + tanz * tanz) || 1;
-    const tnx = tanx / tanLen;
-    const tny = tany / tanLen;
-    const tnz = tanz / tanLen;
-
-    const projLen = tnx * lnx + tny * lny + tnz * lnz;
-    const rtangx = tnx - projLen * lnx;
-    const rtangy = tny - projLen * lny;
-    const rtangz = tnz - projLen * lnz;
-    const rtangLen = Math.sqrt(rtangx * rtangx + rtangy * rtangy + rtangz * rtangz) || 1;
-    const stangx = rtangx / rtangLen;
-    const stangy = rtangy / rtangLen;
-    const stangz = rtangz / rtangLen;
-
-    const bitangx = lny * stangz - lnz * stangy;
-    const bitangy = lnz * stangx - lnx * stangz;
-    const bitangz = lnx * stangy - lny * stangx;
-
+    // 把局部点变换到 world / screen
     const world = this._transformVec(lx, ly, lz, rot);
-    const normalWorld = this._transformVec(lnx, lny, lnz, rot);
-    const tangentWorld = this._transformVec(stangx, stangy, stangz, rot);
-    const bitangentWorld = this._transformVec(bitangx, bitangy, bitangz, rot);
-
+    const normalWorld = this._transformVec(nLocal.x, nLocal.y, nLocal.z, rot);
     const nWorldLen = Math.sqrt(normalWorld.x * normalWorld.x + normalWorld.y * normalWorld.y + normalWorld.z * normalWorld.z) || 1;
     const nWorld = { x: normalWorld.x / nWorldLen, y: normalWorld.y / nWorldLen, z: normalWorld.z / nWorldLen };
 
-    const tWorldLen = Math.sqrt(tangentWorld.x * tangentWorld.x + tangentWorld.y * tangentWorld.y + tangentWorld.z * tangentWorld.z) || 1;
-    const tWorld = { x: tangentWorld.x / tWorldLen, y: tangentWorld.y / tWorldLen, z: tangentWorld.z / tWorldLen };
-
-    const bWorldLen = Math.sqrt(bitangentWorld.x * bitangentWorld.x + bitangentWorld.y * bitangentWorld.y + bitangentWorld.z * bitangentWorld.z) || 1;
-    const bWorld = { x: bitangentWorld.x / bWorldLen, y: bitangentWorld.y / bWorldLen, z: bitangentWorld.z / bWorldLen };
-
+    // 沿表面法线偏移一个 eyeOffset，让眼睛略浮于表面避免 z-fighting
     const eyeOffset = 0.5;
     const offsetWorld = {
       x: world.x + nWorld.x * eyeOffset,
@@ -1200,31 +1068,25 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const screenX = originX + offsetWorld.x * scale;
     const screenY = originY + offsetWorld.y * scale;
 
-    const rightLen = Math.sqrt(tWorld.x * tWorld.x + tWorld.y * tWorld.y);
-    const downLen = Math.sqrt(bWorld.x * bWorld.x + bWorld.y * bWorld.y);
+    // eye-to-surface offset 距离（与原 eyeAnchor 对比）
+    const eyeAnchorLocal = computeFaceAnchorXYZ(deformedBody, 0, binding.label === 'left' ? -deformedBody.headX * 0.30 : deformedBody.headX * 0.30, -deformedBody.headY * 0.28, 0);
+    const eyeAnchorWorld = this._transformVec(eyeAnchorLocal.x, eyeAnchorLocal.y, eyeAnchorLocal.z, rot);
+    const eyeToSurfaceWorld = Math.sqrt(
+      (eyeAnchorWorld.x - world.x) ** 2 +
+      (eyeAnchorWorld.y - world.y) ** 2 +
+      (eyeAnchorWorld.z - world.z) ** 2
+    );
 
     return {
       localPoint: { x: lx, y: ly, z: lz },
-      localNormal: { x: lnx, y: lny, z: lnz },
-      localTangent: { x: stangx, y: stangy, z: stangz },
-      localBitangent: { x: bitangx, y: bitangy, z: bitangz },
+      localNormal: nLocal,
       worldPoint: world,
       worldNormal: nWorld,
-      worldTangent: tWorld,
-      worldBitangent: bWorld,
       offsetWorld,
       screenX,
       screenY,
-      rightVec: tWorld,
-      downVec: bWorld,
-      rightLen,
-      downLen,
-      nx: nWorld.x,
-      ny: nWorld.y,
-      nz: nWorld.z,
-      triangleIndices: binding.indices,
-      globalVertexIndices: binding.globalVertexIndices || [0, 1, 2],
-      barycentricWeights: [w0, w1, w2],
+      eyeToSurfaceWorld,
+      triangleIndices: [verts[0].col !== undefined ? 0 : 0, 1, 2],
     };
   }
 
@@ -1707,19 +1569,13 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       // 注意：t.nz 仍使用解析表面法线（保证 yaw-based 远眼淡出仍能生效），
       // 仅覆盖 screenX/Y/worldX/Y/Z 与 surface normal 诊断值。
       const binding = isLeftEye ? leftBinding : rightBinding;
+      const bindingNormalZ = binding ? binding.worldNormal.z : null;
       if (binding) {
         t.screenX = binding.screenX;
         t.screenY = binding.screenY;
         t.worldX = binding.offsetWorld.x;
         t.worldY = binding.offsetWorld.y;
         t.worldZ = binding.offsetWorld.z;
-        t.nx = binding.nx;
-        t.ny = binding.ny;
-        t.nz = binding.nz;
-        t.rightVec = binding.rightVec;
-        t.downVec = binding.downVec;
-        t.rightLen = binding.rightLen;
-        t.downLen = binding.downLen;
       }
 
       const normalFacing = t.nz;
