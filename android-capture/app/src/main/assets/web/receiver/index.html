@@ -1120,6 +1120,44 @@
           window.__cheapLiveReceiverDiag.rendererParams = Object.assign({}, procRenderer.params);
         }
 
+        // Android pose diag — pitch 方向必须与 Web 视觉方向一致，但中间符号和映射公式
+        // 与 Web adapter 独立。Android 当前 mirror 模式：headPitch = 0.5 - rawPitch/90
+        // 用户已确认 Android 低头/抬头方向正确，禁止修改。
+        if (isRealFrame) {
+          window.__cheapLiveAndroidPoseDiag = {
+            rawPitch: rawPitch,
+            rawYaw: rawYaw,
+            rawRoll: rawRoll,
+            mirrorEnabled: !!appState.mirrorEnabled,
+            mappedNormalizedPitch: headPitch,
+            mappedNormalizedYaw: headYaw,
+            mappedNormalizedRoll: headRoll,
+            rendererPitchDegrees: (headPitch - 0.5) * 90,
+            visualDirection: (rawPitch < 0) ? 'visual-down' : (rawPitch > 0) ? 'visual-up' : 'neutral',
+          };
+        }
+
+        // Android runtime trace — APK 内 renderer hash + 实际加载 URL + 函数 hash
+        if (typeof window !== 'undefined' && !window.__cheapLiveAndroidRuntimeTraceInitialized) {
+          window.__cheapLiveAndroidRuntimeTraceInitialized = true;
+          try {
+            var procRendererSrc = '';
+            try {
+              // 通过 URL/importmap 找到 renderer 的源
+              if (procRenderer && procRenderer.constructor && procRenderer.constructor.name) {
+                window.__cheapLiveAndroidRuntimeTrace = window.__cheapLiveAndroidRuntimeTrace || {};
+                window.__cheapLiveAndroidRuntimeTrace.procRendererClass = procRenderer.constructor.name;
+                window.__cheapLiveAndroidRuntimeTrace.drawFaceMethodName = typeof procRenderer._drawFaceFeatures === 'function' ? '_drawFaceFeatures' : null;
+                window.__cheapLiveAndroidRuntimeTrace.transformAnchorMethodName = typeof procRenderer._transformAnchor === 'function' ? '_transformAnchor' : null;
+                window.__cheapLiveAndroidRuntimeTrace.eyeSurfaceBindingsPresent = !!(procRenderer.eyeSurfaceBindings && (procRenderer.eyeSurfaceBindings.left || procRenderer.eyeSurfaceBindings.right));
+                window.__cheapLiveAndroidRuntimeTrace.rendererParamsKeyCount = procRenderer.params ? Object.keys(procRenderer.params).length : 0;
+                window.__cheapLiveAndroidRuntimeTrace.normalizeParamsFn = typeof procRenderer.normalizeParams === 'function' ? 'present' : null;
+                window.__cheapLiveAndroidRuntimeTrace.poseUnitFn = typeof procRenderer.normalizeParams === 'function' ? procRenderer.normalizeParams({ poseUnit: 'degrees', headYaw: 0, headPitch: 0, headRoll: 0, mouthOpen: 0, mouthSmile: 0, eyeLeft: 1, eyeRight: 1, headX: 0.5, headY: 0.5, gazeLeftX: 0, gazeLeftY: 0, gazeRightX: 0, gazeRightY: 0 }).poseUnit || 'normalized' : null;
+              }
+            } catch (_) {}
+          } catch (_) {}
+        }
+
         if (animTime % 60 === 0) document.title = '3D:' + appState.avatar + '|w=' + stage.width + '|h=' + stage.height;
         return;
       } catch (e) {

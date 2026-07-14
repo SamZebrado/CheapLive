@@ -1,6 +1,6 @@
 {
-  "sourceSha": "unknown",
-  "syncTime": "2026-07-12T07:00:38.845Z",
+  "sourceSha": "05884fd",
+  "syncTime": "2026-07-14T01:58:26.240Z",
   "files": [
     {
       "src": "contest-demo/contest-interactive-demo.html",
@@ -11,8 +11,8 @@
     {
       "src": "contest-demo/contest-interactive-demo.js",
       "dest": "contest-interactive-demo.js",
-      "hash": "efcabf15f5ce3bb4c6a0f1097cc09aee",
-      "size": 170897
+      "hash": "04a90dc33667329033e4c7cfc47d38fe",
+      "size": 179937
     },
     {
       "src": "contest-demo/contest-interactive-demo.css",
@@ -29,26 +29,26 @@
     {
       "src": "contest-demo/contest-voice-adapter.js",
       "dest": "contest-voice-adapter.js",
-      "hash": "2102f1f34c5795cfc1ea31bf1098140b",
-      "size": 4999
+      "hash": "39935213c2012cf7c3abe8a30a47e18f",
+      "size": 5993
     },
     {
       "src": "contest-demo/contest-build.json",
       "dest": "contest-build.json",
-      "hash": "64a54e762f3213667baa7f5210cdfc08",
+      "hash": "c53efd76db9bac9ba26120bf7e902c58",
       "size": 415
     },
     {
       "src": "face-tracking/procedural-mesh-renderer.js",
       "dest": "procedural-mesh-renderer.js",
-      "hash": "a683c944fa66e1e5ef6559bef5f64602",
-      "size": 54124
+      "hash": "b97b52a9228e6650239fa406c1e911ca",
+      "size": 82551
     },
     {
       "src": "face-tracking/mesh-spindle-whale.js",
       "dest": "mesh-spindle-whale.js",
-      "hash": "ee237e3fe5fe8ab0d43bfebd9edbda87",
-      "size": 30772
+      "hash": "901a377cea469b8bff4400982f8a1d77",
+      "size": 29462
     },
     {
       "src": "face-tracking/mesh-sphere.js",

@@ -389,21 +389,12 @@ class VoiceChanger {
     this.isActive = false;
     this.started = false;
     if (this.source) {
-      try { this.source.disconnect(); } catch (_) {}
+      this.source.disconnect();
       this.source = null;
     }
-    if (this.processor) {
-      try { this.processor.disconnect(); } catch (_) {}
-      this.processor.onaudioprocess = null;
-    }
     if (this.stream) {
-      try {
-        this.stream.getAudioTracks().forEach(t => t.stop());
-      } catch (_) {}
+      this.stream.getAudioTracks().forEach(t => t.stop());
       this.stream = null;
-    }
-    if (this.monitorMode !== 'mute') {
-      this.monitorMode = 'mute';
     }
     if (this._state === 'enabled') {
       this._setState('disabled');
