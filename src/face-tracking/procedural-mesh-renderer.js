@@ -801,7 +801,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
           ctx.fillRect(-localRx - 2, -localRy - 2, localRx * 2 + 4, eyelidY - (-localRy) + 2);
 
           ctx.strokeStyle = '#555';
-          ctx.lineWidth = Math.max(1, 1.8 * scale);
+          ctx.lineWidth = Math.max(0.5, 1.0 * scale);
           ctx.beginPath();
           ctx.moveTo(-localRx, eyelidY);
           ctx.lineTo(localRx, eyelidY);
@@ -1685,7 +1685,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.fillRect(-eyeHalfWLocal * squintScaleX - 2, -eyeHalfHLocal * squintScaleY - 2, eyeHalfWLocal * squintScaleX * 2 + 4, eyelidY - (-eyeHalfHLocal * squintScaleY) + 2);
 
         ctx.strokeStyle = '#555';
-        ctx.lineWidth = Math.max(1, 1.8 * scale);
+        ctx.lineWidth = Math.max(0.5, 1.0 * scale);
         ctx.beginPath();
         ctx.moveTo(-eyeHalfWLocal * squintScaleX, eyelidY);
         ctx.lineTo(eyeHalfWLocal * squintScaleX, eyelidY);
