@@ -43,6 +43,36 @@ const GAZE_GAIN = 1.8;
 let _smoothGazeLeftX = 0, _smoothGazeLeftY = 0;
 let _smoothGazeRightX = 0, _smoothGazeRightY = 0;
 let _gazeSource = 'idle';
+let _irisTrackingDiag = {
+  faceDetected: false,
+  landmarkCount: 0,
+  refinedIrisAvailable: false,
+  leftIrisPointsValid: false,
+  rightIrisPointsValid: false,
+  leftIrisCenter: null,
+  rightIrisCenter: null,
+  leftEyeInnerCorner: null,
+  leftEyeOuterCorner: null,
+  rightEyeInnerCorner: null,
+  rightEyeOuterCorner: null,
+  leftUpperLid: null,
+  leftLowerLid: null,
+  rightUpperLid: null,
+  rightLowerLid: null,
+  normalizedLeftGazeX: null,
+  normalizedLeftGazeY: null,
+  normalizedRightGazeX: null,
+  normalizedRightGazeY: null,
+  smoothedLeftGazeX: null,
+  smoothedLeftGazeY: null,
+  smoothedRightGazeX: null,
+  smoothedRightGazeY: null,
+  renderedLeftOffsetPixels: null,
+  renderedRightOffsetPixels: null,
+  gazeSource: 'idle',
+  invalidReason: null,
+};
+let _cameraRunning = false;
 
 let _rafInstanceCount = 0;
 let _idleFrameCount = 0;
@@ -2116,35 +2146,37 @@ function startSimLoop() {
 
 function simLoop(ts) {
   simTime = ts * 0.001;
-  _rafId = null; // 上一帧结束，准备本帧
+  _rafId = null;
   _rafId = requestAnimationFrame(simLoop);
 
-  // Simulate face params (only when real face tracking is NOT running
-  // AND no mock/real face frame is active)
-  // If camera was opened but no real frame in CAMERA_IDLE_FALLBACK_MS, fall back to idle
   const _now = ts;
   let _cameraIdleFallback = false;
-  if (_faceLandmarker && !_faceFrameActive) {
+  if (_faceLandmarker && _cameraRunning && !_faceFrameActive) {
     const elapsed = _cameraStartedAt > 0 ? (_now - _cameraStartedAt) : 0;
     const staleElapsed = _lastCameraFrameAt > 0 ? (_now - _lastCameraFrameAt) : 0;
     if (_cameraFrameErrorCount > 0 && _lastCameraError && elapsed > CAMERA_IDLE_FALLBACK_MS) {
-      // Case 3: detectForVideo repeatedly errors (use elapsed since camera start)
       _cameraIdleFallback = true;
       _cameraIdleFallbackReason = 'error';
     } else if (_lastCameraFrameAt > 0 && staleElapsed > CAMERA_IDLE_FALLBACK_MS) {
-      // Case 2: previously detected face, but now stale
       _cameraIdleFallback = true;
       _cameraIdleFallbackReason = 'stale-frame';
     } else if (_lastCameraFrameAt === 0 && elapsed > CAMERA_IDLE_FALLBACK_MS) {
-      // Case 1: camera opened but never detected any face
       _cameraIdleFallback = true;
       _cameraIdleFallbackReason = 'never-detected';
     }
   }
-  if ((!_faceLandmarker && !_faceFrameActive) || _cameraIdleFallback) {
+  const _trackingActive = _cameraRunning && _faceFrameActive && (_now - _lastCameraFrameAt < CAMERA_IDLE_FALLBACK_MS);
+  const _idleShouldBeActive = !_trackingActive || _cameraIdleFallback;
+  if (_idleShouldBeActive) {
     if (!_idleActive) _lastTransitionReason = 'idle-resume';
     _idleActive = true;
     _gazeSource = 'idle';
+    _irisTrackingDiag.gazeSource = 'idle';
+    _irisTrackingDiag.faceDetected = false;
+    _irisTrackingDiag.refinedIrisAvailable = false;
+    _irisTrackingDiag.leftIrisPointsValid = false;
+    _irisTrackingDiag.rightIrisPointsValid = false;
+    _irisTrackingDiag.invalidReason = 'idle-mode';
     // 缓慢衰减 gaze 平滑值（避免从 tracking 切到 idle 时虹膜突然跳回中心）
     _smoothGazeLeftX *= 0.95;
     _smoothGazeLeftY *= 0.95;
@@ -2154,6 +2186,11 @@ function simLoop(ts) {
     state.faceParams.gazeLeftY = _smoothGazeLeftY;
     state.faceParams.gazeRightX = _smoothGazeRightX;
     state.faceParams.gazeRightY = _smoothGazeRightY;
+    _irisTrackingDiag.smoothedLeftGazeX = _smoothGazeLeftX;
+    _irisTrackingDiag.smoothedLeftGazeY = _smoothGazeLeftY;
+    _irisTrackingDiag.smoothedRightGazeX = _smoothGazeRightX;
+    _irisTrackingDiag.smoothedRightGazeY = _smoothGazeRightY;
+    window.__cheapLiveIrisTrackingDiag = _irisTrackingDiag;
     state.faceParams.mouthOpen = 0.5 + 0.5 * Math.sin(simTime * 1.2);
     state.faceParams.blink = Math.max(0, Math.sin(simTime * 3) > 0.95 ? 1 : 0);
     state.faceParams.yaw = Math.sin(simTime * 0.5);
@@ -2956,6 +2993,7 @@ async function startFaceTracking() {
     btn.disabled = false;
 
     _cameraStartedAt = performance.now();
+    _cameraRunning = true;
     _cameraIdleFallbackReason = null;
     _realCameraFrameApplied = false;
     _lastCameraFrameAt = 0;
@@ -3120,6 +3158,11 @@ function _computeGazeFromIris(landmarks, irisIdx, eyeLeftIdx, eyeRightIdx, eyeTo
   const eyeTop = landmarks[eyeTopIdx];
   const eyeBottom = landmarks[eyeBottomIdx];
   if (!iris || !eyeLeft || !eyeRight || !eyeTop || !eyeBottom) return null;
+  if (!Number.isFinite(iris.x) || !Number.isFinite(iris.y)) return null;
+  if (!Number.isFinite(eyeLeft.x) || !Number.isFinite(eyeLeft.y)) return null;
+  if (!Number.isFinite(eyeRight.x) || !Number.isFinite(eyeRight.y)) return null;
+  if (!Number.isFinite(eyeTop.x) || !Number.isFinite(eyeTop.y)) return null;
+  if (!Number.isFinite(eyeBottom.x) || !Number.isFinite(eyeBottom.y)) return null;
   const eyeW = eyeRight.x - eyeLeft.x;
   const eyeH = eyeBottom.y - eyeTop.y;
   if (Math.abs(eyeW) < 0.001 || Math.abs(eyeH) < 0.001) return { x: 0, y: 0 };
@@ -3180,34 +3223,131 @@ function updateFaceParamsFromBlendshapes(blendshapes, matrices, landmarks) {
     }
   }
 
-  // Iris / gaze tracking: requires refineLandmarks:true (478 landmarks).
-  // MediaPipe iris indices:
-  //   left eye:  iris 468, corners 33/133, lids 159/145
-  //   right eye: iris 473, corners 362/263, lids 386/374
-  // Mirror convention (selfie): swap left/right gaze to match user's view.
+  const hasLandmarks = landmarks && landmarks.length > 0;
+  const landmarkCount = hasLandmarks ? landmarks.length : 0;
+  const refinedIrisAvailable = landmarkCount >= 478;
+
+  _irisTrackingDiag.faceDetected = true;
+  _irisTrackingDiag.landmarkCount = landmarkCount;
+  _irisTrackingDiag.refinedIrisAvailable = refinedIrisAvailable;
+  _irisTrackingDiag.invalidReason = null;
+
+  let leftIrisValid = false, rightIrisValid = false;
+  let leftIrisCenter = null, rightIrisCenter = null;
+  let leftInner = null, leftOuter = null, rightInner = null, rightOuter = null;
+  let leftUpper = null, leftLower = null, rightUpper = null, rightLower = null;
+
+  if (refinedIrisAvailable) {
+    const irisL = landmarks[468];
+    const irisR = landmarks[473];
+    leftInner = landmarks[33];
+    leftOuter = landmarks[133];
+    rightInner = landmarks[362];
+    rightOuter = landmarks[263];
+    leftUpper = landmarks[159];
+    leftLower = landmarks[145];
+    rightUpper = landmarks[386];
+    rightLower = landmarks[374];
+
+    leftIrisValid = irisL && Number.isFinite(irisL.x) && Number.isFinite(irisL.y) &&
+      leftInner && Number.isFinite(leftInner.x) && Number.isFinite(leftInner.y) &&
+      leftOuter && Number.isFinite(leftOuter.x) && Number.isFinite(leftOuter.y) &&
+      leftUpper && Number.isFinite(leftUpper.x) && Number.isFinite(leftUpper.y) &&
+      leftLower && Number.isFinite(leftLower.x) && Number.isFinite(leftLower.y);
+
+    rightIrisValid = irisR && Number.isFinite(irisR.x) && Number.isFinite(irisR.y) &&
+      rightInner && Number.isFinite(rightInner.x) && Number.isFinite(rightInner.y) &&
+      rightOuter && Number.isFinite(rightOuter.x) && Number.isFinite(rightOuter.y) &&
+      rightUpper && Number.isFinite(rightUpper.x) && Number.isFinite(rightUpper.y) &&
+      rightLower && Number.isFinite(rightLower.x) && Number.isFinite(rightLower.y);
+
+    if (leftIrisValid) {
+      leftIrisCenter = { x: irisL.x, y: irisL.y };
+    }
+    if (rightIrisValid) {
+      rightIrisCenter = { x: irisR.x, y: irisR.y };
+    }
+  }
+
+  _irisTrackingDiag.leftIrisPointsValid = leftIrisValid;
+  _irisTrackingDiag.rightIrisPointsValid = rightIrisValid;
+  _irisTrackingDiag.leftIrisCenter = leftIrisCenter;
+  _irisTrackingDiag.rightIrisCenter = rightIrisCenter;
+  _irisTrackingDiag.leftEyeInnerCorner = leftInner ? { x: leftInner.x, y: leftInner.y } : null;
+  _irisTrackingDiag.leftEyeOuterCorner = leftOuter ? { x: leftOuter.x, y: leftOuter.y } : null;
+  _irisTrackingDiag.rightEyeInnerCorner = rightInner ? { x: rightInner.x, y: rightInner.y } : null;
+  _irisTrackingDiag.rightEyeOuterCorner = rightOuter ? { x: rightOuter.x, y: rightOuter.y } : null;
+  _irisTrackingDiag.leftUpperLid = leftUpper ? { x: leftUpper.x, y: leftUpper.y } : null;
+  _irisTrackingDiag.leftLowerLid = leftLower ? { x: leftLower.x, y: leftLower.y } : null;
+  _irisTrackingDiag.rightUpperLid = rightUpper ? { x: rightUpper.x, y: rightUpper.y } : null;
+  _irisTrackingDiag.rightLowerLid = rightLower ? { x: rightLower.x, y: rightLower.y } : null;
+
   const leftGaze = _computeGazeFromIris(landmarks, 468, 33, 133, 159, 145);
   const rightGaze = _computeGazeFromIris(landmarks, 473, 362, 263, 386, 374);
-  if (leftGaze && rightGaze) {
+
+  _irisTrackingDiag.normalizedLeftGazeX = leftGaze ? leftGaze.x : null;
+  _irisTrackingDiag.normalizedLeftGazeY = leftGaze ? leftGaze.y : null;
+  _irisTrackingDiag.normalizedRightGazeX = rightGaze ? rightGaze.x : null;
+  _irisTrackingDiag.normalizedRightGazeY = rightGaze ? rightGaze.y : null;
+
+  const irisValid = leftGaze && rightGaze;
+  if (irisValid) {
+    _gazeSource = 'iris-landmarks';
+    _irisTrackingDiag.gazeSource = 'iris-landmarks';
+    _irisTrackingDiag.invalidReason = null;
+
     const sLX = _smoothGaze('gazeLeftX', leftGaze.x);
     const sLY = _smoothGaze('gazeLeftY', leftGaze.y);
     const sRX = _smoothGaze('gazeRightX', rightGaze.x);
     const sRY = _smoothGaze('gazeRightY', rightGaze.y);
-    // Mirror swap: what MediaPipe sees as "left eye" is the user's right eye in mirror view.
+    _smoothGazeLeftX = sRX;
+    _smoothGazeLeftY = sRY;
+    _smoothGazeRightX = sLX;
+    _smoothGazeRightY = sLY;
     state.faceParams.gazeLeftX = sRX;
     state.faceParams.gazeLeftY = sRY;
     state.faceParams.gazeRightX = sLX;
     state.faceParams.gazeRightY = sLY;
   } else if (leftGaze) {
-    state.faceParams.gazeLeftX = _smoothGaze('gazeLeftX', leftGaze.x);
-    state.faceParams.gazeLeftY = _smoothGaze('gazeLeftY', leftGaze.y);
-    state.faceParams.gazeRightX = state.faceParams.gazeLeftX;
-    state.faceParams.gazeRightY = state.faceParams.gazeLeftY;
+    _gazeSource = 'iris-landmarks';
+    _irisTrackingDiag.gazeSource = 'iris-landmarks';
+    _irisTrackingDiag.invalidReason = 'right-iris-invalid';
+    const sLX = _smoothGaze('gazeLeftX', leftGaze.x);
+    const sLY = _smoothGaze('gazeLeftY', leftGaze.y);
+    _smoothGazeLeftX = sLX;
+    _smoothGazeLeftY = sLY;
+    _smoothGazeRightX = sLX;
+    _smoothGazeRightY = sLY;
+    state.faceParams.gazeLeftX = sLX;
+    state.faceParams.gazeLeftY = sLY;
+    state.faceParams.gazeRightX = sLX;
+    state.faceParams.gazeRightY = sLY;
   } else if (rightGaze) {
-    state.faceParams.gazeRightX = _smoothGaze('gazeRightX', rightGaze.x);
-    state.faceParams.gazeRightY = _smoothGaze('gazeRightY', rightGaze.y);
-    state.faceParams.gazeLeftX = state.faceParams.gazeRightX;
-    state.faceParams.gazeLeftY = state.faceParams.gazeRightY;
+    _gazeSource = 'iris-landmarks';
+    _irisTrackingDiag.gazeSource = 'iris-landmarks';
+    _irisTrackingDiag.invalidReason = 'left-iris-invalid';
+    const sRX = _smoothGaze('gazeRightX', rightGaze.x);
+    const sRY = _smoothGaze('gazeRightY', rightGaze.y);
+    _smoothGazeLeftX = sRX;
+    _smoothGazeLeftY = sRY;
+    _smoothGazeRightX = sRX;
+    _smoothGazeRightY = sRY;
+    state.faceParams.gazeLeftX = sRX;
+    state.faceParams.gazeLeftY = sRY;
+    state.faceParams.gazeRightX = sRX;
+    state.faceParams.gazeRightY = sRY;
+  } else {
+    _gazeSource = 'unavailable';
+    _irisTrackingDiag.gazeSource = 'unavailable';
+    _irisTrackingDiag.invalidReason = refinedIrisAvailable ? 'iris-landmarks-invalid' : 'refined-iris-not-available';
   }
+
+  _irisTrackingDiag.smoothedLeftGazeX = state.faceParams.gazeLeftX;
+  _irisTrackingDiag.smoothedLeftGazeY = state.faceParams.gazeLeftY;
+  _irisTrackingDiag.smoothedRightGazeX = state.faceParams.gazeRightX;
+  _irisTrackingDiag.smoothedRightGazeY = state.faceParams.gazeRightY;
+
+  window.__cheapLiveIrisTrackingDiag = _irisTrackingDiag;
 
   _faceFrameActive = true;
   _faceFrameSource = 'camera';
@@ -3290,6 +3430,7 @@ function stopFaceTracking() {
   // Aligned with open demo: keep FaceLandmarker instance for reuse on next start.
   // Model loading is expensive; only stop video stream and detect loop.
   _cameraStartedAt = 0;
+  _cameraRunning = false;
   _lastCameraFrameAt = 0;
   _cameraFrameErrorCount = 0;
   _lastCameraError = null;
