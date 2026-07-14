@@ -4381,7 +4381,7 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
       ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
-      ctx.lineWidth = Math.max(1, 2.0 * scale);
+      ctx.lineWidth = Math.max(0.5, 1.0 * scale);
       ctx.strokeStyle = '#222';
       ctx.stroke();
 

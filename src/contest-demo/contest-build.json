@@ -1,7 +1,7 @@
 {
   "branch": "main",
-  "gitShortSha": "ce89a59",
-  "buildTimeLocal": "2026-07-14 17:28 +0800",
-  "buildTimeUTC": "2026-07-14 09:28 UTC",
+  "gitShortSha": "b90ffe6",
+  "buildTimeLocal": "2026-07-15 05:40 +0800",
+  "buildTimeUTC": "2026-07-14 21:40 UTC",
   "note": "Static build stamp for GitHub Pages. Updated by scripts/update-contest-version.mjs before release. Self-referential SHA limitation applies: the SHA recorded here is the HEAD at build time, not the SHA of the commit that contains this file."
 }
