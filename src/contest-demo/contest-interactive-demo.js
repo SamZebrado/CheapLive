@@ -2305,7 +2305,7 @@ function simLoop(ts) {
     };
 
     // Mapped renderer values (what actually gets sent to the renderer)
-    const mapped = faceParamsToRendererParams(state.faceParams);
+    // Reuse the existing `mapped` from the webPoseDiag section above
     diag.mappedPoseDiag = {
       headYaw: mapped.headYaw,
       headPitch: mapped.headPitch,
