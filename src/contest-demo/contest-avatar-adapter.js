@@ -38,8 +38,10 @@
       const rendererUrl = new URL(
         '../face-tracking/procedural-mesh-renderer.js',
         base || window.location.href
-      ).href;
-      import(rendererUrl)
+      );
+      const pageV = new URLSearchParams(window.location.search).get('v');
+      if (pageV) rendererUrl.searchParams.set('v', pageV);
+      import(rendererUrl.href)
         .then((mod) => {
           if (!mod.ProceduralSpindleWhaleAvatar) {
             throw new Error('ProceduralSpindleWhaleAvatar not exported');
