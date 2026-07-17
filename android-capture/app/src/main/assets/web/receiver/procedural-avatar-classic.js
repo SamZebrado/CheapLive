@@ -1288,6 +1288,7 @@ class ProceduralMeshRenderer {
     };
     this.mirror = true;
     this.appMode = false;
+    this.transparentMode = false;
 
     // 调试网格显示（默认关闭，不展示给用户）
     this.debugMesh = false;
@@ -1312,6 +1313,11 @@ class ProceduralMeshRenderer {
 
   setAppMode(enabled) {
     this.appMode = !!enabled;
+    this.draw();
+  }
+
+  setTransparentMode(enabled) {
+    this.transparentMode = !!enabled;
     this.draw();
   }
 
@@ -1342,13 +1348,15 @@ class ProceduralMeshRenderer {
     const h = this.canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    if (!this.appMode) {
-      ctx.fillStyle = '#1A1A2E';
-      ctx.fillRect(0, 0, w, h);
-    } else {
-      // 应用模式：纯黑背景，方便 chroma key 抠图
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, w, h);
+    if (!this.transparentMode) {
+      if (!this.appMode) {
+        ctx.fillStyle = '#1A1A2E';
+        ctx.fillRect(0, 0, w, h);
+      } else {
+        // 应用模式：纯黑背景，方便 chroma key 抠图
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, w, h);
+      }
     }
 
     this._render(ctx, w, h);

@@ -50,6 +50,7 @@ export class ProceduralQuadrupedAvatar {
     this.animTime = 0;
     this._running = false;
     this._appMode = false;
+    this._transparentMode = false;
     
     this._bodyCheckActive = false;
     this._bodyCheckPhase = 0;
@@ -273,6 +274,10 @@ export class ProceduralQuadrupedAvatar {
     this._appMode = !!enabled;
   }
 
+  setTransparentMode(enabled) {
+    this._transparentMode = !!enabled;
+  }
+
   updateParams(params) {
     if (params.eyeLeft !== undefined) this.eyeLeft = params.eyeLeft;
     if (params.eyeRight !== undefined) this.eyeRight = params.eyeRight;
@@ -395,13 +400,15 @@ export class ProceduralQuadrupedAvatar {
     
     ctx.clearRect(0, 0, w, h);
     
-    if (!this._appMode) {
-      ctx.fillStyle = '#1A1A2E';
-      ctx.fillRect(0, 0, w, h);
-    } else {
-      // 应用模式：纯黑背景，方便 chroma key 抠图
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, w, h);
+    if (!this._transparentMode) {
+      if (!this._appMode) {
+        ctx.fillStyle = '#1A1A2E';
+        ctx.fillRect(0, 0, w, h);
+      } else {
+        // 应用模式：纯黑背景，方便 chroma key 抠图
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, w, h);
+      }
     }
     
     // bodyCheck 动作更新

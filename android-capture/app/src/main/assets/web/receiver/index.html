@@ -187,6 +187,15 @@
   }
 
   /* 应用模式 */
+  html,
+  body.app-mode,
+  body.app-mode .container,
+  body.app-mode .stage-card,
+  body.app-mode #stage {
+    background: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+  }
   body.app-mode .container { max-width: 100%; padding: 0; }
   body.app-mode .hero,
   body.app-mode .status-grid,
@@ -196,7 +205,6 @@
   body.app-mode .stage-overlay { display: none !important; }
   body.app-mode .stage-card {
     border: none;
-    background: transparent;
     padding: 0;
     margin: 0;
     border-radius: 0;
@@ -211,7 +219,6 @@
     display: none;
   }
   body.app-mode .app-mode-exit { display: none; }
-  body.app-mode { background: #000000; }
 
   .log-panel {
     background: rgba(0,0,0,0.3);
@@ -1542,6 +1549,10 @@
     // 同步 appMode 到 renderer
     if (typeof procRenderer !== 'undefined' && procRenderer && typeof procRenderer.setAppMode === 'function') {
       procRenderer.setAppMode(appMode);
+    }
+    // 同步 transparentMode 到 renderer（应用模式下 canvas 背景透明）
+    if (typeof procRenderer !== 'undefined' && procRenderer && typeof procRenderer.setTransparentMode === 'function') {
+      procRenderer.setTransparentMode(appMode);
     }
     // 重新计算 canvas 尺寸
     if (typeof resizeStage === 'function') resizeStage();
