@@ -65,6 +65,9 @@ class MainActivity : AppCompatActivity() {
     private var currentSessionUrl: String = ""
     private var isServerRunning: Boolean = false
     private var appState: AppState? = null
+    private var configStore: FaceTrackingConfigStore? = null
+    private var connectionStore: ConnectionIdentityStore? = null
+    @Volatile private var lastPersistedConfigRevision: Long = -1L
 
     // === Design Tokens (对齐 demo) ===
     private val cBg = Color.parseColor("#0a0e1a")
@@ -176,11 +179,39 @@ class MainActivity : AppCompatActivity() {
             if (appState == null) {
                 appState = AppState()
             }
+            // 加载持久化的面部追踪配置（在 ensureServerStarted 之前完成，保证 SSE 初始推送包含配置）
+            if (configStore == null) {
+                configStore = FaceTrackingConfigStore(this)
+            }
+            // 加载持久化的稳定连接身份（token/sessionId/port 不随重启变化）
+            if (connectionStore == null) {
+                connectionStore = ConnectionIdentityStore(this)
+            }
+            appState?.let { s ->
+                if (s.faceTrackingConfig.revision == 0L) {
+                    s.faceTrackingConfig = configStore!!.load()
+                    lastPersistedConfigRevision = s.faceTrackingConfig.revision
+                    android.util.Log.i("CheapLiveCapture", "Loaded faceTrackingConfig rev=${s.faceTrackingConfig.revision} from prefs")
+                }
+            }
 
             // 进入页面时提前生成 session/token/二维码
+            // 使用持久化的稳定连接身份（token/sessionId/port），仅 IP 动态获取
             val initialIp = PrivateIpPicker.pick()
             if (initialIp != null && session == null) {
-                val s = SessionManager.createSession(initialIp, PORT)
+                val existingIdentity = connectionStore!!.load()
+                val identity = existingIdentity ?: connectionStore!!.reset().also {
+                    android.util.Log.i("CheapLiveCapture", "First run: created new connection identity (token/sessionId/port)")
+                }
+                if (existingIdentity != null) {
+                    android.util.Log.i("CheapLiveCapture", "Restored connection identity from prefs (token/sessionId/port kept stable)")
+                }
+                val s = Session(
+                    sessionId = identity.sessionId,
+                    token = identity.token,
+                    port = identity.port,
+                    privateIp = initialIp,
+                )
                 session = s
                 val previewLink = "http://${s.privateIp}:${s.port}/receiver/?token=${s.token}&v=${BuildConfig.VERSION_NAME}"
                 currentSessionUrl = previewLink
@@ -1469,6 +1500,21 @@ class MainActivity : AppCompatActivity() {
         btnResetQr.setOnClickListener { resetSession() }
         card.addView(btnResetQr)
 
+        // 重置连接：生成新 token/sessionId，旧二维码失效（面捕配置不受影响）
+        val btnResetConnection = makeButton("重置连接（旧二维码失效）", cBgSecondary, cDanger)
+        btnResetConnection.setOnClickListener {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("重置连接？")
+                .setMessage("重置后，之前的二维码、书签和已打开的 Receiver 页面将失效。\n\n面捕个体化设置不会被清除。\n\n确认重置连接身份？")
+                .setPositiveButton("重置") { _, _ ->
+                    resetConnectionIdentity()
+                    Toast.makeText(this, "连接已重置，请使用新二维码", Toast.LENGTH_LONG).show()
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        }
+        card.addView(btnResetConnection)
+
         root.addView(card)
     }
 
@@ -1785,13 +1831,31 @@ class MainActivity : AppCompatActivity() {
     private fun ensureServerStarted() {
         if (isServerRunning) return
         val ip = PrivateIpPicker.pick() ?: "127.0.0.1"
-        val baseSession = session ?: SessionManager.createSession(ip, PORT)
+        // 使用持久化的稳定连接身份，不重新生成 token/sessionId
+        if (connectionStore == null) {
+            connectionStore = ConnectionIdentityStore(this)
+        }
+        val identity = connectionStore!!.load() ?: connectionStore!!.reset()
+        val baseSession = session ?: Session(
+            sessionId = identity.sessionId,
+            token = identity.token,
+            port = identity.port,
+            privateIp = ip,
+        ).also { session = it }
         val srv = LocalServer(this, baseSession, appState ?: AppState())
         val actualPort = try {
             srv.start()
         } catch (t: Throwable) {
             android.util.Log.e("CheapLiveCapture", "ensureServerStarted failed: ${t.message}")
-            return
+            // 端口冲突时短暂等待旧实例释放后重试一次（不静默切换端口）
+            Thread.sleep(500)
+            try {
+                srv.start()
+            } catch (t2: Throwable) {
+                android.util.Log.e("CheapLiveCapture", "ensureServerStarted retry failed: ${t2.message}")
+                tvServerStatus?.text = "服务器启动失败：端口 ${identity.port} 被占用"
+                return
+            }
         }
         val finalSession = baseSession.copy(port = actualPort, privateIp = ip)
         session = finalSession
@@ -1799,7 +1863,13 @@ class MainActivity : AppCompatActivity() {
         isServerRunning = true
         android.util.Log.i("CheapLiveCapture", "ensureServerStarted: port=$actualPort")
 
-        val b = bridge ?: CaptureBridge(finalSession, srv, { _, _ -> }).also { bridge = it }
+        val b = bridge ?: CaptureBridge(
+            session = finalSession,
+            broadcast = srv,
+            onStateChange = { _, _ -> },
+            appState = appState,
+            configStore = configStore,
+        ).also { bridge = it }
         webView?.addJavascriptInterface(b, "CheapLiveBridge")
     }
 
@@ -1825,6 +1895,27 @@ class MainActivity : AppCompatActivity() {
         var lastCameraNeeded = (appState?.faceCaptureEnabled ?: false) || (appState?.poseCaptureEnabled ?: false)
         var lastVoiceEnabled = appState?.voiceChangerEnabled ?: false
         var lastVoicePreset = appState?.voicePreset ?: "original"
+        var lastConfigRevision = appState?.faceTrackingConfig?.revision ?: 0L
+        // 注册前补漏：如果 /api/control 在 listener 注册前调用了 resetFaceTrackingConfig，
+        // appState.faceTrackingConfig 已是 reset 后的新值，但 prefs 仍是旧值。
+        // 通过 lastPersistedConfigRevision（onCreate 中加载后设置）对比当前 rev，发现差异立即同步 save。
+        val persistedRev = lastPersistedConfigRevision
+        val currentRevAtInit = appState?.faceTrackingConfig?.revision ?: 0L
+        if (currentRevAtInit != persistedRev) {
+            android.util.Log.i("CheapLiveCapture", "setupAppStateListener: detected pending config change (currentRev=$currentRevAtInit, persistedRev=$persistedRev), saving now")
+            val store = configStore
+            val config = appState?.faceTrackingConfig
+            if (store != null && config != null) {
+                try {
+                    store.save(config)
+                    lastPersistedConfigRevision = config.revision
+                } catch (t: Throwable) {
+                    android.util.Log.w("CheapLiveCapture", "setupAppStateListener: immediate save failed: ${t.message}")
+                }
+            }
+        }
+        var lastCalibrationInProgress = appState?.calibrationStatus?.inProgress ?: false
+        var lastCalibrationSampleCount = 0
 
         appState?.addListener { snap ->
             runOnUiThread {
@@ -1840,6 +1931,50 @@ class MainActivity : AppCompatActivity() {
                 tvServerBadge.text = if (snap.serverRunning) "ONLINE" else "OFFLINE"
                 tvServerBadge.setTextColor(if (snap.serverRunning) cAccent2 else cDanger)
                 tvServerBadge.setBackgroundColor(if (snap.serverRunning) Color.argb(30, 105, 219, 124) else Color.argb(30, 255, 107, 107))
+
+                // 面部追踪配置变更 → 持久化 + 推送给 WebView（capture 页面应用新参数）
+                val currentRev = appState?.faceTrackingConfig?.revision ?: 0L
+                if (currentRev != lastConfigRevision) {
+                    lastConfigRevision = currentRev
+                    val configJson = appState?.faceTrackingConfig?.toJson() ?: "{}"
+                    // 异步持久化（避免阻塞 UI 线程）
+                    val store = configStore
+                    val config = appState?.faceTrackingConfig
+                    if (store != null && config != null) {
+                        Thread({
+                            try {
+                                store.save(config)
+                                // 同步更新 lastPersistedConfigRevision，避免下次 setupAppStateListener 误判为 pending change
+                                lastPersistedConfigRevision = config.revision
+                                android.util.Log.i("CheapLiveCapture", "Persisted faceTrackingConfig rev=${config.revision} to prefs")
+                            } catch (t: Throwable) {
+                                android.util.Log.w("CheapLiveCapture", "Failed to persist faceTrackingConfig rev=${config?.revision}: ${t.message}")
+                            }
+                        }, "CheapLive-config-persist").start()
+                    }
+                    // 推送给 WebView（capture 页面应用新参数）
+                    webView?.evaluateJavascript(
+                        "(function() { if (window.CheapLiveCapture && window.CheapLiveCapture.applyFaceTrackingConfig) { return JSON.stringify(window.CheapLiveCapture.applyFaceTrackingConfig('$configJson')); } else { return JSON.stringify({ok:false,error:'applyFaceTrackingConfig not ready'}); } })()"
+                    ) { result ->
+                        android.util.Log.i("CheapLiveCapture", "applyFaceTrackingConfig rev=$currentRev result: $result")
+                    }
+                }
+
+                // 校准状态变更 → 推送给 WebView（capture 页面开始/停止采样）
+                val calibrationInProgress = snap.calibrationInProgress
+                val sampleCount = snap.calibrationSampleCount
+                if (calibrationInProgress != lastCalibrationInProgress || sampleCount != lastCalibrationSampleCount) {
+                    lastCalibrationInProgress = calibrationInProgress
+                    lastCalibrationSampleCount = sampleCount
+                    val action = if (calibrationInProgress) "start" else "stop"
+                    // 构造完整的校准状态 JSON 对象，与 CaptureBridge.getCalibrationStatus() 格式一致
+                    val statusJson = "{\"inProgress\":$calibrationInProgress,\"sampleCount\":$sampleCount,\"targetSamples\":${snap.calibrationTargetSamples},\"lastError\":\"${snap.calibrationLastError ?: ""}\"}"
+                    webView?.evaluateJavascript(
+                        "(function() { if (window.CheapLiveCapture && window.CheapLiveCapture.onCalibrationStatusChange) { return JSON.stringify(window.CheapLiveCapture.onCalibrationStatusChange(${org.json.JSONObject.quote(statusJson)})); } else { return JSON.stringify({ok:false,error:'onCalibrationStatusChange not ready'}); } })()"
+                    ) { result ->
+                        android.util.Log.i("CheapLiveCapture", "onCalibrationStatusChange($action,$sampleCount) result: $result")
+                    }
+                }
 
                 // camera 需要状态：面捕或姿态捕捉任一启用就需要 camera
                 val cameraNeeded = snap.faceCaptureEnabled || snap.poseCaptureEnabled
@@ -1910,7 +2045,13 @@ class MainActivity : AppCompatActivity() {
 
             // listener 已在 onPageFinished 中通过 setupAppStateListener() 注册，无需重复
 
-            val b = bridge ?: CaptureBridge(finalSession, srv, { _, _ -> }).also { bridge = it }
+            val b = bridge ?: CaptureBridge(
+                session = finalSession,
+                broadcast = srv,
+                onStateChange = { _, _ -> },
+                appState = appState,
+                configStore = configStore,
+            ).also { bridge = it }
             webView?.addJavascriptInterface(b, "CheapLiveBridge")
             val link = "http://${finalSession.privateIp}:${finalSession.port}/receiver/?token=${finalSession.token}&v=${BuildConfig.VERSION_NAME}"
             currentSessionUrl = link
@@ -1931,18 +2072,34 @@ class MainActivity : AppCompatActivity() {
             tvServerStatus.text = "无法获取局域网 IP，请检查 Wi-Fi"
             return
         }
+        // 使用持久化的稳定连接身份，不重新生成 token/sessionId
+        if (connectionStore == null) {
+            connectionStore = ConnectionIdentityStore(this)
+        }
+        val identity = connectionStore!!.load() ?: connectionStore!!.reset()
         val existingSession = session
-        val baseSession = existingSession ?: SessionManager.createSession(ip, PORT)
+        val baseSession = existingSession ?: Session(
+            sessionId = identity.sessionId,
+            token = identity.token,
+            port = identity.port,
+            privateIp = ip,
+        ).also { session = it }
         val srv = LocalServer(this, baseSession)
         val actualPort = try { srv.start() } catch (t: Throwable) {
-            tvServerStatus.text = "服务器启动失败：${t.message}"
-            return
+            // 端口冲突时短暂等待旧实例释放后重试一次（不静默切换端口）
+            Thread.sleep(500)
+            try { srv.start() } catch (t2: Throwable) {
+                tvServerStatus.text = "服务器启动失败：端口 ${identity.port} 被占用（${t2.message}）"
+                return
+            }
         }
         val finalSession = baseSession.copy(port = actualPort, privateIp = ip)
         session = finalSession
         server = srv
         // 保存本地已设置的状态，替换到新 AppState 中
         val prevSnap = appState?.snapshot()
+        val prevConfig = appState?.faceTrackingConfig
+        val prevCalibration = appState?.calibrationStatus
         appState = srv.getAppState()
         if (prevSnap != null) {
             appState?.let { s ->
@@ -1956,6 +2113,24 @@ class MainActivity : AppCompatActivity() {
                 s.captureMode = prevSnap.captureMode
                 s.voicePermission = prevSnap.voicePermission
                 s.cameraPermission = prevSnap.cameraPermission
+                // 恢复面部追踪配置（如果之前已加载）
+                if (prevConfig != null) {
+                    s.faceTrackingConfig = prevConfig
+                }
+                if (prevCalibration != null) {
+                    s.calibrationStatus = prevCalibration
+                }
+            }
+        } else {
+            // 没有先前状态，从持久化加载
+            if (configStore == null) {
+                configStore = FaceTrackingConfigStore(this)
+            }
+            appState?.let { s ->
+                if (s.faceTrackingConfig.revision == 0L) {
+                    s.faceTrackingConfig = configStore!!.load()
+                    lastPersistedConfigRevision = s.faceTrackingConfig.revision
+                }
             }
         }
         appState?.setField("serverRunning", true)
@@ -1967,7 +2142,13 @@ class MainActivity : AppCompatActivity() {
 
         // listener 已在 onPageFinished 中通过 setupAppStateListener() 注册，无需重复
 
-        val b = bridge ?: CaptureBridge(finalSession, srv, { _, _ -> }).also { bridge = it }
+        val b = bridge ?: CaptureBridge(
+            session = finalSession,
+            broadcast = srv,
+            onStateChange = { _, _ -> },
+            appState = appState,
+            configStore = configStore,
+        ).also { bridge = it }
         webView?.addJavascriptInterface(b, "CheapLiveBridge")
         val link = "http://${finalSession.privateIp}:$actualPort/receiver/?token=${finalSession.token}&v=${BuildConfig.VERSION_NAME}"
         currentSessionUrl = link
@@ -1980,15 +2161,55 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resetSession() {
+        // 停止服务器，但保留持久化连接身份（token/sessionId/port）
+        // 用户重新点击"开始"会复用同一身份生成相同 URL
         try { server?.stop() } catch (_: Throwable) {}
         server = null
         isServerRunning = false
-        session = null
+        // 不清 session：保留 token/sessionId/port，仅清运行时状态
+        // session = null  // 已注释：保留身份
         bridge = null
-        currentSessionUrl = ""
-        qrImageView?.visibility = View.GONE
-        tvServerStatus.text = "已重置会话"
-        tvSessionInfo.text = "点击「开始多端会话」使用新链接"
+        // 不清 currentSessionUrl：UI 仍显示二维码供用户参考
+        // currentSessionUrl = ""  // 已注释：保留 URL 显示
+        // qrImageView?.visibility = View.GONE  // 已注释：保留二维码显示
+        tvServerStatus.text = "会话已停止（链接与二维码保持不变）"
+        tvSessionInfo.text = "点击「开始多端会话」使用同一链接重启"
+    }
+
+    /**
+     * 用户主动重置连接身份：生成新 token/sessionId，旧二维码失效。
+     * 不清除面捕配置（FaceTrackingConfigStore 独立存储，互不影响）。
+     * 需要二次确认（由调用方在 UI 层处理）。
+     */
+    private fun resetConnectionIdentity() {
+        try { server?.stop() } catch (_: Throwable) {}
+        server = null
+        isServerRunning = false
+        bridge = null
+        if (connectionStore == null) {
+            connectionStore = ConnectionIdentityStore(this)
+        }
+        val newIdentity = connectionStore!!.reset()
+        android.util.Log.i("CheapLiveCapture", "Connection identity reset: new token/sessionId generated, port kept=${newIdentity.port}")
+        // 立即用新身份重建 session 和 URL
+        val ip = PrivateIpPicker.pick()
+        if (ip != null) {
+            val s = Session(
+                sessionId = newIdentity.sessionId,
+                token = newIdentity.token,
+                port = newIdentity.port,
+                privateIp = ip,
+            )
+            session = s
+            val link = "http://${s.privateIp}:${s.port}/receiver/?token=${s.token}&v=${BuildConfig.VERSION_NAME}"
+            currentSessionUrl = link
+            qrImageView?.apply {
+                visibility = View.VISIBLE
+                setImageBitmap(generateQRCode(link, 600))
+            }
+        }
+        tvServerStatus.text = "连接已重置（旧二维码已失效）"
+        tvSessionInfo.text = "使用新二维码重新连接接收端"
     }
 
     private fun stopSession() {

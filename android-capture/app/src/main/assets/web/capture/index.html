@@ -28,6 +28,34 @@
   .preset-btn { padding: 3px 8px; background: rgba(255,255,255,0.05); border: 1px solid #2a3654; border-radius: 4px; font-size: 11px; color: #8896b3; cursor: pointer; }
   .preset-btn.active { background: rgba(79,195,247,0.15); border-color: rgba(79,195,247,0.5); color: #4fc3f7; }
   .preset-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ===== 面捕个体化设置 ===== */
+  .ft-section { margin-top: 12px; padding-top: 8px; border-top: 1px solid #2a2a40; }
+  .ft-section h3 { margin: 4px 0 8px 0; color: #93c5fd; font-size: 13px; }
+  .ft-calib-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .ft-calib-status { font-family: monospace; font-size: 11px; color: #8896b3; }
+  .ft-calib-status.active { color: #fbbf24; }
+  .ft-calib-status.done { color: #4ade80; }
+  .ft-calib-status.error { color: #f87171; }
+  .ft-btn { padding: 6px 12px; background: #1e3a5f; color: #93c5fd; border: 1px solid #3b82f6; border-radius: 4px; font-size: 12px; cursor: pointer; }
+  .ft-btn:active { background: #2563eb; }
+  .ft-btn.stop { background: #5f1e1e; color: #fd9393; border-color: #f87171; }
+  .ft-btn.reset { background: #3f3f1e; color: #fde293; border-color: #fbbf24; }
+  .ft-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ft-collapsible { margin: 8px 0; border: 1px solid #2a3654; border-radius: 6px; overflow: hidden; }
+  .ft-collapsible-header { padding: 6px 10px; background: #1a1a2e; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #8896b3; }
+  .ft-collapsible-header:hover { background: #1f2a42; }
+  .ft-collapsible-header .ft-arrow { transition: transform 0.15s; }
+  .ft-collapsible-header.expanded .ft-arrow { transform: rotate(90deg); }
+  .ft-collapsible-body { padding: 8px 10px; display: none; }
+  .ft-collapsible-body.expanded { display: block; }
+  .ft-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 11px; }
+  .ft-label { min-width: 90px; color: #8896b3; font-size: 11px; }
+  .ft-slider { flex: 1; height: 4px; -webkit-appearance: none; appearance: none; background: #1a1a2e; border-radius: 2px; outline: none; }
+  .ft-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #4fc3f7; cursor: pointer; }
+  .ft-value { min-width: 44px; text-align: right; font-family: monospace; font-size: 11px; color: #4fc3f7; }
+  .ft-divider { height: 1px; background: #2a3654; margin: 8px 0; }
+  .ft-subsection-title { font-size: 10px; color: #5a6a85; text-transform: uppercase; letter-spacing: 0.05em; margin: 6px 0 4px 0; }
 </style>
 </head>
 <body>
@@ -74,6 +102,129 @@
       <div class="voice-row">
         <span class="voice-label">本地监听:</span>
         <button class="preset-btn" id="monitorBtn" onclick="toggleMonitor()" disabled>OFF</button>
+      </div>
+    </div>
+
+    <!-- ===== 面捕个体化设置 ===== -->
+    <div class="ft-section">
+      <h3>🎛️ 面捕个体化设置</h3>
+      <div class="ft-calib-row">
+        <button id="ftCalibBtn" class="ft-btn" onclick="toggleCalibration()">开始 3 秒中性校准</button>
+        <span id="ftCalibStatus" class="ft-calib-status">未校准</span>
+      </div>
+      <div class="ft-collapsible">
+        <div class="ft-collapsible-header" id="ftBasicHeader" onclick="toggleFtSection('ftBasicBody', 'ftBasicHeader')">
+          <span>👁️ 基础设置（眼睛）</span><span class="ft-arrow">▶</span>
+        </div>
+        <div class="ft-collapsible-body" id="ftBasicBody">
+          <div class="ft-subsection-title">左眼</div>
+          <div class="ft-row">
+            <span class="ft-label">灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.eyeLeft" />
+            <span class="ft-value" data-ftdisplay="scale.eyeLeft">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">偏移</span>
+            <input type="range" class="ft-slider" min="-0.3" max="0.3" step="0.01" data-ftkey="offset.eyeLeft" />
+            <span class="ft-value" data-ftdisplay="offset.eyeLeft">0.00</span>
+          </div>
+          <div class="ft-subsection-title">右眼</div>
+          <div class="ft-row">
+            <span class="ft-label">灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.eyeRight" />
+            <span class="ft-value" data-ftdisplay="scale.eyeRight">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">偏移</span>
+            <input type="range" class="ft-slider" min="-0.3" max="0.3" step="0.01" data-ftkey="offset.eyeRight" />
+            <span class="ft-value" data-ftdisplay="offset.eyeRight">0.00</span>
+          </div>
+        </div>
+      </div>
+      <div class="ft-collapsible">
+        <div class="ft-collapsible-header" id="ftAdvancedHeader" onclick="toggleFtSection('ftAdvancedBody', 'ftAdvancedHeader')">
+          <span>⚙️ 高级设置（嘴/头/位置）</span><span class="ft-arrow">▶</span>
+        </div>
+        <div class="ft-collapsible-body" id="ftAdvancedBody">
+          <div class="ft-subsection-title">嘴巴</div>
+          <div class="ft-row">
+            <span class="ft-label">张嘴灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.mouthOpen" />
+            <span class="ft-value" data-ftdisplay="scale.mouthOpen">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">张嘴偏移</span>
+            <input type="range" class="ft-slider" min="-0.3" max="0.3" step="0.01" data-ftkey="offset.mouthOpen" />
+            <span class="ft-value" data-ftdisplay="offset.mouthOpen">0.00</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">微笑灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.mouthSmile" />
+            <span class="ft-value" data-ftdisplay="scale.mouthSmile">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">微笑偏移</span>
+            <input type="range" class="ft-slider" min="-0.3" max="0.3" step="0.01" data-ftkey="offset.mouthSmile" />
+            <span class="ft-value" data-ftdisplay="offset.mouthSmile">0.00</span>
+          </div>
+          <div class="ft-subsection-title">头部姿态</div>
+          <div class="ft-row">
+            <span class="ft-label">Yaw 灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.headYaw" />
+            <span class="ft-value" data-ftdisplay="scale.headYaw">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Yaw 偏移</span>
+            <input type="range" class="ft-slider" min="-30" max="30" step="1" data-ftkey="offset.headYaw" />
+            <span class="ft-value" data-ftdisplay="offset.headYaw">0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Pitch 灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.headPitch" />
+            <span class="ft-value" data-ftdisplay="scale.headPitch">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Pitch 偏移</span>
+            <input type="range" class="ft-slider" min="-30" max="30" step="1" data-ftkey="offset.headPitch" />
+            <span class="ft-value" data-ftdisplay="offset.headPitch">0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Roll 灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.headRoll" />
+            <span class="ft-value" data-ftdisplay="scale.headRoll">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Roll 偏移</span>
+            <input type="range" class="ft-slider" min="-30" max="30" step="1" data-ftkey="offset.headRoll" />
+            <span class="ft-value" data-ftdisplay="offset.headRoll">0</span>
+          </div>
+          <div class="ft-subsection-title">位置</div>
+          <div class="ft-row">
+            <span class="ft-label">X 灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.positionX" />
+            <span class="ft-value" data-ftdisplay="scale.positionX">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">X 偏移</span>
+            <input type="range" class="ft-slider" min="-0.3" max="0.3" step="0.01" data-ftkey="offset.positionX" />
+            <span class="ft-value" data-ftdisplay="offset.positionX">0.00</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Y 灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.positionY" />
+            <span class="ft-value" data-ftdisplay="scale.positionY">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Y 偏移</span>
+            <input type="range" class="ft-slider" min="-0.3" max="0.3" step="0.01" data-ftkey="offset.positionY" />
+            <span class="ft-value" data-ftdisplay="offset.positionY">0.00</span>
+          </div>
+          <div class="ft-divider"></div>
+          <div class="ft-row">
+            <button class="ft-btn reset" onclick="resetConfig(true)">重置参数（保留校准）</button>
+            <button class="ft-btn reset" onclick="resetConfig(false)">全部重置</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -187,6 +338,78 @@
   let publishEnabled = false; // 默认不发布，等待 AppState/startCamera 调用
   let cameraStarted = false;
   let cameraStream = null;
+
+  // ===== 面捕个体化配置状态 =====
+  let currentConfig = null; // FaceTrackingConfig 对象（来自 Kotlin 推送）
+  let calibrationActive = false; // 是否正在采样校准（来自 Kotlin 推送）
+  let ftUiBound = false; // UI 滑块事件是否已绑定
+  let ftDebounceTimer = null; // 滑块 debounce 定时器
+  let ftPendingPatch = null; // 待提交的 patch 对象
+
+  // 应用个体化变换：眼 invert / 嘴 delta / 头位置 center-scale
+  // raw 是 computeParams 输出的原始参数，返回变换后的参数
+  function applyTransforms(raw) {
+    if (!currentConfig) return raw;
+    const calib = currentConfig.calibration || {};
+    const scale = currentConfig.scale || {};
+    const offset = currentConfig.offset || {};
+    const clamp01 = (v) => Math.max(0, Math.min(1, v));
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+    // 眼 invert: out = 1 - max(0, (calib - raw - offset) * scale)
+    // 校准时 calib 记录自然睁眼基线；raw+offset 越接近 calib 越睁；scale 放大睁眼感
+    const eyeLeftOut = clamp01(1.0 - Math.max(0, ((calib.eyeLeft || 0) - raw.eyeLeft - (offset.eyeLeft || 0)) * (scale.eyeLeft ?? 1.0)));
+    const eyeRightOut = clamp01(1.0 - Math.max(0, ((calib.eyeRight || 0) - raw.eyeRight - (offset.eyeRight || 0)) * (scale.eyeRight ?? 1.0)));
+
+    // 嘴/微笑 delta: out = (raw - calib) * scale + offset
+    const mouthOpenOut = clamp01(((raw.mouthOpen - (calib.mouthOpen || 0)) * (scale.mouthOpen ?? 1.0)) + (offset.mouthOpen || 0));
+    const mouthSmileOut = clamp01(((raw.mouthSmile - (calib.mouthSmile || 0)) * (scale.mouthSmile ?? 1.0)) + (offset.mouthSmile || 0));
+
+    // 头 center-scale (center=0 中性): out = raw * scale + offset，clamp 到 ±180
+    const headYawOut = clamp(raw.headYaw * (scale.headYaw ?? 1.0) + (offset.headYaw || 0), -180, 180);
+    const headPitchOut = clamp(raw.headPitch * (scale.headPitch ?? 1.0) + (offset.headPitch || 0), -180, 180);
+    const headRollOut = clamp(raw.headRoll * (scale.headRoll ?? 1.0) + (offset.headRoll || 0), -180, 180);
+
+    // 位置 center-scale (center=0): out = raw * scale + offset，clamp 到 ±2
+    const positionXOut = clamp(raw.positionX * (scale.positionX ?? 1.0) + (offset.positionX || 0), -2, 2);
+    const positionYOut = clamp(raw.positionY * (scale.positionY ?? 1.0) + (offset.positionY || 0), -2, 2);
+
+    return {
+      ...raw,
+      eyeLeft: eyeLeftOut,
+      eyeRight: eyeRightOut,
+      mouthOpen: mouthOpenOut,
+      mouthSmile: mouthSmileOut,
+      headYaw: headYawOut,
+      headPitch: headPitchOut,
+      headRoll: headRollOut,
+      positionX: positionXOut,
+      positionY: positionYOut,
+    };
+  }
+
+  // 上报一帧校准样本（raw params，未应用 transforms）
+  function submitCalibrationSample(rawParams) {
+    if (!window.CheapLiveBridge || typeof window.CheapLiveBridge.submitCalibrationSample !== 'function') return;
+    try {
+      const sample = {
+        eyeLeft: rawParams.eyeLeft,
+        eyeRight: rawParams.eyeRight,
+        mouthOpen: rawParams.mouthOpen,
+        mouthSmile: rawParams.mouthSmile,
+        browLeft: rawParams.browLeft || 0,
+        browRight: rawParams.browRight || 0,
+        headYaw: rawParams.headYaw,
+        headPitch: rawParams.headPitch,
+        headRoll: rawParams.headRoll,
+        positionX: rawParams.positionX,
+        positionY: rawParams.positionY,
+      };
+      window.CheapLiveBridge.submitCalibrationSample(JSON.stringify(sample));
+    } catch (e) {
+      console.error('[CheapLiveCaptureDiag] submitCalibrationSample error=' + (e.message || String(e)));
+    }
+  }
 
   // 全局 API：供原生按钮调用
   window.CheapLiveCapture = {
@@ -408,15 +631,24 @@
       } catch (e) {}
     }
     if (params) {
+      // HUD 显示原始值（让用户看到 MediaPipe 原始输出，便于诊断）
       hud.eyeLeft.textContent = params.eyeLeft.toFixed(2);
       hud.eyeRight.textContent = params.eyeRight.toFixed(2);
       hud.mouthOpen.textContent = params.mouthOpen.toFixed(2);
       hud.mouthSmile.textContent = params.mouthSmile.toFixed(2);
       hud.headYaw.textContent = params.headYaw.toFixed(0);
       hud.headPitch.textContent = params.headPitch.toFixed(0);
-      drawSphere(avatarCtx, avatarCanvas.width, avatarCanvas.height, params);
-      lastFrame = params;
-      publish(params, 'real-camera');
+
+      // 校准采样：上报 raw params（不应用 transforms）
+      if (calibrationActive) {
+        submitCalibrationSample(params);
+      }
+
+      // 应用个体化变换后用于渲染和 publish
+      const transformed = applyTransforms(params);
+      drawSphere(avatarCtx, avatarCanvas.width, avatarCanvas.height, transformed);
+      lastFrame = transformed;
+      publish(transformed, 'real-camera');
     } else if (onResultsCount % 60 === 1) {
       // A3 诊断：无脸时周期记录 landmarks 长度
       console.error('[CheapLiveCaptureDiag] no_face_detected landmarks_len=' + lm.length + ' onResultsCount=' + onResultsCount);
@@ -614,6 +846,235 @@
   // Expose for debugging
   window.__cheapLiveVoiceDiag = {
     getState: () => voiceController.getState()
+  };
+
+  // ========================================
+  // 面捕个体化配置：UI、同步、校准
+  // ========================================
+
+  // Kotlin 推送配置变更时调用（MainActivity.setupAppStateListener → webView.evaluateJavascript）
+  // 也作为初始加载时拉取配置的入口（页面启动后主动调用 getFaceTrackingConfig）
+  // 注意：必须挂到 window.CheapLiveCapture 命名空间下，与 MainActivity 的 evaluateJavascript 调用路径对齐
+  window.CheapLiveCapture.applyFaceTrackingConfig = function(json) {
+    try {
+      const cfg = (typeof json === 'string') ? JSON.parse(json) : json;
+      currentConfig = cfg;
+      updateFtUI(cfg);
+      bindFtSlidersOnce();
+    } catch (e) {
+      console.error('[CheapLiveCaptureDiag] applyFaceTrackingConfig error=' + (e.message || String(e)));
+    }
+  };
+
+  // Kotlin 推送校准状态变更时调用
+  window.CheapLiveCapture.onCalibrationStatusChange = function(json) {
+    try {
+      const status = (typeof json === 'string') ? JSON.parse(json) : json;
+      calibrationActive = !!status.inProgress;
+      updateCalibrationUI(status);
+    } catch (e) {
+      console.error('[CheapLiveCaptureDiag] onCalibrationStatusChange error=' + (e.message || String(e)));
+    }
+  };
+
+  // 折叠面板展开/收起
+  window.toggleFtSection = function(bodyId, headerId) {
+    const body = document.getElementById(bodyId);
+    const header = document.getElementById(headerId);
+    if (!body || !header) return;
+    const expanded = body.classList.toggle('expanded');
+    header.classList.toggle('expanded', expanded);
+  };
+
+  // 切换校准（开始/取消）
+  window.toggleCalibration = function() {
+    if (!window.CheapLiveBridge || typeof window.CheapLiveBridge.triggerCalibration !== 'function') return;
+    const action = calibrationActive ? 'cancel' : 'start';
+    try {
+      const resultJson = window.CheapLiveBridge.triggerCalibration(action);
+      // 结果会通过 onCalibrationStatusChange 推送，这里不直接处理
+    } catch (e) {
+      console.error('[CheapLiveCaptureDiag] triggerCalibration error=' + (e.message || String(e)));
+    }
+  };
+
+  // 重置配置（keepCalibration=true 保留校准基线，仅重置 scale/offset）
+  window.resetConfig = function(keepCalibration) {
+    if (!window.CheapLiveBridge || typeof window.CheapLiveBridge.updateFaceTrackingConfig !== 'function') return;
+    if (!currentConfig) return;
+    try {
+      // 构造重置 patch：scale 全置 1.0，offset 全置 0
+      const resetScale = { eyeLeft: 1.0, eyeRight: 1.0, mouthOpen: 1.0, mouthSmile: 1.0, browLeft: 1.0, browRight: 1.0, headYaw: 1.0, headPitch: 1.0, headRoll: 1.0, positionX: 1.0, positionY: 1.0 };
+      const resetOffset = { eyeLeft: 0, eyeRight: 0, mouthOpen: 0, mouthSmile: 0, browLeft: 0, browRight: 0, headYaw: 0, headPitch: 0, headRoll: 0, positionX: 0, positionY: 0 };
+      const patch = { scale: resetScale, offset: resetOffset };
+      if (!keepCalibration) {
+        patch.calibration = {
+          eyeLeft: 0, eyeRight: 0, mouthOpen: 0, mouthSmile: 0,
+          browLeft: 0, browRight: 0,
+          headYaw: 0, headPitch: 0, headRoll: 0,
+          positionX: 0, positionY: 0,
+          sampleCount: 0, calibratedAt: 0
+        };
+      }
+      const req = { baseRevision: currentConfig.revision || 0, patch: patch };
+      window.CheapLiveBridge.updateFaceTrackingConfig(JSON.stringify(req));
+    } catch (e) {
+      console.error('[CheapLiveCaptureDiag] resetConfig error=' + (e.message || String(e)));
+    }
+  };
+
+  // 更新 UI 显示（滑块值 + 数值标签）
+  function updateFtUI(cfg) {
+    if (!cfg) return;
+    const scale = cfg.scale || {};
+    const offset = cfg.offset || {};
+    const sliders = document.querySelectorAll('.ft-slider[data-ftkey]');
+    sliders.forEach(slider => {
+      const key = slider.getAttribute('data-ftkey');
+      const val = getNestedValue(cfg, key);
+      if (typeof val === 'number' && !isNaN(val)) {
+        slider.value = String(val);
+      }
+      const display = document.querySelector('[data-ftdisplay="' + key + '"]');
+      if (display) {
+        display.textContent = formatFtValue(key, val);
+      }
+    });
+    // 更新校准状态显示
+    const calib = cfg.calibration || {};
+    const calibStatusEl = document.getElementById('ftCalibStatus');
+    const calibBtn = document.getElementById('ftCalibBtn');
+    if (calibStatusEl && calibBtn) {
+      if (calib.sampleCount && calib.sampleCount > 0 && calib.calibratedAt) {
+        calibStatusEl.textContent = '已校准（' + calib.sampleCount + ' 帧）';
+        calibStatusEl.className = 'ft-calib-status done';
+      } else {
+        calibStatusEl.textContent = '未校准';
+        calibStatusEl.className = 'ft-calib-status';
+      }
+    }
+  }
+
+  // 更新校准进行中状态 UI
+  function updateCalibrationUI(status) {
+    const calibStatusEl = document.getElementById('ftCalibStatus');
+    const calibBtn = document.getElementById('ftCalibBtn');
+    if (!calibStatusEl || !calibBtn) return;
+    if (status.inProgress) {
+      const cnt = status.sampleCount || 0;
+      const target = status.targetSamples || 30;
+      calibStatusEl.textContent = '采样中 ' + cnt + '/' + target;
+      calibStatusEl.className = 'ft-calib-status active';
+      calibBtn.textContent = '取消校准';
+      calibBtn.classList.add('stop');
+    } else {
+      calibBtn.textContent = '开始 3 秒中性校准';
+      calibBtn.classList.remove('stop');
+      if (status.lastError) {
+        calibStatusEl.textContent = '错误: ' + status.lastError;
+        calibStatusEl.className = 'ft-calib-status error';
+      } else if (currentConfig && currentConfig.calibration && currentConfig.calibration.sampleCount > 0) {
+        calibStatusEl.textContent = '已校准（' + currentConfig.calibration.sampleCount + ' 帧）';
+        calibStatusEl.className = 'ft-calib-status done';
+      } else {
+        calibStatusEl.textContent = '未校准';
+        calibStatusEl.className = 'ft-calib-status';
+      }
+    }
+  }
+
+  // 绑定滑块事件（仅一次）：input 时更新数值预览 + debounce 提交
+  function bindFtSlidersOnce() {
+    if (ftUiBound) return;
+    ftUiBound = true;
+    const sliders = document.querySelectorAll('.ft-slider[data-ftkey]');
+    sliders.forEach(slider => {
+      slider.addEventListener('input', () => {
+        const key = slider.getAttribute('data-ftkey');
+        const val = parseFloat(slider.value);
+        const display = document.querySelector('[data-ftdisplay="' + key + '"]');
+        if (display) display.textContent = formatFtValue(key, val);
+        // 加入待提交 patch
+        if (!ftPendingPatch) ftPendingPatch = {};
+        setNestedValue(ftPendingPatch, key, val);
+        // debounce 300ms 提交
+        if (ftDebounceTimer) clearTimeout(ftDebounceTimer);
+        ftDebounceTimer = setTimeout(commitFtPatch, 300);
+      });
+    });
+  }
+
+  // 提交 patch 给 Kotlin（带 baseRevision 防冲突）
+  function commitFtPatch() {
+    if (!ftPendingPatch) return;
+    if (!window.CheapLiveBridge || typeof window.CheapLiveBridge.updateFaceTrackingConfig !== 'function') {
+      ftPendingPatch = null;
+      return;
+    }
+    try {
+      const req = {
+        baseRevision: currentConfig ? currentConfig.revision : 0,
+        patch: ftPendingPatch
+      };
+      window.CheapLiveBridge.updateFaceTrackingConfig(JSON.stringify(req));
+    } catch (e) {
+      console.error('[CheapLiveCaptureDiag] commitFtPatch error=' + (e.message || String(e)));
+    }
+    ftPendingPatch = null;
+  }
+
+  // 辅助：按路径取嵌套值
+  function getNestedValue(obj, path) {
+    const parts = String(path).split('.');
+    let cur = obj;
+    for (const p of parts) {
+      if (cur == null) return undefined;
+      cur = cur[p];
+    }
+    return cur;
+  }
+  // 辅助：按路径设嵌套值
+  function setNestedValue(obj, path, val) {
+    const parts = String(path).split('.');
+    let cur = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (cur[parts[i]] == null || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {};
+      cur = cur[parts[i]];
+    }
+    cur[parts[parts.length - 1]] = val;
+  }
+  // 辅助：格式化显示值
+  function formatFtValue(key, val) {
+    if (typeof val !== 'number' || isNaN(val)) return '—';
+    if (key.indexOf('offset.head') === 0) return val.toFixed(0);
+    if (key.indexOf('offset.') === 0) return val.toFixed(2);
+    return val.toFixed(1);
+  }
+
+  // 页面启动：主动拉取一次当前配置 + 校准状态
+  // （MainActivity 会在页面加载完成后主动推送，但这里主动拉取作为 fallback）
+  setTimeout(() => {
+    try {
+      if (window.CheapLiveBridge) {
+        if (typeof window.CheapLiveBridge.getFaceTrackingConfig === 'function') {
+          const json = window.CheapLiveBridge.getFaceTrackingConfig();
+          if (json) window.CheapLiveCapture.applyFaceTrackingConfig(json);
+        }
+        if (typeof window.CheapLiveBridge.getCalibrationStatus === 'function') {
+          const json = window.CheapLiveBridge.getCalibrationStatus();
+          if (json) window.CheapLiveCapture.onCalibrationStatusChange(json);
+        }
+      }
+    } catch (e) {
+      console.error('[CheapLiveCaptureDiag] initial fetch config error=' + (e.message || String(e)));
+    }
+  }, 500);
+
+  // Expose for debugging
+  window.__cheapLiveFtDiag = {
+    getConfig: () => currentConfig,
+    isCalibrating: () => calibrationActive,
+    applyTransforms: applyTransforms,
   };
 </script>
 </body>

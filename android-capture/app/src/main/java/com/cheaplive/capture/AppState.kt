@@ -1,6 +1,7 @@
 package com.cheaplive.capture
 
 import java.util.concurrent.CopyOnWriteArrayList
+import org.json.JSONObject
 
 /**
  * 参赛版 App-Web 控制状态的单一来源。
@@ -67,6 +68,19 @@ class AppState {
     @Volatile var poseLastUpdatedAt: Long = 0L
     @Volatile var poseError: String = ""
 
+    // === 面部追踪个体化配置（Capture App 唯一权威来源） ===
+    /** 当前生效的配置（持久化于 SharedPreferences，启动时加载） */
+    @Volatile var faceTrackingConfig: FaceTrackingConfig = FaceTrackingConfig()
+    /** 校准过程实时状态（不持久化） */
+    @Volatile var calibrationStatus: CalibrationStatus = CalibrationStatus()
+
+    /**
+     * 本地状态变更回调：当 setField/applyCommand 修改状态后触发。
+     * LocalServer 注册此回调以推送 SSE 广播，从而修复
+     * "App 本地修改不触发 Receiver 同步" 的问题。
+     */
+    @Volatile var onStateChange: (() -> Unit)? = null
+
     private val listeners = CopyOnWriteArrayList<(AppStateSnapshot) -> Unit>()
 
     /** 添加状态变更监听器，立即返回当前快照 */
@@ -111,6 +125,11 @@ class AppState {
         poseLandmarkCount = poseLandmarkCount,
         poseLastUpdatedAt = poseLastUpdatedAt,
         poseError = poseError,
+        faceTrackingConfigJson = faceTrackingConfig.toJson(),
+        calibrationInProgress = calibrationStatus.inProgress,
+        calibrationSampleCount = calibrationStatus.sampleCount,
+        calibrationTargetSamples = calibrationStatus.targetSamples,
+        calibrationLastError = calibrationStatus.lastError,
     )
 
     /** 应用控制命令，返回成功/失败信息 */
@@ -289,6 +308,79 @@ class AppState {
                 lastCommand = "setPupilTracking($enabled)"
                 CommandResult(true, "pupil tracking set to $enabled")
             }
+            // === 面部追踪个体化配置命令 ===
+            "setFaceTrackingConfig" -> {
+                // Receiver 端通过 /api/control 发送配置 patch
+                // 期望参数：baseRevision (Long), patch (Map containing offset/scale/...)
+                val baseRevision = (params["baseRevision"] as? Number)?.toLong() ?: -1L
+                val currentRevision = faceTrackingConfig.revision
+                if (baseRevision >= 0 && baseRevision != currentRevision) {
+                    // 旧 revision 的 patch 拒绝，回传当前最新配置
+                    lastError = "stale revision: base=$baseRevision current=$currentRevision"
+                    CommandResult(false, "stale revision", staleRevision = true)
+                } else {
+                    val patchObj = params["patch"]
+                    val patchJson = when (patchObj) {
+                        is JSONObject -> patchObj
+                        is Map<*, *> -> JSONObject(patchObj)
+                        else -> JSONObject()
+                    }
+                    val newConfig = FaceTrackingConfigStore.mergePatchIntoConfig(faceTrackingConfig, patchJson)
+                    faceTrackingConfig = newConfig
+                    lastCommand = "setFaceTrackingConfig(rev=${newConfig.revision})"
+                    lastError = ""
+                    CommandResult(true, "config updated to revision ${newConfig.revision}")
+                }
+            }
+            "triggerCalibration" -> {
+                val action = params["action"] as? String ?: "start"
+                when (action) {
+                    "start" -> {
+                        if (calibrationStatus.inProgress) {
+                            CommandResult(false, "calibration already in progress")
+                        } else {
+                            calibrationStatus = CalibrationStatus(
+                                inProgress = true,
+                                startedAt = System.currentTimeMillis(),
+                                sampleCount = 0,
+                                targetSamples = 30,
+                                sums = CalibrationSums(),
+                            )
+                            lastCommand = "triggerCalibration(start)"
+                            lastError = ""
+                            CommandResult(true, "calibration started")
+                        }
+                    }
+                    "cancel" -> {
+                        calibrationStatus = CalibrationStatus()
+                        lastCommand = "triggerCalibration(cancel)"
+                        CommandResult(true, "calibration cancelled")
+                    }
+                    else -> CommandResult(false, "unknown calibration action: $action")
+                }
+            }
+            "resetFaceTrackingConfig" -> {
+                // 仅重置 sensitivity/offset，保留 calibration（避免误清除校准基线）
+                // 若用户希望连校准一起重置，可单独发 triggerCalibration(cancel) + 重新校准
+                val keepCalibration = params["keepCalibration"] as? Boolean ?: true
+                faceTrackingConfig = if (keepCalibration) {
+                    faceTrackingConfig.copy(
+                        offset = OffsetData(),
+                        scale = ScaleData(),
+                        revision = faceTrackingConfig.revision + 1L,
+                    )
+                } else {
+                    faceTrackingConfig.copy(
+                        calibration = CalibrationData(),
+                        offset = OffsetData(),
+                        scale = ScaleData(),
+                        revision = faceTrackingConfig.revision + 1L,
+                    )
+                }
+                lastCommand = "resetFaceTrackingConfig(keepCalib=$keepCalibration)"
+                lastError = ""
+                CommandResult(true, "config reset (keepCalibration=$keepCalibration)")
+            }
             else -> {
                 lastError = "unknown command: $type"
                 CommandResult(false, "unknown command: $type")
@@ -327,6 +419,14 @@ class AppState {
             "poseLandmarkCount" -> poseLandmarkCount = value as? Int ?: 0
             "poseLastUpdatedAt" -> poseLastUpdatedAt = value as? Long ?: 0L
             "poseError" -> poseError = value as? String ?: ""
+            "faceTrackingConfig" -> {
+                // 接受 FaceTrackingConfig 对象或 JSON 字符串
+                faceTrackingConfig = when (value) {
+                    is FaceTrackingConfig -> value
+                    is String -> FaceTrackingConfig.fromJson(value)
+                    else -> faceTrackingConfig
+                }
+            }
         }
         updatedAt = System.currentTimeMillis()
         notifyListeners()
@@ -337,6 +437,8 @@ class AppState {
         for (listener in listeners) {
             try { listener(snap) } catch (_: Throwable) {}
         }
+        // 通知 LocalServer 推送 SSE 广播（修复本地修改不触发同步）
+        try { onStateChange?.invoke() } catch (_: Throwable) {}
     }
 }
 
@@ -372,12 +474,20 @@ data class AppStateSnapshot(
     val poseLandmarkCount: Int,
     val poseLastUpdatedAt: Long,
     val poseError: String,
+    // 面部追踪个体化配置（嵌套 JSON 字符串，直接嵌入为对象）
+    val faceTrackingConfigJson: String,
+    val calibrationInProgress: Boolean,
+    val calibrationSampleCount: Int,
+    val calibrationTargetSamples: Int,
+    val calibrationLastError: String,
 )
 
 /** 命令执行结果 */
 data class CommandResult(
     val ok: Boolean,
     val message: String,
+    /** 标识 stale revision 冲突，Receiver 端可据此回滚 UI */
+    val staleRevision: Boolean = false,
 )
 
 /** 将 AppStateSnapshot 序列化为 JSON 字符串 */
@@ -414,6 +524,12 @@ fun AppStateSnapshot.toJson(): String {
     sb.append(",\"poseLandmarkCount\":$poseLandmarkCount")
     sb.append(",\"poseLastUpdatedAt\":$poseLastUpdatedAt")
     sb.append(",\"poseError\":\"").append(escapeJson(poseError)).append('"')
+    // 面部追踪个体化配置（直接嵌入为嵌套对象，faceTrackingConfigJson 已经是 JSON 字符串）
+    sb.append(",\"faceTrackingConfig\":").append(faceTrackingConfigJson)
+    sb.append(",\"calibrationInProgress\":$calibrationInProgress")
+    sb.append(",\"calibrationSampleCount\":$calibrationSampleCount")
+    sb.append(",\"calibrationTargetSamples\":$calibrationTargetSamples")
+    sb.append(",\"calibrationLastError\":\"").append(escapeJson(calibrationLastError)).append('"')
     sb.append('}')
     return sb.toString()
 }

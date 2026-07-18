@@ -7,6 +7,8 @@ class CaptureBridge(
     private val session: Session,
     private val broadcast: CaptureBroadcast,
     private val onStateChange: (String, String) -> Unit,
+    private val appState: AppState? = null,
+    private val configStore: FaceTrackingConfigStore? = null,
 ) {
     private val validAvatarTypes = setOf("mesh-spindle-whale", "mesh-sphere", "sacabambaspis", "sacabambaspis3d")
 
@@ -181,5 +183,131 @@ class CaptureBridge(
             android.util.Log.e("CheapLiveAudio", "publishAudioChunk error: ${e.message}")
             "{\"ok\":false,\"reason\":\"parse\"}"
         }
+    }
+
+    // ============================================================
+    // 面部追踪个体化配置（Capture App 是唯一权威来源）
+    // ============================================================
+
+    /** 返回当前配置 JSON（供 WebView capture 页面初始化时读取） */
+    @JavascriptInterface fun getFaceTrackingConfig(): String {
+        val config = appState?.faceTrackingConfig ?: FaceTrackingConfig()
+        return config.toJson()
+    }
+
+    /** 返回当前校准状态 JSON */
+    @JavascriptInterface fun getCalibrationStatus(): String {
+        val s = appState?.calibrationStatus ?: CalibrationStatus()
+        return JSONObject().apply {
+            put("inProgress", s.inProgress)
+            put("sampleCount", s.sampleCount)
+            put("targetSamples", s.targetSamples)
+            put("lastError", s.lastError)
+        }.toString()
+    }
+
+    /**
+     * WebView 上报一帧校准样本。
+     * 期望 json: { "eyeLeft":0.7, "eyeRight":0.7, "mouthOpen":0.0, ... }
+     * 返回 { ok, sampleCount, targetSamples, done }
+     */
+    @JavascriptInterface fun submitCalibrationSample(json: String): String {
+        val state = appState ?: return "{\"ok\":false,\"reason\":\"no appState\"}"
+        return try {
+            val s = state.calibrationStatus
+            if (!s.inProgress) {
+                return "{\"ok\":false,\"reason\":\"not in progress\"}"
+            }
+            val obj = JSONObject(json)
+            // 累加到 sums
+            s.sums.eyeLeft += obj.optDouble("eyeLeft", 1.0)
+            s.sums.eyeRight += obj.optDouble("eyeRight", 1.0)
+            s.sums.mouthOpen += obj.optDouble("mouthOpen", 0.0)
+            s.sums.mouthSmile += obj.optDouble("mouthSmile", 0.0)
+            s.sums.browLeft += obj.optDouble("browLeft", 0.0)
+            s.sums.browRight += obj.optDouble("browRight", 0.0)
+            s.sums.headYaw += obj.optDouble("headYaw", 0.0)
+            s.sums.headPitch += obj.optDouble("headPitch", 0.0)
+            s.sums.headRoll += obj.optDouble("headRoll", 0.0)
+            s.sums.positionX += obj.optDouble("positionX", 0.0)
+            s.sums.positionY += obj.optDouble("positionY", 0.0)
+            s.sampleCount += 1
+
+            val done = s.sampleCount >= s.targetSamples
+            if (done) {
+                // 完成校准：计算均值，更新 faceTrackingConfig.calibration（保留 offset/scale）
+                val avg = s.sums.average(s.sampleCount)
+                val currentConfig = state.faceTrackingConfig
+                state.faceTrackingConfig = currentConfig.copy(
+                    calibration = avg,
+                    calibrationEnabled = true,
+                    revision = currentConfig.revision + 1L,
+                )
+                // 持久化（异步由 MainActivity listener 处理，这里同步触发一次保证及时落盘）
+                val store = configStore
+                val cfg = state.faceTrackingConfig
+                if (store != null && cfg != null) {
+                    try { store.save(cfg) } catch (_: Throwable) {}
+                }
+                // 重置校准状态
+                state.calibrationStatus = CalibrationStatus()
+                // 触发 SSE 广播（onStateChange 由 setField/applyCommand 触发；
+                // 这里直接修改了字段，需要主动触发广播）
+                state.setField("lastCommand", "calibrationCompleted(samples=${avg.sampleCount})")
+            } else {
+                // 更新进度（触发 SSE 广播给 Receiver）
+                state.setField("lastCommand", "calibrationSample(${s.sampleCount}/${s.targetSamples})")
+            }
+            "{\"ok\":true,\"sampleCount\":${s.sampleCount},\"targetSamples\":${s.targetSamples},\"done\":$done}"
+        } catch (e: Exception) {
+            "{\"ok\":false,\"reason\":\"${e.message ?: "parse"}\"}"
+        }
+    }
+
+    /**
+     * Capture App 本地 UI（如 capture 页面的设置面板）直接提交完整配置 patch。
+     * 与 Receiver 走 /api/control 不同，这里直接修改 appState 并广播。
+     * 期望 json: { "baseRevision": N, "patch": { "offset": {...}, "scale": {...} } }
+     */
+    @JavascriptInterface fun updateFaceTrackingConfig(json: String): String {
+        val state = appState ?: return "{\"ok\":false,\"reason\":\"no appState\"}"
+        return try {
+            val obj = JSONObject(json)
+            val baseRevision = obj.optLong("baseRevision", -1L)
+            val currentRevision = state.faceTrackingConfig.revision
+            if (baseRevision >= 0 && baseRevision != currentRevision) {
+                // 旧 revision，拒绝并返回当前配置
+                return "{\"ok\":false,\"reason\":\"stale revision\",\"currentRevision\":$currentRevision,\"config\":${state.faceTrackingConfig.toJson()}}"
+            }
+            val patch = obj.optJSONObject("patch") ?: JSONObject()
+            val newConfig = FaceTrackingConfigStore.mergePatchIntoConfig(state.faceTrackingConfig, patch)
+            state.faceTrackingConfig = newConfig
+            // 持久化（异步由 MainActivity listener 处理，这里同步触发一次保证及时落盘）
+            val store = configStore
+            if (store != null) {
+                try { store.save(newConfig) } catch (_: Throwable) {}
+            }
+            // 触发 SSE 广播
+            state.setField("lastCommand", "updateFaceTrackingConfig(rev=${newConfig.revision})")
+            "{\"ok\":true,\"revision\":${newConfig.revision},\"config\":${newConfig.toJson()}}"
+        } catch (e: Exception) {
+            "{\"ok\":false,\"reason\":\"${e.message ?: "parse"}\"}"
+        }
+    }
+
+    /**
+     * Capture App 本地触发校准（如设置面板的"开始校准"按钮）。
+     * action: "start" | "cancel"
+     */
+    @JavascriptInterface fun triggerCalibration(action: String): String {
+        val state = appState ?: return "{\"ok\":false,\"reason\":\"no appState\"}"
+        val result = state.applyCommand("triggerCalibration", mapOf("action" to action))
+        return JSONObject().apply {
+            put("ok", result.ok)
+            put("message", result.message)
+            put("inProgress", state.calibrationStatus.inProgress)
+            put("sampleCount", state.calibrationStatus.sampleCount)
+            put("targetSamples", state.calibrationStatus.targetSamples)
+        }.toString()
     }
 }

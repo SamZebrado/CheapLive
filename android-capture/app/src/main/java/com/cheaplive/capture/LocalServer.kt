@@ -27,30 +27,30 @@ class LocalServer(
     @Synchronized
     fun start(): Int {
         if (running.get()) return session.port
-        val basePort = session.port
-        val maxAttempts = 10
-        var lastError: Throwable? = null
-        for (offset in 0 until maxAttempts) {
-            val tryPort = basePort + offset
+        // 固定端口：禁止静默切换到其他端口（避免二维码 URL 中的端口被偷换）
+        // 端口冲突时优先等待旧实例释放，或明确报错让用户处理
+        val tryPort = session.port
+        try {
+            val ss = ServerSocket()
             try {
-                val ss = ServerSocket()
-                try {
-                    ss.reuseAddress = true
-                } catch (_: Throwable) {}
-                ss.bind(InetSocketAddress("0.0.0.0", tryPort), 8)
-                serverSocketHolder.set(ss)
-                running.set(true)
-                acceptThread = Thread({ acceptLoop() }, "CheapLive-http-accept").apply {
-                    isDaemon = true
-                    start()
-                }
-                return ss.localPort
-            } catch (t: Throwable) {
-                lastError = t
-                continue
+                ss.reuseAddress = true
+            } catch (_: Throwable) {}
+            ss.bind(InetSocketAddress("0.0.0.0", tryPort), 8)
+            serverSocketHolder.set(ss)
+            running.set(true)
+            // 注册 AppState 变更回调：本地修改也会触发 SSE 广播
+            appState.onStateChange = { broadcastStateChange() }
+            acceptThread = Thread({ acceptLoop() }, "CheapLive-http-accept").apply {
+                isDaemon = true
+                start()
             }
+            return ss.localPort
+        } catch (t: Throwable) {
+            // 端口被占用：明确报错，不静默切换端口
+            // 常见原因：旧 LocalServer 实例尚未释放（App force-stop 后立即重启）
+            // 建议：调用方可在 retry 几次后再放弃
+            throw java.net.BindException("无法启动服务器：端口 $tryPort 被占用（${t.message}）。可能原因：旧实例尚未释放，请稍后重试或检查端口占用。")
         }
-        throw java.net.BindException("无法启动服务器：端口 $basePort 至 ${basePort + maxAttempts - 1} 均被占用（${lastError?.message}）")
     }
 
     @Synchronized
