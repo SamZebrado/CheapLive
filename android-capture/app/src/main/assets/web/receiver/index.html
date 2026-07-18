@@ -1611,7 +1611,7 @@
     lastControlMsg = body;
     window.__cheapLiveReceiverDiag.lastControlMsg = body;
     console.error('[CheapLiveReceiverDiag] send_control type=' + type + ' params=' + JSON.stringify(params || {}));
-    return fetch('/api/control', {
+    return fetch('/api/control?token=' + encodeURIComponent(token), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -1784,7 +1784,7 @@
 
   // ===== API: fetch status =====
   function fetchStatus() {
-    fetch('/api/status')
+    fetch('/api/status?token=' + encodeURIComponent(token))
       .then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
@@ -1801,7 +1801,7 @@
   // ===== SSE =====
   function initSSE() {
     try {
-      eventSource = new EventSource('/events');
+      eventSource = new EventSource('/events?token=' + encodeURIComponent(token));
       eventSource.addEventListener('state', function(e) {
         try {
           var data = JSON.parse(e.data);

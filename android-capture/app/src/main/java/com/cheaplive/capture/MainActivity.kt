@@ -2210,6 +2210,8 @@ class MainActivity : AppCompatActivity() {
         }
         tvServerStatus.text = "连接已重置（旧二维码已失效）"
         tvSessionInfo.text = "使用新二维码重新连接接收端"
+        // 重置身份后必须用新身份重启 LocalServer，否则新二维码显示但端口不可访问
+        ensureServerStarted()
     }
 
     private fun stopSession() {

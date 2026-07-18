@@ -161,10 +161,22 @@ class LocalServer(
                     writeHttpResponse(output, 200, "OK", "application/json; charset=utf-8", body)
                 }
                 path == "/api/status" -> {
+                    // 鉴权：要求 token，防止局域网内未授权读取状态（含面捕配置）
+                    val providedToken = query["token"] ?: query["Token"]
+                    if (providedToken != session.token) {
+                        writeHttpResponse(output, 403, "Forbidden", "text/plain", "Invalid token".toByteArray())
+                        return
+                    }
                     val body = appState.snapshot().toJson().toByteArray(StandardCharsets.UTF_8)
                     writeHttpResponse(output, 200, "OK", "application/json; charset=utf-8", body)
                 }
                 path == "/api/control" && method == "POST" -> {
+                    // 鉴权：要求 token，防止未授权修改配置
+                    val providedToken = query["token"] ?: query["Token"]
+                    if (providedToken != session.token) {
+                        writeHttpResponse(output, 403, "Forbidden", "text/plain", "Invalid token".toByteArray())
+                        return
+                    }
                     val bodyBytes = readBody(input, header)
                     val bodyStr = String(bodyBytes, StandardCharsets.UTF_8)
                     val result = handleControlCommand(bodyStr)
@@ -174,6 +186,12 @@ class LocalServer(
                 }
                 path == "/events" -> {
                     // SSE: Server-Sent Events
+                    // 鉴权：要求 token，防止未授权订阅状态流
+                    val providedToken = query["token"] ?: query["Token"]
+                    if (providedToken != session.token) {
+                        writeHttpResponse(output, 403, "Forbidden", "text/plain", "Invalid token".toByteArray())
+                        return
+                    }
                     val sseHeader = "HTTP/1.1 200 OK\r\n" +
                         "Content-Type: text/event-stream\r\n" +
                         "Cache-Control: no-cache\r\n" +
