@@ -2277,25 +2277,25 @@ function simLoop(ts) {
     };
 
     // Mapped renderer values (what actually gets sent to the renderer)
-    const mapped = faceParamsToRendererParams(state.faceParams);
+    const appliedPose = faceParamsToRendererParams(state.faceParams);
     diag.mappedPoseDiag = {
-      headYaw: mapped.headYaw,
-      headPitch: mapped.headPitch,
-      headRoll: mapped.headRoll,
-      eyeLeft: mapped.eyeLeft,
-      eyeRight: mapped.eyeRight,
-      mouthOpen: mapped.mouthOpen,
-      mouthSmile: mapped.mouthSmile,
-      headX: mapped.headX,
-      headY: mapped.headY,
-      gazeLeftX: mapped.gazeLeftX,
-      gazeLeftY: mapped.gazeLeftY,
-      gazeRightX: mapped.gazeRightX,
-      gazeRightY: mapped.gazeRightY,
+      headYaw: appliedPose.headYaw,
+      headPitch: appliedPose.headPitch,
+      headRoll: appliedPose.headRoll,
+      eyeLeft: appliedPose.eyeLeft,
+      eyeRight: appliedPose.eyeRight,
+      mouthOpen: appliedPose.mouthOpen,
+      mouthSmile: appliedPose.mouthSmile,
+      headX: appliedPose.headX,
+      headY: appliedPose.headY,
+      gazeLeftX: appliedPose.gazeLeftX,
+      gazeLeftY: appliedPose.gazeLeftY,
+      gazeRightX: appliedPose.gazeRightX,
+      gazeRightY: appliedPose.gazeRightY,
     };
 
     // Eye orientation diagnostics (for eyelid rotation verification)
-    const headRollDeg = (mapped.headRoll - 0.5) * 80;
+    const headRollDeg = (appliedPose.headRoll - 0.5) * 80;
     diag.eyeOrientationDiag = {
       headRoll: headRollDeg,
       eyeLocalAngleLeft: 0,
@@ -2858,7 +2858,7 @@ async function preloadMediapipeModel() {
     _mediapipeInitDiag.phase = 'loading';
     _mediapipeInitDiag.initStartedAt = performance.now();
 
-    const localBase = '../face-tracking/mediapipe';
+    const localBase = './mediapipe';
     const localBundleUrl = `${localBase}/vision_bundle.mjs`;
     const localWasmUrl = `${localBase}/wasm`;
     const localModelUrl = `${localBase}/face_landmarker.task`;

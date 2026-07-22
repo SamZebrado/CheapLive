@@ -790,11 +790,15 @@
   var wsRetryCount = 0;
   var wsMaxRetries = 20;
   var wsReconnectMs = 1000;
+  var wsRetryTimer = null;
+  var transportStopped = false;
 
   // SSE
   var eventSource = null;
   var useSSE = false;
   var pollTimer = null;
+  var sseRetryTimer = null;
+  var sseRetryMs = 2000;
 
   // Animation
   var animTime = 0;
@@ -947,11 +951,52 @@
     appState.mirrorEnabled = !!enabled;
   };
 
-  // 暴露面捕帧注入函数供测试调用（模拟 WebSocket face-frame 消息）
-  window.__cheapLiveInjectFaceFrame = function(params, source) {
-    lastFrameSeq = (lastFrameSeq || 0) + 1;
+  var FACE_FRAME_DEFAULTS = {
+    eyeLeft: 1, eyeRight: 1, mouthOpen: 0, mouthSmile: 0,
+    browLeft: 0, browRight: 0, headYaw: 0, headPitch: 0, headRoll: 0,
+    positionX: 0, positionY: 0, faceScale: 1,
+    tailPitch: 0, tailYaw: 0, tailWave: 0,
+    gazeLeftX: 0, gazeLeftY: 0, gazeRightX: 0, gazeRightY: 0
+  };
+
+  function clampFaceValue(key, value) {
+    if (key === 'eyeLeft' || key === 'eyeRight' || key === 'mouthOpen' ||
+        key === 'mouthSmile' || key === 'browLeft' || key === 'browRight') {
+      return Math.max(0, Math.min(1, value));
+    }
+    if (key === 'headYaw' || key === 'headPitch' || key === 'headRoll') {
+      return Math.max(-180, Math.min(180, value));
+    }
+    if (key === 'positionX' || key === 'positionY') {
+      return Math.max(-2, Math.min(2, value));
+    }
+    if (key === 'faceScale') return Math.max(0.25, Math.min(4, value));
+    return Math.max(-2, Math.min(2, value));
+  }
+
+  function sanitizeFaceParams(params) {
+    if (!params || typeof params !== 'object' || Array.isArray(params)) return null;
+    var clean = {};
+    var keys = Object.keys(FACE_FRAME_DEFAULTS);
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      var value = params[key];
+      if (value === undefined || value === null) value = FACE_FRAME_DEFAULTS[key];
+      if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+      clean[key] = clampFaceValue(key, value);
+    }
+    return clean;
+  }
+
+  function acceptFaceFrame(params, source, sequence, timestamp) {
+    var clean = sanitizeFaceParams(params);
+    if (!clean) return false;
+    var nextSeq = sequence;
+    if (nextSeq === undefined || nextSeq === null) nextSeq = lastFrameSeq + 1;
+    if (!Number.isSafeInteger(nextSeq) || nextSeq < 0 || nextSeq <= lastFrameSeq) return false;
+    lastFrameSeq = nextSeq;
     lastFrameTime = Date.now();
-    faceFrame = params;
+    faceFrame = clean;
     hasRealFrame = true;
     lastFrameSource = source || 'real-camera';
     localFrameCount++;
@@ -960,6 +1005,18 @@
     window.__cheapLiveReceiverDiag.frameCount = localFrameCount;
     window.__cheapLiveReceiverDiag.realFrameActive = true;
     window.__cheapLiveReceiverDiag.captureMode = lastFrameSource;
+    window.__cheapLiveReceiverDiag.latencyMs = Number.isFinite(timestamp) ? Math.max(0, Date.now() - timestamp) : null;
+    window.__cheapLiveReceiverDiag.simulationEnabled = (lastFrameSource !== 'real-camera');
+    return true;
+  }
+
+  // 暴露面捕帧注入函数供测试调用（模拟 WebSocket face-frame 消息）
+  window.__cheapLiveInjectFaceFrame = function(params, source) {
+    return acceptFaceFrame(params, source, null, null);
+  };
+  window.__cheapLiveInjectFaceEnvelope = function(message) {
+    if (!message || message.type !== 'face-frame') return false;
+    return acceptFaceFrame(message.params, message.source, message.seq, message.timestamp);
   };
 
   // 当 module script 加载完成后初始化
@@ -1800,6 +1857,8 @@
 
   // ===== SSE =====
   function initSSE() {
+    if (transportStopped || eventSource) return;
+    if (sseRetryTimer) { clearTimeout(sseRetryTimer); sseRetryTimer = null; }
     try {
       eventSource = new EventSource('/events?token=' + encodeURIComponent(token));
       eventSource.addEventListener('state', function(e) {
@@ -1808,6 +1867,7 @@
           applyState(data);
           if (!useSSE) {
             useSSE = true;
+            sseRetryMs = 2000;
             log('SSE 已连接，停止轮询', 'success');
             if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
           }
@@ -1820,12 +1880,24 @@
         if (eventSource) { try { eventSource.close(); } catch(_){} eventSource = null; }
         useSSE = false;
         startPolling();
+        scheduleSSERetry();
       };
       log('SSE 连接中...', 'info');
     } catch (e) {
       log('SSE 不支持，使用轮询', 'warn');
       startPolling();
+      scheduleSSERetry();
     }
+  }
+
+  function scheduleSSERetry() {
+    if (transportStopped || sseRetryTimer) return;
+    var delay = sseRetryMs;
+    sseRetryMs = Math.min(Math.round(sseRetryMs * 1.5), 30000);
+    sseRetryTimer = setTimeout(function() {
+      sseRetryTimer = null;
+      initSSE();
+    }, delay);
   }
 
   function startPolling() {
@@ -2150,12 +2222,13 @@
 
   // ===== WebSocket (for real face frames) =====
   function connectWS() {
+    if (transportStopped) return;
     if (!token) {
       log('缺少 token，跳过 WebSocket 连接（仅模拟预览）', 'warn');
       return;
     }
     var wsUrl = 'ws://' + location.host + '/ws?token=' + encodeURIComponent(token);
-    log('WebSocket 连接: ' + wsUrl, 'info');
+    log('WebSocket 连接中（凭据已隐藏）', 'info');
     try {
       ws = new WebSocket(wsUrl);
     } catch (e) {
@@ -2188,20 +2261,7 @@
           return;
         }
 
-        if (msg.type !== 'face-frame' || !msg.params) return;
-        if (msg.seq <= lastFrameSeq) return;
-        lastFrameSeq = msg.seq;
-        lastFrameTime = Date.now();
-        faceFrame = msg.params;
-        hasRealFrame = true;
-        lastFrameSource = msg.source || 'unknown';
-        localFrameCount++;
-        var latencyMs = msg.timestamp ? (Date.now() - msg.timestamp) : null;
-        window.__cheapLiveReceiverDiag.lastFrameSeq = msg.seq;
-        window.__cheapLiveReceiverDiag.lastFrameSource = lastFrameSource;
-        window.__cheapLiveReceiverDiag.frameCount = localFrameCount;
-        window.__cheapLiveReceiverDiag.latencyMs = latencyMs;
-        window.__cheapLiveReceiverDiag.simulationEnabled = (lastFrameSource !== 'real-camera');
+        if (msg.type !== 'face-frame' || !acceptFaceFrame(msg.params, msg.source || 'unknown', msg.seq, msg.timestamp)) return;
         window.__cheapLiveReceiverDiag.rendererKey = appState.avatar;
         console.error('[CheapLiveReceiverDiag] ws_frame_received seq=' + msg.seq + ' source=' + lastFrameSource + ' headYaw=' + (msg.params.headYaw || 0) + ' mouthOpen=' + (msg.params.mouthOpen || 0));
         updateUI();
@@ -2210,11 +2270,12 @@
     ws.onclose = function() {
       log('WebSocket 断开', 'warn');
       window.__cheapLiveReceiverDiag.connected = false;
-      if (wsRetryCount < wsMaxRetries) {
+      if (!transportStopped && wsRetryCount < wsMaxRetries) {
         wsRetryCount++;
         wsReconnectMs = Math.min(wsReconnectMs * 1.5, 10000);
         log(wsReconnectMs + 'ms 后第 ' + wsRetryCount + ' 次重连', 'info');
-        setTimeout(connectWS, wsReconnectMs);
+        if (wsRetryTimer) clearTimeout(wsRetryTimer);
+        wsRetryTimer = setTimeout(function() { wsRetryTimer = null; connectWS(); }, wsReconnectMs);
       } else {
         log('已达最大重连次数，请手动重连', 'error');
       }
@@ -2526,6 +2587,19 @@
 
   // 启动 WebSocket 获取真实帧（如果有）
   setTimeout(connectWS, 500);
+
+  window.addEventListener('pagehide', function() {
+    transportStopped = true;
+    if (sseRetryTimer) { clearTimeout(sseRetryTimer); sseRetryTimer = null; }
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (eventSource) { try { eventSource.close(); } catch (_) {} eventSource = null; }
+    if (wsRetryTimer) { clearTimeout(wsRetryTimer); wsRetryTimer = null; }
+    if (ws) {
+      try { ws.onclose = null; ws.close(); } catch (_) {}
+      ws = null;
+    }
+    if (audioUnlocked) disableAudio();
+  }, { once: true });
 
   // 启动动画循环
   animLoop();

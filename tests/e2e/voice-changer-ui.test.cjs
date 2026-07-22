@@ -13,7 +13,7 @@ const { test, expect } = require('@playwright/test');
 test.describe('VoiceChanger UI 测试', () => {
 
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:8765/src/face-tracking/index.html', {
+    await page.goto('/src/face-tracking/index.html', {
       waitUntil: 'networkidle',
       timeout: 20000,
     });
@@ -48,10 +48,10 @@ test.describe('VoiceChanger UI 测试', () => {
 
     const presetOptions = await presetSelect.locator('option').allTextContents();
     expect(presetOptions).toContain('原声');
-    expect(presetOptions).toContain('萝莉');
-    expect(presetOptions).toContain('大叔');
+    expect(presetOptions).toContain('可爱');
     expect(presetOptions).toContain('机器人');
-    expect(presetOptions).toContain('怪兽');
+    expect(presetOptions).toContain('低沉');
+    expect(presetOptions).toContain('收音机');
   });
 
   test('变声面板包含监听选项', async ({ page }) => {
@@ -72,12 +72,12 @@ test.describe('VoiceChanger UI 测试', () => {
     await toggleSwitch.click();
 
     const presetSelect = page.locator('#voiceChangerPreset');
-    await presetSelect.selectOption('loli');
+    await presetSelect.selectOption('cute');
     const selected = await presetSelect.inputValue();
-    expect(selected).toBe('loli');
+    expect(selected).toBe('cute');
 
-    await presetSelect.selectOption('robot');
+    await presetSelect.selectOption('radio');
     const selected2 = await presetSelect.inputValue();
-    expect(selected2).toBe('robot');
+    expect(selected2).toBe('radio');
   });
 });

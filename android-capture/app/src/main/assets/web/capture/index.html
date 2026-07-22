@@ -338,6 +338,8 @@
   let publishEnabled = false; // 默认不发布，等待 AppState/startCamera 调用
   let cameraStarted = false;
   let cameraStream = null;
+  let cameraStarting = false;
+  let cameraRequestGeneration = 0;
 
   // ===== 面捕个体化配置状态 =====
   let currentConfig = null; // FaceTrackingConfig 对象（来自 Kotlin 推送）
@@ -432,6 +434,9 @@
         }
         return JSON.stringify({ ok: true, alreadyRunning: true });
       }
+      if (cameraStarting) {
+        return JSON.stringify({ ok: true, alreadyStarting: true });
+      }
       // 首次启动
       startCameraInternal(reason || 'api');
       return JSON.stringify({ ok: true, starting: true });
@@ -440,6 +445,8 @@
       console.error('[CheapLiveCaptureDiag] stop_camera reason=' + (reason || 'unknown') + ' stopHardware=' + (stopHardware ? 'true' : 'false'));
       publishEnabled = false;
       cameraStarted = false;
+      cameraStarting = false;
+      cameraRequestGeneration++;
       frameLoopRunning = false;
       if (stopHardware && cameraStream) {
         try {
@@ -466,6 +473,7 @@
         publishEnabled: publishEnabled,
         cameraStarted: cameraStarted,
         hasStream: !!cameraStream,
+        cameraStarting: cameraStarting,
         faceLandmarkerReady: faceLandmarkerReady,
         frameLoopRunning: frameLoopRunning,
         seq: seq
@@ -510,12 +518,19 @@
       startFaceLandmarker();
       return;
     }
+    cameraStarting = true;
+    const requestGeneration = ++cameraRequestGeneration;
     console.error('[CheapLiveCameraDiag]', JSON.stringify({
       label:'getUserMedia_start', reason: reason, href:location.href,
       secure:window.isSecureContext, hasMD:!!navigator.mediaDevices, hasGUM:!!navigator.mediaDevices?.getUserMedia
     }));
     navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false })
       .then((stream) => {
+        if (requestGeneration !== cameraRequestGeneration || !publishEnabled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        cameraStarting = false;
         cameraStream = stream;
         cameraStarted = true;
         videoElement.srcObject = stream;
@@ -539,6 +554,8 @@
         }, 3000);
       })
       .catch((err) => {
+        if (requestGeneration !== cameraRequestGeneration) return;
+        cameraStarting = false;
         console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'getUserMedia_reject',error:err.name,message:err.message}));
         startFaceLandmarker();
       });
@@ -833,6 +850,11 @@
   window.stopVoiceCapture = function() {
     voiceController.stop();
   };
+
+  window.addEventListener('pagehide', function() {
+    window.CheapLiveCapture.stopCamera('pagehide', true);
+    window.stopVoiceCapture();
+  }, { once: true });
 
   window.setVoicePreset = function(preset) {
     voiceController.setEffectMode(preset);

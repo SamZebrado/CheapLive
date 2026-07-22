@@ -36,7 +36,7 @@
         ? new URL('.', document.currentScript.src).pathname
         : '';
       const rendererUrl = new URL(
-        '../face-tracking/procedural-mesh-renderer.js',
+        './procedural-mesh-renderer.js',
         base || window.location.href
       );
       const pageV = new URLSearchParams(window.location.search).get('v');
