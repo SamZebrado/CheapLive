@@ -28,3 +28,29 @@ No confirmed P0 defect was established from source inspection. The release/featu
 ## Motion gate
 
 The repository contains the face landmarker model but no pose landmarker task/model. No existing local pose model was found in the audited workspace/cache locations. With free disk below 3 GB, downloading or adding a new model is prohibited. The upper-body MVP remains intentionally unstarted.
+
+## Status update: 2026-07-23
+
+The historical blocked result above is preserved as the recovery starting point. The disk gate later recovered to 16 GiB free, allowing the previously unavailable runtime gates to run without adding a pose model.
+
+### Closed core gates
+
+| Gate | Result | Closing evidence |
+| --- | --- | --- |
+| `ASSET_SYNC_GATE` | PASS | 12 canonical groups; 11/11 safety/idempotence tests; CWD-independent checks |
+| `NODE_SIGNALING_GATE` | PASS | 360/360 Node tests and 13/13 socket/signaling tests |
+| `WEB_E2E_GATE` | PASS | Chromium 34/34; SSE race follow-up 5/5; no residual test processes |
+| `ANDROID_BUILD_GATE` | PASS | Gradle 8.4/JBR 17; Android JVM 29/29; debug APK assembled |
+| `DEVICE_CORE_GATE` | PASS with stated evidence boundary | `install -r`, retained identity, FGS/background/lock/network/recreate/stop-restart checks, real video inference, resource release, and transparent DISPLAY touch-through; deterministic browser tests close frame-order/reconnect cases |
+
+### Core conclusions
+
+- `CaptureServerService` is now the explicit foreground owner. It reconstructs the process-local server from persisted identity if Android recreates the service, rejects duplicate ownership, releases the port on explicit stop, and does not log credentials.
+- Receiver reconnect uses one bounded controller for SSE, polling, and WebSocket timers. Valid SSE state always restores the authoritative `connected-sse` diagnostic state, including after online recovery races.
+- Camera and audio ownership are idempotent under repeated start/stop and page exit; device stress completed ten cycles for each and left no active camera client or audio recording.
+- Realtime frame validation rejects invalid, non-finite, duplicate, stale-sequence, and stale-revision input while preserving the legacy compatibility adapter.
+- Transparent floating-browser mode is now directly addressable with `app=1`; asynchronous renderer creation retains transparent app mode and redraws immediately.
+- The Xiaomi process-kill boundary is explicit: direct process termination takes the FGS offline, and reopening the app restores it from persisted identity. The evidence does not claim that this OEM automatically restarts a killed process.
+- The unattended real-camera sample contained no detectable face. Video pixels and the inference loop were live at approximately 10 FPS; human-face publish FPS is therefore recorded as unavailable rather than inferred. Face-frame ordering, stale rejection, tracking-lost/recovery, and transport recovery are covered by the deterministic E2E gate.
+
+Core stability is no longer the blocker for motion protocol work. Motion capture remains a separate Beta with independent protocol, model, performance, privacy, and device gates.
