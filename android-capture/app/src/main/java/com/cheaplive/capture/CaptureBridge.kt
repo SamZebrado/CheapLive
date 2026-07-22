@@ -211,7 +211,7 @@ class CaptureBridge(
             val stats = JSONObject(json)
             appState?.let { state ->
                 state.updatePoseTelemetry(
-                    status = stats.optString("status", state.poseCaptureStatus).take(48),
+                    status = state.poseCaptureStatus,
                     fps = stats.optDouble("effectiveFps", stats.optDouble("fps", 0.0)),
                     inferenceMs = stats.optDouble("averageInferenceMs", stats.optDouble("inferenceMs", 0.0)),
                     skipped = stats.optLong("skippedFrames", 0L),

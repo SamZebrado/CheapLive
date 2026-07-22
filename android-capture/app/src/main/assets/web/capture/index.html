@@ -828,6 +828,14 @@
     frameLoopRunning = true;
     console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'frame_loop_start', videoReadyState: videoElement.readyState, videoWidth: videoElement.videoWidth, videoHeight: videoElement.videoHeight}));
     let lastVideoTime = -1;
+    function scheduleTick() {
+      if (!frameLoopRunning) return;
+      if (typeof videoElement.requestVideoFrameCallback === 'function') {
+        videoElement.requestVideoFrameCallback(tick);
+      } else {
+        setTimeout(tick, 16);
+      }
+    }
     function tick() {
       if (!frameLoopRunning) return;
       try {
@@ -836,7 +844,7 @@
           if (videoElement.currentTime !== lastVideoTime) {
             lastVideoTime = videoElement.currentTime;
             const profile = PERFORMANCE_PROFILES[poseSettings.performanceProfile] || PERFORMANCE_PROFILES.low;
-            if (publishEnabled && faceLandmarkerReady && now - lastFaceInferenceAt >= 1000 / profile.faceFps) {
+            if (publishEnabled && faceLandmarkerReady && !poseWorkerClient.busy && now - lastFaceInferenceAt >= 1000 / profile.faceFps) {
               lastFaceInferenceAt = now;
               const results = faceLandmarker.detectForVideo(videoElement, now);
             // 一次性结构诊断（前 3 帧 + 之后每 120 帧）
@@ -857,9 +865,9 @@
       } catch (e) {
         if (Math.random() < 0.05) console.error('[CheapLiveCameraDiag]', JSON.stringify({label:'frame_loop_error', error: e.message || String(e)}));
       }
-      requestAnimationFrame(tick);
+      scheduleTick();
     }
-    requestAnimationFrame(tick);
+    scheduleTick();
   }
 
   // 页面加载后只预热 FaceLandmarker 模型（不启动摄像头）

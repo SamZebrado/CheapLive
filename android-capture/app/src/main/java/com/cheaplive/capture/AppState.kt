@@ -518,7 +518,7 @@ class AppState {
         error: String = "",
     ) {
         poseCaptureStatus = status.take(48)
-        poseModelStatus = status.take(48)
+        if (status in setOf("off", "loading", "ready", "error")) poseModelStatus = status.take(48)
         poseFps = fps.takeIf { it.isFinite() }?.coerceIn(0.0, 120.0) ?: 0.0
         poseInferenceMs = inferenceMs.takeIf { it.isFinite() }?.coerceIn(0.0, 10_000.0) ?: 0.0
         poseFramesSkipped = skipped.coerceAtLeast(0L)

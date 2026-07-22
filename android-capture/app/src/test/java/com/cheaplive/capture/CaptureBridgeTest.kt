@@ -159,4 +159,15 @@ class CaptureBridgeTest {
         assertTrue(state.applyCommand("setPoseSmoothing", mapOf("smoothing" to 0.6)).ok)
         assertEquals(0.6, state.poseSmoothing, 0.0001)
     }
+
+    @Test
+    fun `model readiness remains separate from tracking loss`() {
+        val state = AppState()
+        val (bridge, _) = makeBridge(state = state)
+        bridge.reportPoseStatus("ready", "")
+        assertEquals("ready", state.poseModelStatus)
+        state.updatePoseTelemetry("tracking-lost", 4.0, 60.0, 0, 0, 0.0, 0)
+        assertEquals("tracking-lost", state.poseCaptureStatus)
+        assertEquals("ready", state.poseModelStatus)
+    }
 }
