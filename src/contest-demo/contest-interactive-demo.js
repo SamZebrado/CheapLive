@@ -3,6 +3,65 @@
  * 纯本地运行，无外部依赖
  */
 
+// ====== VERSION STAMP ======
+function initVersionStamp() {
+  const el = document.getElementById('versionStamp');
+  if (!el) return;
+  if (!window.__cheapLiveContestVersionDiag) {
+    window.__cheapLiveContestVersionDiag = {
+      version: null, versionSource: null, buildTime: null,
+      stampGitShortSha: null, queryV: null, stampLoaded: false,
+    };
+  }
+  const diag = window.__cheapLiveContestVersionDiag;
+  const params = new URLSearchParams(window.location.search);
+  const queryV = params.get('v');
+  diag.queryV = queryV;
+
+  function loadBuildStamp(callback) {
+    fetch('contest-build.json', { cache: 'no-cache' })
+      .then(r => { if (!r.ok) throw new Error('build stamp http ' + r.status); return r.json(); })
+      .then(stamp => callback(null, stamp))
+      .catch(err => callback(err));
+  }
+
+  if (queryV && queryV.trim()) {
+    const v = queryV.trim();
+    diag.version = v;
+    diag.versionSource = 'query';
+    el.textContent = `v${v}`;
+    loadBuildStamp((err, stamp) => {
+      if (!err && stamp) {
+        diag.stampLoaded = true;
+        diag.stampGitShortSha = stamp.gitShortSha || null;
+        const time = stamp.buildTimeLocal || '';
+        diag.buildTime = time;
+        if (time) el.textContent = `v${v} · updated ${time}`;
+      }
+    });
+    return;
+  }
+  loadBuildStamp((err, stamp) => {
+    if (!err && stamp) {
+      const sha = stamp.gitShortSha || 'unknown';
+      const time = stamp.buildTimeLocal || '';
+      let text = `v${sha}`;
+      if (time) text += ` · updated ${time}`;
+      el.textContent = text;
+      diag.version = sha;
+      diag.versionSource = 'build-json';
+      diag.buildTime = time || null;
+      diag.stampGitShortSha = sha;
+      diag.stampLoaded = true;
+    } else {
+      el.textContent = 'version unknown';
+      diag.version = 'unknown';
+      diag.versionSource = 'fallback';
+      diag.stampLoaded = false;
+    }
+  });
+}
+
 // ====== STATE ======
 const state = {
   currentAvatar: 'sacabambaspis-3d',
@@ -14,14 +73,7 @@ const state = {
   guideStep: 0,
   floatingMode: 'edit', // 'edit' | 'display'
   // Simulated face params
-  faceParams: {
-    mouthOpen: 0, blink: 0, blinkLeft: 0, blinkRight: 0, eyeLeft: 1, eyeRight: 1,
-    yaw: 0, pitch: 0, roll: 0, smile: 0,
-    // Head pan (headX/headY in 0-1, 0.5=center) — ported from open demo
-    headX: 0.5, headY: 0.5,
-    // Iris gaze tracking (per-eye normalized x/y in [-1, 1]) — ported from open demo
-    gazeLeftX: 0, gazeLeftY: 0, gazeRightX: 0, gazeRightY: 0,
-  },
+  faceParams: { mouthOpen: 0, blink: 0, yaw: 0, pitch: 0, roll: 0, smile: 0 },
 };
 
 // ====== FACE FRAME STATE ======
@@ -33,83 +85,6 @@ let _lastAppliedValues = null;
 let _idleActive = true;
 let _frameTimeoutId = null;
 const FRAME_IDLE_TIMEOUT_MS = 3000;
-
-// 真实 iris gaze 平滑状态
-// EMA(α=0.30) 让真实 gaze 平滑避免抖动；gain=1.8 让真实眼动肉眼可见；
-// deadzone=0.03 抑制微小漂移被识别成注视；clamp 到 [-1, 1]。
-const GAZE_EMA_ALPHA = 0.30;
-const GAZE_DEADZONE = 0.03;
-const GAZE_GAIN = 1.8;
-let _smoothGazeLeftX = 0, _smoothGazeLeftY = 0;
-let _smoothGazeRightX = 0, _smoothGazeRightY = 0;
-let _gazeSource = 'idle';
-let _irisTrackingDiag = {
-  faceDetected: false,
-  landmarkCount: 0,
-  refinedIrisAvailable: false,
-  leftIrisPointsValid: false,
-  rightIrisPointsValid: false,
-  leftIrisCenter: null,
-  rightIrisCenter: null,
-  leftEyeInnerCorner: null,
-  leftEyeOuterCorner: null,
-  rightEyeInnerCorner: null,
-  rightEyeOuterCorner: null,
-  leftUpperLid: null,
-  leftLowerLid: null,
-  rightUpperLid: null,
-  rightLowerLid: null,
-  normalizedLeftGazeX: null,
-  normalizedLeftGazeY: null,
-  normalizedRightGazeX: null,
-  normalizedRightGazeY: null,
-  smoothedLeftGazeX: null,
-  smoothedLeftGazeY: null,
-  smoothedRightGazeX: null,
-  smoothedRightGazeY: null,
-  renderedLeftOffsetPixels: null,
-  renderedRightOffsetPixels: null,
-  gazeSource: 'idle',
-  invalidReason: null,
-};
-let _cameraRunning = false;
-
-let _rafInstanceCount = 0;
-let _idleFrameCount = 0;
-let _trackingFrameCount = 0;
-let _lastTransitionReason = 'initial';
-let _lastIdleFrameTime = 0;
-let _lastTrackingFrameTime = 0;
-
-let _lastCameraFrameAt = 0;
-let _cameraFrameErrorCount = 0;
-let _lastCameraError = null;
-let _lastCameraErrorAt = 0;
-let _realCameraFrameApplied = false;
-let _cameraErrorLogThrottle = 0;
-let _cameraStartedAt = 0;
-let _cameraIdleFallbackReason = null; // 'never-detected' | 'stale-frame' | 'error'
-let _cameraVideoDiag = null; // { currentTime, videoWidth, videoHeight, readyState, tracksLive }
-let _cameraLastDetectDiag = null; // { hasFaceLandmarks, hasFaceBlendshapes, faceBlendshapeCount, faceLandmarkCount }
-const CAMERA_IDLE_FALLBACK_MS = 5000;
-const CAMERA_ERROR_LOG_INTERVAL_MS = 2000;
-
-// MediaPipe preload state (aligned with open demo: load on page init, not on camera click)
-let _loadMediapipePromise = null;
-let _mediapipeInitDiag = {
-  phase: 'idle',
-  filesetUrl: null,
-  modelUrl: null,
-  delegateTried: null,
-  delegateActive: null,
-  initStartedAt: 0,
-  filesetResolvedAt: 0,
-  createStartedAt: 0,
-  createResolvedAt: 0,
-  initElapsedMs: 0,
-  errorName: null,
-  errorMessage: null,
-};
 
 const VOICE_PRESETS = [
   { id: 'original', name: '原声' },
@@ -127,7 +102,6 @@ const AVATAR_NAMES = {
   rabbit: '兔子 Rabbit',
   fox: '狐狸 Fox',
   bear: '小熊 Bear',
-  'classic-sphere': '⚪ 经典圆球',
 };
 
 let _3dReady = false;
@@ -176,197 +150,16 @@ const GUIDE_STEPS = [
 
 // ====== INIT ======
 document.addEventListener('DOMContentLoaded', () => {
+  initVersionStamp();
   initAvatarCanvas();
   initGameCanvas();
   initFWAvatarCanvas();
   initFloatingWindow();
   startSimLoop();
-  initVersionStamp();
-  initAvatarSelectionDiag();
-  initLinksDiag();
-  init2DAvatarDiag();
-  initMocapDiag();
   if (state.currentAvatar === 'sacabambaspis-3d') {
     ensure3DRenderers().catch(() => {});
   }
 });
-
-function initAvatarSelectionDiag() {
-  if (window.__cheapLiveContestAvatarSelectionDiag) return;
-  window.__cheapLiveContestAvatarSelectionDiag = {
-    selectedAvatar: state.currentAvatar,
-    activeButtonAvatar: state.currentAvatar,
-    mainPanelAvatar: state.currentAvatar,
-    floatingPanelAvatar: state.currentAvatar,
-    mainRendererClass: state.currentAvatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + state.currentAvatar,
-    floatingRendererClass: state.currentAvatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + state.currentAvatar,
-    mainUses3D: state.currentAvatar === 'sacabambaspis-3d',
-    floatingUses3D: state.currentAvatar === 'sacabambaspis-3d',
-    panelsInSync: true,
-    mainCanvasWidth: 0,
-    mainCanvasHeight: 0,
-    clearRectWidth: 0,
-    clearRectHeight: 0,
-    lastAvatarSwitchAt: Date.now(),
-  };
-}
-
-function initLinksDiag() {
-  if (window.__cheapLiveContestLinksDiag) return;
-  const link = document.querySelector('.evolution-link');
-  const rect = link ? link.getBoundingClientRect() : null;
-  window.__cheapLiveContestLinksDiag = {
-    evolutionLinkPresent: !!link,
-    evolutionLinkHref: link ? link.getAttribute('href') : null,
-    evolutionLinkVisible: link ? (rect.width > 0 && rect.height > 0) : false,
-    evolutionLinkPlacement: link ? 'footer' : null,
-  };
-}
-
-function init2DAvatarDiag() {
-  if (window.__cheapLiveContest2DAvatarDiag) return;
-  window.__cheapLiveContest2DAvatarDiag = {
-    avatarType: state.currentAvatar,
-    mouthOpenApplied: false,
-    blinkApplied: false,
-    headOffsetApplied: false,
-    rollApplied: false,
-    leftEyeOpen: 1,
-    rightEyeOpen: 1,
-    headOffsetX: 0,
-    headOffsetY: 0,
-    mouthOpen: 0,
-    smile: 0,
-    mainAndFloatingParamsInSync: true,
-  };
-  // Fish eye bilateral diagnostics
-  window.__cheapLiveContestFishEyeDiag = {
-    avatarType: null,
-    headCenterX: 0,
-    leftEyeCenterX: 0,
-    rightEyeCenterX: 0,
-    leftEyeSide: null,
-    rightEyeSide: null,
-    eyeSeparation: 0,
-    eyeSeparationRatioToHead: 0,
-    bothEyesSameSide: true,
-    eyesBilateralPass: false,
-    mainFloatingConsistent: true,
-  };
-  // 2D gaze / iris diagnostics
-  window.__cheapLiveContest2DGazeDiag = {
-    avatarType: null,
-    gazeSource: null,
-    gazeX: 0,
-    gazeY: 0,
-    leftIrisCenterX: 0,
-    leftIrisCenterY: 0,
-    rightIrisCenterX: 0,
-    rightIrisCenterY: 0,
-    leftIrisOffsetX: 0,
-    leftIrisOffsetY: 0,
-    rightIrisOffsetX: 0,
-    rightIrisOffsetY: 0,
-    irisMovementApplied: false,
-    irisClampedInsideEye: false,
-    blinkOccludesIris: false,
-    mainFloatingConsistent: true,
-  };
-}
-
-// ====== VERSION STAMP ======
-// 静态加载 contest-build.json，把 git SHA + build time 显示在标题右侧。
-// 加载失败时显示 "version unknown"，不抛错。
-function initVersionStamp() {
-  const el = document.getElementById('versionStamp');
-  if (!el) return;
-
-  // 初始化 version diagnostics
-  if (!window.__cheapLiveContestVersionDiag) {
-    window.__cheapLiveContestVersionDiag = {
-      version: null,
-      versionSource: null,
-      buildTime: null,
-      stampGitShortSha: null,
-      queryV: null,
-      stampLoaded: false,
-    };
-  }
-  const diag = window.__cheapLiveContestVersionDiag;
-
-  // 优先读取 URL query 里的 ?v=<sha>
-  const params = new URLSearchParams(window.location.search);
-  const queryV = params.get('v');
-  diag.queryV = queryV;
-
-  function loadBuildStamp(callback) {
-    if (window.location.protocol === 'file:') {
-      const xhr = new XMLHttpRequest();
-      xhr.onreadystatechange = () => {
-        if (xhr.readyState === 4) {
-          if (xhr.status === 0 || xhr.status === 200) {
-            try {
-              callback(null, JSON.parse(xhr.responseText));
-            } catch (e) {
-              callback(e);
-            }
-          } else {
-            callback(new Error('xhr status ' + xhr.status));
-          }
-        }
-      };
-      xhr.onerror = () => callback(new Error('xhr error'));
-      xhr.open('GET', 'contest-build.json', true);
-      xhr.send();
-    } else {
-      fetch('contest-build.json', { cache: 'no-cache' })
-        .then(r => { if (!r.ok) throw new Error('build stamp http ' + r.status); return r.json(); })
-        .then(stamp => callback(null, stamp))
-        .catch(err => callback(err));
-    }
-  }
-
-  if (queryV && queryV.trim()) {
-    const v = queryV.trim();
-    diag.version = v;
-    diag.versionSource = 'query';
-    el.textContent = `v${v}`;
-    loadBuildStamp((err, stamp) => {
-      if (!err && stamp) {
-        diag.stampLoaded = true;
-        diag.stampGitShortSha = stamp.gitShortSha || null;
-        const time = stamp.buildTimeLocal || '';
-        diag.buildTime = time;
-        if (time) {
-          el.textContent = `v${v} · updated ${time}`;
-        }
-      } else {
-        diag.stampLoaded = false;
-      }
-    });
-    return;
-  }
-
-  loadBuildStamp((err, stamp) => {
-    if (!err && stamp) {
-      const sha = (stamp && stamp.gitShortSha) ? stamp.gitShortSha : 'unknown';
-      const time = (stamp && stamp.buildTimeLocal) ? stamp.buildTimeLocal : '';
-      let text = `v${sha}`;
-      if (time) text += ` · updated ${time}`;
-      el.textContent = text;
-      diag.version = sha;
-      diag.versionSource = 'build-json';
-      diag.buildTime = time || null;
-      diag.stampGitShortSha = sha;
-      diag.stampLoaded = true;
-    } else {
-      el.textContent = 'version unknown';
-      diag.version = 'unknown';
-      diag.versionSource = 'fallback';
-      diag.stampLoaded = false;
-    }
-  });
-}
 
 // ====== AVATAR CANVAS (Middle Panel) ======
 let avatarCtx, avatarW, avatarH;
@@ -391,16 +184,6 @@ function drawAvatar(ctx, w, h, avatar, params, scale) {
     drawSacabambaspis(ctx, cx, cy, params, scale);
   } else if (avatar === 'cat') {
     drawCat(ctx, cx, cy, params, scale);
-  } else if (avatar === 'dog') {
-    drawDog(ctx, cx, cy, params, scale);
-  } else if (avatar === 'rabbit') {
-    drawRabbit(ctx, cx, cy, params, scale);
-  } else if (avatar === 'fox') {
-    drawFox(ctx, cx, cy, params, scale);
-  } else if (avatar === 'bear') {
-    drawBear(ctx, cx, cy, params, scale);
-  } else if (avatar === 'classic-sphere') {
-    drawClassicSphere(ctx, cx, cy, params, scale);
   } else {
     drawPlaceholder(ctx, cx, cy, avatar, scale);
   }
@@ -419,47 +202,14 @@ function update3DRenderers(params) {
 }
 
 function faceParamsToRendererParams(fp) {
-  // Aligned with open demo mapping conventions (mirror mode):
-  // - yaw: state.yaw in [-1,1]; negated for selfie mirror, then mapped to 0..1 (0.5=center)
-  // - pitch: state.pitch in [-1,1]; NEGATED (Web-specific) so user look-down → fish look-down
-  //   and user look-up → fish look-up. (The underlying MediaPipe pitch sign in this build
-  //   produces the opposite visual direction; the sign fix lives ONLY at this Web adapter
-  //   layer. The Android receiver keeps its own mapping and must NOT inherit this negation.)
-  // - roll: state.roll in [-1,1]; negated to match intuitive direction (left tilt=left tilt)
-  // - eyeLeft/eyeRight: 0 = closed, 1 = fully open (derived from blink values)
-  // - headX/headY: 0..1, 0.5=center (nose position, mirrored for selfie)
-  // - gazeLeftX/Y, gazeRightX/Y: [-1,1] (iris position, mirrored for selfie)
-  const blinkLeft = fp.blinkLeft ?? fp.blink ?? 0;
-  const blinkRight = fp.blinkRight ?? fp.blink ?? 0;
-  const eyeLeft = fp.eyeLeft ?? (1 - blinkLeft);
-  const eyeRight = fp.eyeRight ?? (1 - blinkRight);
-
-  // Mirror yaw for selfie view (like open demo mirror mode): negate yaw
-  // Pitch: Web-only sign flip so the fish tilts the same way the user does.
-  //   - user looks down (fp.pitch < 0 in MediaPipe space) → visual head down → headPitch < 0
-  //   - user looks up   (fp.pitch > 0 in MediaPipe space) → visual head up   → headPitch > 0
-  // Roll is NOT negated — open demo's mirror mode does the negation+mirror twice, cancelling out.
-  //   (open demo: roll=-roll then headRollNorm=1-headRollNorm → net no negation in mirror mode)
-  const yawNorm = (-(fp.yaw ?? 0)) * 0.5 + 0.5;
-  const pitchNorm = (-(fp.pitch ?? 0)) * 0.5 + 0.5;
-  const rollNorm = (fp.roll ?? 0) * 0.5 + 0.5;
-
   return {
     mouthOpen: fp.mouthOpen ?? 0,
     mouthSmile: fp.smile ?? 0,
-    eyeLeft: eyeLeft,
-    eyeRight: eyeRight,
-    headYaw: yawNorm,
-    headPitch: pitchNorm,
-    headRoll: rollNorm,
-    // Head pan (0.5 = center). Pass through directly; extraction already handles mirror.
-    headX: fp.headX ?? 0.5,
-    headY: fp.headY ?? 0.5,
-    // Iris gaze ([-1,1]). Pass through directly; extraction already handles mirror.
-    gazeLeftX: fp.gazeLeftX ?? 0,
-    gazeLeftY: fp.gazeLeftY ?? 0,
-    gazeRightX: fp.gazeRightX ?? 0,
-    gazeRightY: fp.gazeRightY ?? 0,
+    eyeLeft: 1 - (fp.blink ?? 0),
+    eyeRight: 1 - (fp.blink ?? 0),
+    headYaw: (fp.yaw ?? 0) * 0.5 + 0.5,
+    headPitch: (-(fp.pitch ?? 0)) * 0.5 + 0.5,
+    headRoll: (fp.roll ?? 0) * 0.5 + 0.5,
     browLeft: 0,
     browRight: 0,
   };
@@ -486,9 +236,6 @@ function ensure3DRenderers() {
   ])
     .then(() => {
       _3dReady = true;
-      if (typeof window.setContestFishAvatarTransparentMode === 'function') {
-        window.setContestFishAvatarTransparentMode('fwAvatarCanvas', true);
-      }
     })
     .catch((err) => {
       _3dFailed = true;
@@ -510,67 +257,9 @@ function set3DRenderersVisible(visible) {
   }
 }
 
-// ====== 3D ERROR / LOADING OVERLAYS ======
-function _hide3DOverlays() {
-  const errEl = document.getElementById('avatar3DError');
-  const loadEl = document.getElementById('avatar3DLoading');
-  if (errEl) errEl.style.display = 'none';
-  if (loadEl) loadEl.style.display = 'none';
-}
-
-function _show3DErrorOverlay() {
-  const errEl = document.getElementById('avatar3DError');
-  const loadEl = document.getElementById('avatar3DLoading');
-  if (loadEl) loadEl.style.display = 'none';
-  if (errEl) {
-    errEl.style.display = 'flex';
-    const msgEl = document.getElementById('avatar3DErrorMsg');
-    if (msgEl) {
-      const diag = window.__cheapLiveContestAvatarDiag || {};
-      msgEl.textContent = diag.error || '未知错误';
-    }
-  }
-}
-
-function _show3DLoadingOverlay() {
-  const errEl = document.getElementById('avatar3DError');
-  const loadEl = document.getElementById('avatar3DLoading');
-  if (errEl) errEl.style.display = 'none';
-  if (loadEl) loadEl.style.display = 'flex';
-}
-
-function retry3DRenderer() {
-  _3dReady = false;
-  _3dFailed = false;
-  _3dLoadStarted = false;
-  _ensure3DPromise = null;
-  const diag = window.__cheapLiveContestAvatarDiag || {};
-  diag.fallbackActive = false;
-  diag.error = null;
-  _hide3DOverlays();
-  _show3DLoadingOverlay();
-  ensure3DRenderers().catch(() => {});
-}
-
-function manualFallback2D() {
-  // User explicitly chose to switch to 2D
-  _hide3DOverlays();
-  selectAvatar('sacabambaspis', null);
-  const avatarBtns = document.querySelectorAll('.avatar-btn');
-  avatarBtns.forEach(btn => {
-    btn.classList.toggle('selected', btn.dataset.avatar === 'sacabambaspis');
-  });
-  const diag = window.__cheapLiveContestAvatarDiag || {};
-  diag.fallbackActive = true;
-  diag.fallbackReason = 'user_manual';
-}
-
 // ====== FACE FRAME INJECTION ======
 // Frame fields: source, seq, headYaw (deg), headPitch (deg), headRoll (deg),
-//               mouthOpen (0-1), mouthSmile (0-1),
-//               blinkLeft (0-1), blinkRight (0-1), eyeLeft (0-1), eyeRight (0-1),
-//               headX (0-1, 0.5=center), headY (0-1, 0.5=center),
-//               gazeLeftX/Y, gazeRightX/Y ([-1,1])
+//               mouthOpen (0-1), mouthSmile (0-1)
 // Degrees range: yaw ±60, pitch ±45, roll ±40
 function _degToNorm(deg, maxDeg) {
   const clamped = Math.max(-maxDeg, Math.min(maxDeg, deg));
@@ -601,62 +290,6 @@ function _applyFaceFrameInternal(frame) {
   if (typeof frame.mouthSmile === 'number') {
     state.faceParams.smile = Math.max(0, Math.min(1, frame.mouthSmile));
   }
-  // Eye/blink fields: support both blinkLeft/blinkRight and eyeLeft/eyeRight
-  if (typeof frame.blinkLeft === 'number') {
-    state.faceParams.blinkLeft = Math.max(0, Math.min(1, frame.blinkLeft));
-    state.faceParams.eyeLeft = 1 - state.faceParams.blinkLeft;
-  }
-  if (typeof frame.blinkRight === 'number') {
-    state.faceParams.blinkRight = Math.max(0, Math.min(1, frame.blinkRight));
-    state.faceParams.eyeRight = 1 - state.faceParams.blinkRight;
-  }
-  if (typeof frame.eyeLeft === 'number') {
-    state.faceParams.eyeLeft = Math.max(0, Math.min(1, frame.eyeLeft));
-    state.faceParams.blinkLeft = 1 - state.faceParams.eyeLeft;
-  }
-  if (typeof frame.eyeRight === 'number') {
-    state.faceParams.eyeRight = Math.max(0, Math.min(1, frame.eyeRight));
-    state.faceParams.blinkRight = 1 - state.faceParams.eyeRight;
-  }
-  // Update unified blink as max of both
-  state.faceParams.blink = Math.max(state.faceParams.blinkLeft, state.faceParams.blinkRight);
-
-  // Head pan (0..1, 0.5=center)
-  if (typeof frame.headX === 'number') {
-    state.faceParams.headX = Math.max(0, Math.min(1, frame.headX));
-  }
-  if (typeof frame.headY === 'number') {
-    state.faceParams.headY = Math.max(0, Math.min(1, frame.headY));
-  }
-  // Iris gaze ([-1,1] per eye per axis)
-  // Real-camera iris positions live in a much smaller range than the [-1, 1] renderer
-  // expects (the iris only moves a tiny fraction of the eye white in real life).
-  // Apply: deadzone → EMA smoothing → gain → clamp to [-1, 1] so the avatar's
-  // iris visibly compensates when the user turns their head while keeping gaze on screen.
-  function _processGaze(raw) {
-    if (typeof raw !== 'number' || !Number.isFinite(raw)) return 0;
-    let v = Math.abs(raw) < GAZE_DEADZONE ? 0 : (Math.abs(raw) - GAZE_DEADZONE) / (1 - GAZE_DEADZONE);
-    v = Math.sign(raw) * v * GAZE_GAIN;
-    return Math.max(-1, Math.min(1, v));
-  }
-  if (typeof frame.gazeLeftX === 'number') {
-    _smoothGazeLeftX = _smoothGazeLeftX + GAZE_EMA_ALPHA * (_processGaze(frame.gazeLeftX) - _smoothGazeLeftX);
-    state.faceParams.gazeLeftX = _smoothGazeLeftX;
-  }
-  if (typeof frame.gazeLeftY === 'number') {
-    _smoothGazeLeftY = _smoothGazeLeftY + GAZE_EMA_ALPHA * (_processGaze(frame.gazeLeftY) - _smoothGazeLeftY);
-    state.faceParams.gazeLeftY = _smoothGazeLeftY;
-  }
-  if (typeof frame.gazeRightX === 'number') {
-    _smoothGazeRightX = _smoothGazeRightX + GAZE_EMA_ALPHA * (_processGaze(frame.gazeRightX) - _smoothGazeRightX);
-    state.faceParams.gazeRightX = _smoothGazeRightX;
-  }
-  if (typeof frame.gazeRightY === 'number') {
-    _smoothGazeRightY = _smoothGazeRightY + GAZE_EMA_ALPHA * (_processGaze(frame.gazeRightY) - _smoothGazeRightY);
-    state.faceParams.gazeRightY = _smoothGazeRightY;
-  }
-  _gazeSource = (frame.source === 'real-camera' || frame.source === 'mediapipe' || frame.source === 'android-receiver')
-    ? 'iris-landmarks' : 'head-compensation-fallback';
 
   _lastAppliedValues = {
     yaw: state.faceParams.yaw,
@@ -664,17 +297,6 @@ function _applyFaceFrameInternal(frame) {
     roll: state.faceParams.roll,
     mouthOpen: state.faceParams.mouthOpen,
     smile: state.faceParams.smile,
-    blink: state.faceParams.blink,
-    blinkLeft: state.faceParams.blinkLeft,
-    blinkRight: state.faceParams.blinkRight,
-    eyeLeft: state.faceParams.eyeLeft,
-    eyeRight: state.faceParams.eyeRight,
-    headX: state.faceParams.headX,
-    headY: state.faceParams.headY,
-    gazeLeftX: state.faceParams.gazeLeftX,
-    gazeLeftY: state.faceParams.gazeLeftY,
-    gazeRightX: state.faceParams.gazeRightX,
-    gazeRightY: state.faceParams.gazeRightY,
   };
 
   // Reset idle timeout
@@ -702,230 +324,87 @@ window.__cheapLiveContestAvatarResetFrame = function () {
 
 function drawSacabambaspis(ctx, cx, cy, p, s) {
   const mouth = Math.max(0, Math.min(1, p.mouthOpen));
-  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
-  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
-  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
-  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
-  const roll = (p.roll ?? 0) * 0.3;
-  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s;
-  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
-  const mouthH = mouth * 10 * s;
-  const eyeHL = eyeL * 7 * s;
-  const eyeHR = eyeR * 7 * s;
-
-  // Gaze / iris tracking: use gazeX/gazeY or yaw/pitch as proxy
-  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
-  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
-  const irisMaxOffset = 2.5 * s;
-  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
-  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
-
-  // === Unified FRONT-FACING view ===
-  // Sacabambaspis had a broad, flat cephalic shield — front view shows
-  // a wide head with bilateral eyes and a small mouth.
-  // Eye positions — front-facing, bilateral (left/right)
-  const leftEyeX = -16 * s;
-  const rightEyeX = 16 * s;
-  const eyeY = -12 * s;
-  const eyeW = 8 * s;
-  const irisR = 4.5 * s;
+  const blink = Math.max(0, Math.min(1, p.blink));
+  const yaw = p.yaw * 30 * s;
+  const mouthH = mouth * 12 * s;
+  const eyeH = (1 - blink) * 5 * s;
 
   ctx.save();
-  ctx.translate(cx + headOffsetX, cy + headOffsetY);
-  ctx.rotate(roll);
+  ctx.translate(cx + yaw * 0.3, cy);
 
-  // --- Tail (bottom, fan-shaped, front view) ---
-  ctx.fillStyle = '#b8b4a4';
-  ctx.beginPath();
-  ctx.moveTo(-12 * s, 38 * s);
-  ctx.lineTo(-22 * s, 58 * s);
-  ctx.lineTo(-8 * s, 50 * s);
-  ctx.lineTo(0, 56 * s);
-  ctx.lineTo(8 * s, 50 * s);
-  ctx.lineTo(22 * s, 58 * s);
-  ctx.lineTo(12 * s, 38 * s);
-  ctx.closePath();
-  ctx.fill();
-
-  // --- Body: wide horizontal ellipse (front view of a flat fish) ---
-  // Slightly tapering down, wider than tall
+  // Body
   ctx.fillStyle = '#e4e1d3';
   ctx.beginPath();
-  ctx.ellipse(0, 5 * s, 42 * s, 38 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, 70 * s, 35 * s, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // --- Head shield: upper portion, slightly wider and lighter ---
-  ctx.fillStyle = '#ede9dc';
+  // Back shading
+  ctx.fillStyle = 'rgba(138,135,120,0.3)';
   ctx.beginPath();
-  ctx.ellipse(0, -8 * s, 40 * s, 28 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(-10 * s, 0, 55 * s, 25 * s, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // --- Dorsal fin (top, small triangle, front view) ---
-  ctx.fillStyle = '#b8b4a4';
+  // Spot
+  ctx.fillStyle = 'rgba(139,115,85,0.35)';
   ctx.beginPath();
-  ctx.moveTo(-10 * s, -30 * s);
-  ctx.lineTo(0, -44 * s);
-  ctx.lineTo(10 * s, -30 * s);
+  ctx.ellipse(-25 * s, -5 * s, 15 * s, 8 * s, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Dorsal fin
+  ctx.fillStyle = '#c8c4b4';
+  ctx.beginPath();
+  ctx.moveTo(-15 * s, -30 * s);
+  ctx.lineTo(-30 * s, -55 * s);
+  ctx.lineTo(5 * s, -30 * s);
   ctx.closePath();
   ctx.fill();
 
-  // --- Pectoral fins (sides, small, front view) ---
-  ctx.fillStyle = '#c8c4b4';
-  ctx.beginPath();
-  ctx.ellipse(-32 * s, 12 * s, 10 * s, 5 * s, -0.3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(32 * s, 12 * s, 10 * s, 5 * s, 0.3, 0, Math.PI * 2);
-  ctx.fill();
-
-  // --- Eye sockets (slight indent, darker ring) ---
-  ctx.strokeStyle = 'rgba(120,110,90,0.3)';
-  ctx.lineWidth = 1.5 * s;
-  ctx.beginPath();
-  ctx.ellipse(leftEyeX, eyeY, eyeW + 2 * s, Math.max(2, eyeHL + 2 * s), 0, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.ellipse(rightEyeX, eyeY, eyeW + 2 * s, Math.max(2, eyeHR + 2 * s), 0, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // --- Left Eye (bilateral — left side) ---
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.ellipse(leftEyeX, eyeY, eyeW, Math.max(1, eyeHL), 0, 0, Math.PI * 2);
-  ctx.fill();
-  if (eyeHL > 2) {
-    // Iris with gaze tracking
-    ctx.fillStyle = '#1a1a2e';
-    ctx.beginPath();
-    ctx.arc(leftEyeX + irisOffsetX, eyeY + irisOffsetY, irisR, 0, Math.PI * 2);
-    ctx.fill();
-    // Pupil highlight
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(leftEyeX + irisOffsetX + 1 * s, eyeY + irisOffsetY - 1.5 * s, 1.5 * s, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // --- Right Eye (bilateral — right side) ---
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.ellipse(rightEyeX, eyeY, eyeW, Math.max(1, eyeHR), 0, 0, Math.PI * 2);
-  ctx.fill();
-  if (eyeHR > 2) {
-    ctx.fillStyle = '#1a1a2e';
-    ctx.beginPath();
-    ctx.arc(rightEyeX + irisOffsetX, eyeY + irisOffsetY, irisR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(rightEyeX + irisOffsetX + 1 * s, eyeY + irisOffsetY - 1.5 * s, 1.5 * s, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // --- Mouth (center, below eyes, front view) ---
-  if (mouthH > 0.5) {
+  // Mouth
+  if (mouthH > 1) {
     ctx.fillStyle = '#8a7355';
     ctx.beginPath();
-    ctx.ellipse(0, 14 * s, 7 * s, mouthH * 0.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(55 * s, 5 * s, 8 * s, mouthH, 0, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Mouth line (always visible)
-  ctx.strokeStyle = '#6a5535';
-  ctx.lineWidth = Math.max(1, 1.5 * s);
+
+  // Eye
+  ctx.fillStyle = '#fff';
   ctx.beginPath();
-  ctx.moveTo(-6 * s, 14 * s);
-  ctx.quadraticCurveTo(0, 14 * s + Math.max(2, mouthH), 6 * s, 14 * s);
-  ctx.stroke();
+  ctx.ellipse(30 * s, -12 * s, 8 * s, Math.max(1, eyeH), 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (eyeH > 2) {
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.arc(32 * s, -12 * s, 4 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(33 * s, -13 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Tail fin
+  ctx.fillStyle = '#c8c4b4';
+  ctx.beginPath();
+  ctx.moveTo(-65 * s, 0);
+  ctx.lineTo(-85 * s, -20 * s);
+  ctx.lineTo(-80 * s, 0);
+  ctx.lineTo(-85 * s, 20 * s);
+  ctx.closePath();
+  ctx.fill();
 
   ctx.restore();
-
-  // 更新 2D avatar diagnostics
-  if (window.__cheapLiveContest2DAvatarDiag) {
-    const d = window.__cheapLiveContest2DAvatarDiag;
-    d.avatarType = 'sacabambaspis';
-    d.mouthOpenApplied = true;
-    d.blinkApplied = true;
-    d.headOffsetApplied = true;
-    d.rollApplied = true;
-    d.leftEyeOpen = eyeL;
-    d.rightEyeOpen = eyeR;
-    d.headOffsetX = headOffsetX;
-    d.headOffsetY = headOffsetY;
-    d.mouthOpen = mouth;
-    d.smile = p.smile ?? 0;
-  }
-
-  // 更新 fish eye bilateral diagnostics
-  if (window.__cheapLiveContestFishEyeDiag) {
-    const headCenterX = cx + headOffsetX;
-    const leftEyeCenterX = cx + headOffsetX + leftEyeX;
-    const rightEyeCenterX = cx + headOffsetX + rightEyeX;
-    const eyeSep = Math.abs(rightEyeX - leftEyeX);
-    window.__cheapLiveContestFishEyeDiag = {
-      avatarType: 'sacabambaspis',
-      headCenterX,
-      leftEyeCenterX,
-      rightEyeCenterX,
-      leftEyeSide: leftEyeCenterX < headCenterX ? 'left' : 'right',
-      rightEyeSide: rightEyeCenterX > headCenterX ? 'right' : 'left',
-      eyeSeparation: eyeSep,
-      eyeSeparationRatioToHead: eyeSep / (80 * s),
-      bothEyesSameSide: (leftEyeCenterX > headCenterX && rightEyeCenterX > headCenterX) ||
-                        (leftEyeCenterX < headCenterX && rightEyeCenterX < headCenterX),
-      eyesBilateralPass: leftEyeCenterX < headCenterX && rightEyeCenterX > headCenterX,
-      mainFloatingConsistent: true
-    };
-  }
-
-  // 更新 2D gaze diagnostics
-  if (window.__cheapLiveContest2DGazeDiag) {
-    window.__cheapLiveContest2DGazeDiag = {
-      avatarType: 'sacabambaspis',
-      gazeSource: (p.gazeLeftX !== undefined) ? 'gazeParams' : 'yawPitchProxy',
-      gazeX, gazeY,
-      leftIrisCenterX: cx + headOffsetX + leftEyeX + irisOffsetX,
-      leftIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
-      rightIrisCenterX: cx + headOffsetX + rightEyeX + irisOffsetX,
-      rightIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
-      leftIrisOffsetX: irisOffsetX,
-      leftIrisOffsetY: irisOffsetY,
-      rightIrisOffsetX: irisOffsetX,
-      rightIrisOffsetY: irisOffsetY,
-      irisMovementApplied: true,
-      irisClampedInsideEye: Math.abs(irisOffsetX) <= irisMaxOffset && Math.abs(irisOffsetY) <= irisMaxOffset,
-      blinkOccludesIris: eyeHL <= 2 || eyeHR <= 2,
-      mainFloatingConsistent: true
-    };
-  }
 }
 
 function drawCat(ctx, cx, cy, p, s) {
   const mouth = Math.max(0, Math.min(1, p.mouthOpen));
-  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
-  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
-  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
-  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
-  const roll = (p.roll ?? 0) * 0.3;
-  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s;
-  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
-  const eyeHL = eyeL * 6 * s;
-  const eyeHR = eyeR * 6 * s;
+  const blink = Math.max(0, Math.min(1, p.blink));
+  const yaw = p.yaw * 25 * s;
+  const eyeH = (1 - blink) * 6 * s;
   const mouthOpen = mouth * 5 * s;
 
-  // Gaze / iris tracking
-  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
-  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
-  const irisMaxOffset = 2.5 * s;
-  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
-  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
-
-  // Eye positions
-  const leftEyeX = -12 * s;
-  const rightEyeX = 12 * s;
-  const eyeY = -14 * s;
-
   ctx.save();
-  ctx.translate(cx + headOffsetX, cy + headOffsetY);
-  ctx.rotate(roll);
+  ctx.translate(cx + yaw * 0.3, cy);
 
   // Head
   ctx.fillStyle = '#ffb347';
@@ -969,34 +448,28 @@ function drawCat(ctx, cx, cy, p, s) {
   ctx.closePath();
   ctx.fill();
 
-  // Left Eye (bilateral — left side, with iris gaze tracking)
+  // Eyes
   ctx.fillStyle = '#fff';
   ctx.beginPath();
-  ctx.ellipse(leftEyeX, eyeY, 8 * s, Math.max(1, eyeHL), 0, 0, Math.PI * 2);
+  ctx.ellipse(-12 * s, -14 * s, 8 * s, Math.max(1, eyeH), 0, 0, Math.PI * 2);
   ctx.fill();
-  if (eyeHL > 2) {
+  ctx.beginPath();
+  ctx.ellipse(12 * s, -14 * s, 8 * s, Math.max(1, eyeH), 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (eyeH > 2) {
     ctx.fillStyle = '#333';
     ctx.beginPath();
-    ctx.ellipse(leftEyeX + irisOffsetX, eyeY + irisOffsetY, 4 * s, 5 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(-10 * s, -14 * s, 4 * s, 5 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(14 * s, -14 * s, 4 * s, 5 * s, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(leftEyeX + irisOffsetX + 1 * s, eyeY + irisOffsetY - 2 * s, 2 * s, 0, Math.PI * 2);
+    ctx.arc(-9 * s, -16 * s, 2 * s, 0, Math.PI * 2);
     ctx.fill();
-  }
-  // Right Eye (bilateral — right side, with iris gaze tracking)
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.ellipse(rightEyeX, eyeY, 8 * s, Math.max(1, eyeHR), 0, 0, Math.PI * 2);
-  ctx.fill();
-  if (eyeHR > 2) {
-    ctx.fillStyle = '#333';
     ctx.beginPath();
-    ctx.ellipse(rightEyeX + irisOffsetX, eyeY + irisOffsetY, 4 * s, 5 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(rightEyeX + irisOffsetX + 1 * s, eyeY + irisOffsetY - 2 * s, 2 * s, 0, Math.PI * 2);
+    ctx.arc(15 * s, -16 * s, 2 * s, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -1038,542 +511,6 @@ function drawCat(ctx, cx, cy, p, s) {
   });
 
   ctx.restore();
-
-  // 更新 2D avatar diagnostics
-  if (window.__cheapLiveContest2DAvatarDiag) {
-    const d = window.__cheapLiveContest2DAvatarDiag;
-    d.avatarType = 'cat';
-    d.mouthOpenApplied = true;
-    d.blinkApplied = true;
-    d.headOffsetApplied = true;
-    d.rollApplied = true;
-    d.leftEyeOpen = eyeL;
-    d.rightEyeOpen = eyeR;
-    d.headOffsetX = headOffsetX;
-    d.headOffsetY = headOffsetY;
-    d.mouthOpen = mouth;
-    d.smile = p.smile ?? 0;
-  }
-
-  // 更新 fish eye bilateral diagnostics (cat 也需要 bilateral 诊断)
-  if (window.__cheapLiveContestFishEyeDiag) {
-    const headCenterX = cx + headOffsetX;
-    const leftEyeCenterX = cx + headOffsetX + leftEyeX;
-    const rightEyeCenterX = cx + headOffsetX + rightEyeX;
-    const eyeSep = Math.abs(rightEyeX - leftEyeX);
-    window.__cheapLiveContestFishEyeDiag = {
-      avatarType: 'cat',
-      headCenterX,
-      leftEyeCenterX,
-      rightEyeCenterX,
-      leftEyeSide: leftEyeCenterX < headCenterX ? 'left' : 'right',
-      rightEyeSide: rightEyeCenterX > headCenterX ? 'right' : 'left',
-      eyeSeparation: eyeSep,
-      eyeSeparationRatioToHead: eyeSep / (80 * s),
-      bothEyesSameSide: (leftEyeCenterX > headCenterX && rightEyeCenterX > headCenterX) ||
-                        (leftEyeCenterX < headCenterX && rightEyeCenterX < headCenterX),
-      eyesBilateralPass: leftEyeCenterX < headCenterX && rightEyeCenterX > headCenterX,
-      mainFloatingConsistent: true
-    };
-  }
-
-  // 更新 2D gaze diagnostics
-  if (window.__cheapLiveContest2DGazeDiag) {
-    window.__cheapLiveContest2DGazeDiag = {
-      avatarType: 'cat',
-      gazeSource: (p.gazeLeftX !== undefined) ? 'gazeParams' : 'yawPitchProxy',
-      gazeX, gazeY,
-      leftIrisCenterX: cx + headOffsetX + leftEyeX + irisOffsetX,
-      leftIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
-      rightIrisCenterX: cx + headOffsetX + rightEyeX + irisOffsetX,
-      rightIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
-      leftIrisOffsetX: irisOffsetX,
-      leftIrisOffsetY: irisOffsetY,
-      rightIrisOffsetX: irisOffsetX,
-      rightIrisOffsetY: irisOffsetY,
-      irisMovementApplied: true,
-      irisClampedInsideEye: Math.abs(irisOffsetX) <= irisMaxOffset && Math.abs(irisOffsetY) <= irisMaxOffset,
-      blinkOccludesIris: eyeHL <= 2 || eyeHR <= 2,
-      mainFloatingConsistent: true
-    };
-  }
-}
-
-function _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeHL, eyeHR, irisOffsetX, irisOffsetY, irisColor) {
-  irisColor = irisColor || '#333';
-  const eyeH = 6;
-  ctx.fillStyle = '#fff';
-  if (eyeHL > 1) {
-    ctx.beginPath();
-    ctx.ellipse(leftEyeX, eyeY, eyeW, Math.max(1, eyeHL * eyeH), 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  if (eyeHR > 1) {
-    ctx.beginPath();
-    ctx.ellipse(rightEyeX, eyeY, eyeW, Math.max(1, eyeHR * eyeH), 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  const irisW = eyeW * 0.5;
-  const irisH = eyeH * 0.55;
-  if (eyeHL > 2) {
-    ctx.fillStyle = irisColor;
-    ctx.beginPath();
-    ctx.ellipse(leftEyeX + irisOffsetX, eyeY + irisOffsetY, irisW, irisH, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(leftEyeX + irisOffsetX + irisW * 0.3, eyeY + irisOffsetY - irisH * 0.3, irisW * 0.35, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  if (eyeHR > 2) {
-    ctx.fillStyle = irisColor;
-    ctx.beginPath();
-    ctx.ellipse(rightEyeX + irisOffsetX, eyeY + irisOffsetY, irisW, irisH, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(rightEyeX + irisOffsetX + irisW * 0.3, eyeY + irisOffsetY - irisH * 0.3, irisW * 0.35, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-function _update2DAnimalDiags(avatarType, cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth) {
-  if (window.__cheapLiveContest2DAvatarDiag) {
-    const d = window.__cheapLiveContest2DAvatarDiag;
-    d.avatarType = avatarType;
-    d.mouthOpenApplied = true;
-    d.blinkApplied = true;
-    d.headOffsetApplied = true;
-    d.rollApplied = true;
-    d.leftEyeOpen = eyeL;
-    d.rightEyeOpen = eyeR;
-    d.headOffsetX = headOffsetX;
-    d.headOffsetY = headOffsetY;
-    d.mouthOpen = mouth;
-    d.smile = p.smile ?? 0;
-    d.isExperimental = true;
-  }
-  if (window.__cheapLiveContestFishEyeDiag) {
-    const headCenterX = cx + headOffsetX;
-    const lx = cx + headOffsetX + leftEyeX;
-    const rx = cx + headOffsetX + rightEyeX;
-    const eyeSep = Math.abs(rightEyeX - leftEyeX);
-    window.__cheapLiveContestFishEyeDiag = {
-      avatarType,
-      headCenterX,
-      leftEyeCenterX: lx,
-      rightEyeCenterX: rx,
-      leftEyeSide: lx < headCenterX ? 'left' : 'right',
-      rightEyeSide: rx > headCenterX ? 'right' : 'left',
-      eyeSeparation: eyeSep,
-      eyeSeparationRatioToHead: eyeSep / (80 * s),
-      bothEyesSameSide: (lx > headCenterX && rx > headCenterX) || (lx < headCenterX && rx < headCenterX),
-      eyesBilateralPass: lx < headCenterX && rx > headCenterX,
-      mainFloatingConsistent: true,
-      isExperimental: true,
-    };
-  }
-  if (window.__cheapLiveContest2DGazeDiag) {
-    window.__cheapLiveContest2DGazeDiag = {
-      avatarType,
-      gazeSource: (p.gazeLeftX !== undefined) ? 'gazeParams' : 'yawPitchProxy',
-      gazeX: p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0),
-      gazeY: p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0),
-      leftIrisCenterX: cx + headOffsetX + leftEyeX + irisOffsetX,
-      leftIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
-      rightIrisCenterX: cx + headOffsetX + rightEyeX + irisOffsetX,
-      rightIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
-      leftIrisOffsetX: irisOffsetX,
-      leftIrisOffsetY: irisOffsetY,
-      rightIrisOffsetX: irisOffsetX,
-      rightIrisOffsetY: irisOffsetY,
-      irisMovementApplied: true,
-      irisClampedInsideEye: Math.abs(irisOffsetX) <= irisMaxOffset && Math.abs(irisOffsetY) <= irisMaxOffset,
-      blinkOccludesIris: eyeL <= 0.4 || eyeR <= 0.4,
-      mainFloatingConsistent: true,
-      isExperimental: true,
-    };
-  }
-}
-
-function drawDog(ctx, cx, cy, p, s) {
-  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
-  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
-  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
-  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
-  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
-  const roll = (p.roll ?? 0) * 0.3;
-  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s;
-  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
-  const mouthOpen = mouth * 6 * s;
-
-  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
-  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
-  const irisMaxOffset = 2.5 * s;
-  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
-  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
-
-  const leftEyeX = -13 * s;
-  const rightEyeX = 13 * s;
-  const eyeY = -12 * s;
-  const eyeW = 6 * s;
-
-  ctx.save();
-  ctx.translate(cx + headOffsetX, cy + headOffsetY);
-  ctx.rotate(roll);
-
-  // Ears (floppy)
-  ctx.fillStyle = '#c8a070';
-  ctx.beginPath();
-  ctx.ellipse(-28 * s, -30 * s, 10 * s, 22 * s, -0.3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(28 * s, -30 * s, 10 * s, 22 * s, 0.3, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Head
-  ctx.fillStyle = '#e8c890';
-  ctx.beginPath();
-  ctx.ellipse(0, -10 * s, 38 * s, 36 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Snout
-  ctx.fillStyle = '#f0d8a8';
-  ctx.beginPath();
-  ctx.ellipse(0, 8 * s, 20 * s, 16 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Nose
-  ctx.fillStyle = '#333';
-  ctx.beginPath();
-  ctx.ellipse(0, 2 * s, 5 * s, 4 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Eyes
-  _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, '#5a3a1a');
-
-  // Mouth
-  ctx.strokeStyle = '#8b5a2b';
-  ctx.lineWidth = 1.5 * s;
-  ctx.beginPath();
-  ctx.moveTo(0, 6 * s);
-  ctx.lineTo(0, 6 * s + mouthOpen);
-  ctx.stroke();
-  if (mouthOpen > 2) {
-    ctx.fillStyle = '#c05050';
-    ctx.beginPath();
-    ctx.ellipse(0, 10 * s + mouthOpen * 0.5, 6 * s, mouthOpen * 0.6, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Tongue
-  if (mouth > 0.4) {
-    ctx.fillStyle = '#e87080';
-    ctx.beginPath();
-    ctx.ellipse(0, 14 * s + mouthOpen * 0.3, 4 * s, mouth * 5 * s, 0, 0, Math.PI);
-    ctx.fill();
-  }
-
-  ctx.restore();
-  _update2DAnimalDiags('dog', cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth);
-}
-
-function drawRabbit(ctx, cx, cy, p, s) {
-  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
-  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
-  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
-  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
-  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
-  const roll = (p.roll ?? 0) * 0.2;
-  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 18 * s;
-  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 8 * s;
-  const mouthOpen = mouth * 4 * s;
-
-  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
-  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
-  const irisMaxOffset = 2 * s;
-  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
-  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
-
-  const leftEyeX = -11 * s;
-  const rightEyeX = 11 * s;
-  const eyeY = -14 * s;
-  const eyeW = 5 * s;
-
-  ctx.save();
-  ctx.translate(cx + headOffsetX, cy + headOffsetY);
-  ctx.rotate(roll);
-
-  // Long ears
-  ctx.fillStyle = '#f5f0e8';
-  ctx.beginPath();
-  ctx.ellipse(-10 * s, -70 * s, 8 * s, 35 * s, -0.1, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(10 * s, -70 * s, 8 * s, 35 * s, 0.1, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Inner ears
-  ctx.fillStyle = '#f0c0c0';
-  ctx.beginPath();
-  ctx.ellipse(-10 * s, -70 * s, 4 * s, 28 * s, -0.1, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(10 * s, -70 * s, 4 * s, 28 * s, 0.1, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Head
-  ctx.fillStyle = '#f5f0e8';
-  ctx.beginPath();
-  ctx.arc(0, -15 * s, 32 * s, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Eyes
-  _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, '#c05050');
-
-  // Nose
-  ctx.fillStyle = '#e88090';
-  ctx.beginPath();
-  ctx.moveTo(0, -2 * s);
-  ctx.lineTo(-3 * s, 1 * s);
-  ctx.lineTo(3 * s, 1 * s);
-  ctx.closePath();
-  ctx.fill();
-
-  // Mouth
-  ctx.strokeStyle = '#c0a080';
-  ctx.lineWidth = 1.2 * s;
-  ctx.beginPath();
-  ctx.moveTo(0, 2 * s);
-  ctx.lineTo(0, 2 * s + mouthOpen);
-  ctx.stroke();
-  if (mouth > 0.3) {
-    ctx.fillStyle = '#c05050';
-    ctx.beginPath();
-    ctx.ellipse(0, 5 * s + mouthOpen * 0.5, 4 * s, mouthOpen * 0.5, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Cheek fluff
-  ctx.fillStyle = '#f5f0e8';
-  ctx.beginPath();
-  ctx.arc(-25 * s, -5 * s, 12 * s, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(25 * s, -5 * s, 12 * s, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
-  _update2DAnimalDiags('rabbit', cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth);
-}
-
-function drawFox(ctx, cx, cy, p, s) {
-  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
-  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
-  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
-  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
-  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
-  const roll = (p.roll ?? 0) * 0.3;
-  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s;
-  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
-  const mouthOpen = mouth * 5 * s;
-
-  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
-  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
-  const irisMaxOffset = 2.5 * s;
-  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
-  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
-
-  const leftEyeX = -12 * s;
-  const rightEyeX = 12 * s;
-  const eyeY = -10 * s;
-  const eyeW = 6 * s;
-
-  ctx.save();
-  ctx.translate(cx + headOffsetX, cy + headOffsetY);
-  ctx.rotate(roll);
-
-  // Ears (pointed, triangular)
-  ctx.fillStyle = '#e07030';
-  ctx.beginPath();
-  ctx.moveTo(-26 * s, -35 * s);
-  ctx.lineTo(-34 * s, -70 * s);
-  ctx.lineTo(-8 * s, -40 * s);
-  ctx.closePath();
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(26 * s, -35 * s);
-  ctx.lineTo(34 * s, -70 * s);
-  ctx.lineTo(8 * s, -40 * s);
-  ctx.closePath();
-  ctx.fill();
-
-  // Inner ears
-  ctx.fillStyle = '#f0c090';
-  ctx.beginPath();
-  ctx.moveTo(-23 * s, -40 * s);
-  ctx.lineTo(-30 * s, -62 * s);
-  ctx.lineTo(-12 * s, -42 * s);
-  ctx.closePath();
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(23 * s, -40 * s);
-  ctx.lineTo(30 * s, -62 * s);
-  ctx.lineTo(12 * s, -42 * s);
-  ctx.closePath();
-  ctx.fill();
-
-  // Head
-  ctx.fillStyle = '#e87830';
-  ctx.beginPath();
-  ctx.ellipse(0, -10 * s, 36 * s, 34 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // White muzzle
-  ctx.fillStyle = '#faf5ee';
-  ctx.beginPath();
-  ctx.ellipse(0, 10 * s, 18 * s, 14 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Nose
-  ctx.fillStyle = '#222';
-  ctx.beginPath();
-  ctx.ellipse(0, 4 * s, 4.5 * s, 3.5 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Eyes (slightly angled, fox-like)
-  _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, '#c09030');
-
-  // Mouth
-  ctx.strokeStyle = '#8b4513';
-  ctx.lineWidth = 1.5 * s;
-  ctx.beginPath();
-  ctx.moveTo(0, 8 * s);
-  ctx.lineTo(0, 8 * s + mouthOpen);
-  ctx.stroke();
-  if (mouthOpen > 2) {
-    ctx.fillStyle = '#a04040';
-    ctx.beginPath();
-    ctx.ellipse(0, 12 * s + mouthOpen * 0.5, 5 * s, mouthOpen * 0.5, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Bushy tail hint
-  ctx.fillStyle = '#e87830';
-  ctx.beginPath();
-  ctx.ellipse(-40 * s, 30 * s, 15 * s, 10 * s, 0.5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.ellipse(-48 * s, 28 * s, 6 * s, 5 * s, 0.5, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
-  _update2DAnimalDiags('fox', cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth);
-}
-
-function drawBear(ctx, cx, cy, p, s) {
-  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
-  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
-  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
-  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
-  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
-  const roll = (p.roll ?? 0) * 0.25;
-  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 16 * s;
-  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 8 * s;
-  const mouthOpen = mouth * 5 * s;
-
-  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
-  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
-  const irisMaxOffset = 2.5 * s;
-  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
-  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
-
-  const leftEyeX = -12 * s;
-  const rightEyeX = 12 * s;
-  const eyeY = -10 * s;
-  const eyeW = 6 * s;
-
-  ctx.save();
-  ctx.translate(cx + headOffsetX, cy + headOffsetY);
-  ctx.rotate(roll);
-
-  // Ears (round)
-  ctx.fillStyle = '#8b6914';
-  ctx.beginPath();
-  ctx.arc(-24 * s, -38 * s, 11 * s, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(24 * s, -38 * s, 11 * s, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Inner ears
-  ctx.fillStyle = '#d4a060';
-  ctx.beginPath();
-  ctx.arc(-24 * s, -38 * s, 6 * s, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(24 * s, -38 * s, 6 * s, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Head
-  ctx.fillStyle = '#b08030';
-  ctx.beginPath();
-  ctx.arc(0, -10 * s, 38 * s, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Muzzle (lighter)
-  ctx.fillStyle = '#d4a860';
-  ctx.beginPath();
-  ctx.ellipse(0, 8 * s, 22 * s, 18 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Nose
-  ctx.fillStyle = '#222';
-  ctx.beginPath();
-  ctx.ellipse(0, 2 * s, 5 * s, 4 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Eyes
-  _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, '#3a2a10');
-
-  // Mouth
-  ctx.strokeStyle = '#6b4914';
-  ctx.lineWidth = 1.5 * s;
-  ctx.beginPath();
-  ctx.moveTo(0, 6 * s);
-  ctx.lineTo(0, 6 * s + mouthOpen);
-  ctx.stroke();
-  if (mouthOpen > 2) {
-    ctx.fillStyle = '#a04040';
-    ctx.beginPath();
-    ctx.ellipse(0, 10 * s + mouthOpen * 0.5, 5.5 * s, mouthOpen * 0.55, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.restore();
-  _update2DAnimalDiags('bear', cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth);
-}
-
-function drawClassicSphere(ctx, cx, cy, p, s) {
-  const radius = Math.min(ctx.canvas.width, ctx.canvas.height) * 0.25;
-  const eyeY = cy + (p.headY - 0.5) * 80;
-  ctx.fillStyle = '#9ca3af';
-  ctx.beginPath();
-  ctx.arc(cx + (p.headX - 0.5) * 80, eyeY, radius, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#2a2420';
-  ctx.beginPath(); ctx.arc(cx - 25 * s, eyeY - 5 * s, Math.max(2, 6 * p.eyeLeft * s), 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(cx + 25 * s, eyeY - 5 * s, Math.max(2, 6 * p.eyeRight * s), 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = '#2a2420'; ctx.lineWidth = 2;
-  ctx.beginPath();
-  if (p.mouthOpen > 0.1) {
-    ctx.ellipse(cx, cy + 20 * s, 8 * s, (4 + p.mouthOpen * 12) * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    ctx.moveTo(cx - 8 * s, cy + 20 * s); ctx.quadraticCurveTo(cx, cy + 20 * s + p.mouthSmile * 4 * s, cx + 8 * s, cy + 20 * s);
-    ctx.stroke();
-  }
 }
 
 function drawPlaceholder(ctx, cx, cy, avatar, s) {
@@ -1623,19 +560,6 @@ function initGameCanvas() {
   c.addEventListener('touchend', onDrawEnd);
 
   document.addEventListener('keydown', onGameKey);
-
-  // 游戏区域聚焦：点击 gamePanelBody 后自动 focus，方向键只作用于游戏
-  const gamePanelBody = document.getElementById('gamePanelBody');
-  if (gamePanelBody) {
-    gamePanelBody.addEventListener('mousedown', () => {
-      // mousedown 先于 focus，确保点击游戏区域时获得焦点
-      try { gamePanelBody.focus({ preventScroll: true }); } catch (e) {}
-    });
-    gamePanelBody.addEventListener('touchstart', () => {
-      try { gamePanelBody.focus({ preventScroll: true }); } catch (e) {}
-    }, { passive: true });
-  }
-  initGameKeyboardDiag();
 }
 
 function resetGame() {
@@ -1783,75 +707,12 @@ function gameTick() {
 function startGame() { resetGame(); gameRunning = true; gameTick(); }
 
 function onGameKey(e) {
-  const gamePanelBody = document.getElementById('gamePanelBody');
-  const activeEl = document.activeElement;
-  const isFormControl = activeEl && (
-    activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' ||
-    activeEl.tagName === 'SELECT' || activeEl.tagName === 'BUTTON' ||
-    activeEl.isContentEditable
-  );
-  // 只在 gamePanelBody 获得焦点时处理方向键，且不与表单控件冲突
-  const gameFocused = !!gamePanelBody && activeEl === gamePanelBody && !isFormControl;
-  const arrowKeys = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
-  const wasdKeys = ['w','a','s','d','W','A','S','D'];
-  const allGameKeys = arrowKeys.concat(wasdKeys);
-
-  if (gameFocused && arrowKeys.includes(e.key)) {
-    // 阻止页面滚动
-    e.preventDefault();
-    if (window.__cheapLiveContestGameDiag) {
-      window.__cheapLiveContestGameDiag.preventedPageScroll = true;
-      window.__cheapLiveContestGameDiag.lastKey = e.key;
-      window.__cheapLiveContestGameDiag.arrowKeysScopedToGame = true;
-    }
-  }
-
-  if (!gameFocused) {
-    // 焦点不在游戏区域时不抢方向键，允许页面默认滚动
-    if (window.__cheapLiveContestGameDiag && arrowKeys.includes(e.key)) {
-      window.__cheapLiveContestGameDiag.arrowKeysScopedToGame = false;
-    }
-    return;
-  }
-
-  let dirChanged = false;
-  if (['ArrowUp','w','W'].includes(e.key) && gameDir.y === 0) { gameNextDir = { x: 0, y: -1 }; dirChanged = true; }
-  if (['ArrowDown','s','S'].includes(e.key) && gameDir.y === 0) { gameNextDir = { x: 0, y: 1 }; dirChanged = true; }
-  if (['ArrowLeft','a','A'].includes(e.key) && gameDir.x === 0) { gameNextDir = { x: -1, y: 0 }; dirChanged = true; }
-  if (['ArrowRight','d','D'].includes(e.key) && gameDir.x === 0) { gameNextDir = { x: 1, y: 0 }; dirChanged = true; }
-  if (!gameRunning && allGameKeys.includes(e.key)) {
+  if (['ArrowUp','w','W'].includes(e.key) && gameDir.y === 0) gameNextDir = { x: 0, y: -1 };
+  if (['ArrowDown','s','S'].includes(e.key) && gameDir.y === 0) gameNextDir = { x: 0, y: 1 };
+  if (['ArrowLeft','a','A'].includes(e.key) && gameDir.x === 0) gameNextDir = { x: -1, y: 0 };
+  if (['ArrowRight','d','D'].includes(e.key) && gameDir.x === 0) gameNextDir = { x: 1, y: 0 };
+  if (!gameRunning && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d'].includes(e.key)) {
     startGame();
-  }
-  if (window.__cheapLiveContestGameDiag && dirChanged) {
-    window.__cheapLiveContestGameDiag.lastDirection = { ...gameNextDir };
-  }
-}
-
-function initGameKeyboardDiag() {
-  if (window.__cheapLiveContestGameDiag) return;
-  window.__cheapLiveContestGameDiag = {
-    gameFocused: false,
-    lastKey: null,
-    lastDirection: null,
-    preventedPageScroll: false,
-    pageScrollBeforeKey: null,
-    pageScrollAfterKey: null,
-    focusTarget: null,
-    arrowKeysScopedToGame: false,
-  };
-  const gamePanelBody = document.getElementById('gamePanelBody');
-  if (gamePanelBody) {
-    gamePanelBody.addEventListener('focus', () => {
-      if (window.__cheapLiveContestGameDiag) {
-        window.__cheapLiveContestGameDiag.gameFocused = true;
-        window.__cheapLiveContestGameDiag.focusTarget = 'gamePanelBody';
-      }
-    });
-    gamePanelBody.addEventListener('blur', () => {
-      if (window.__cheapLiveContestGameDiag) {
-        window.__cheapLiveContestGameDiag.gameFocused = false;
-      }
-    });
   }
 }
 
@@ -1885,92 +746,6 @@ function initFWAvatarCanvas() {
 
 // ====== FLOATING WINDOW ======
 let fwDragging = false, fwResizing = false, fwOffX = 0, fwOffY = 0, fwStartW = 0, fwStartH = 0;
-window.__cheapLiveContestFloatingDiag = {
-  mode: 'edit',
-  modeButtonText: '',
-  modeButtonClickable: true,
-  modeButtonClass: '',
-  lastModeToggleAt: 0,
-  lastModeToggleSource: '',
-  transparentModeActive: false,
-  fwWindowBackground: '',
-  fwContentBackground: '',
-  fwAvatarPanelBackground: '',
-  fwCanvasBackground: '',
-  keyBackgroundColor: 'rgba(0,0,0,0)',
-  usesGlobalOpacity: false,
-  rendererTransparentMode: false,
-  windowOpacity: 1,
-  avatarOpacity: 1,
-  editControlsVisible: true,
-  backgroundAlphaCorrect: false,
-  fwCanvasTransparent: false,
-  pointerEvents: 'auto',
-  width: 200,
-  height: 200,
-  left: 0,
-  top: 0,
-  resizeActive: false,
-  dragActive: false,
-  lastResizeAt: 0,
-  lastDragAt: 0,
-};
-
-function _updateFloatingDiag() {
-  const diag = window.__cheapLiveContestFloatingDiag;
-  const fw = document.getElementById('floatingWindow');
-  const fwContent = document.querySelector('.floating-window .fw-content');
-  const fwAvatarPanel = document.querySelector('.floating-window .fw-avatar-panel');
-  const fwCanvas = document.getElementById('fwAvatarCanvas');
-  const btn = document.getElementById('fwModeBtn');
-
-  diag.mode = state.floatingMode;
-
-  if (btn) {
-    diag.modeButtonText = btn.textContent;
-    diag.modeButtonClass = btn.className;
-    const btnCs = getComputedStyle(btn);
-    const pe = btnCs.pointerEvents;
-    diag.modeButtonClickable = pe !== 'none' && !btn.disabled;
-  }
-
-  if (fw) {
-    const cs = getComputedStyle(fw);
-    diag.fwWindowBackground = cs.backgroundColor;
-    diag.windowOpacity = parseFloat(cs.opacity) || 1;
-    diag.usesGlobalOpacity = (parseFloat(cs.opacity) || 1) < 0.99;
-    diag.width = fw.offsetWidth;
-    diag.height = fw.offsetHeight;
-    diag.left = fw.offsetLeft;
-    diag.top = fw.offsetTop;
-  }
-  if (fwContent) {
-    const cs = getComputedStyle(fwContent);
-    diag.fwContentBackground = cs.backgroundColor;
-  }
-  if (fwAvatarPanel) {
-    const cs = getComputedStyle(fwAvatarPanel);
-    diag.fwAvatarPanelBackground = cs.backgroundColor;
-  }
-  if (fwCanvas) {
-    const cs = getComputedStyle(fwCanvas);
-    diag.fwCanvasBackground = cs.backgroundColor;
-    diag.fwCanvasTransparent = cs.backgroundColor === 'rgba(0, 0, 0, 0)' ||
-      cs.backgroundColor === 'transparent';
-  }
-
-  if (typeof window.getContestFishAvatarTransparentMode === 'function') {
-    diag.rendererTransparentMode = !!window.getContestFishAvatarTransparentMode('fwAvatarCanvas');
-  }
-
-  diag.transparentModeActive = diag.rendererTransparentMode || diag.fwCanvasTransparent;
-  diag.avatarOpacity = 1;
-  diag.editControlsVisible = state.floatingMode === 'edit';
-  diag.pointerEvents = state.floatingMode === 'display' ? 'fw-content: none, button: auto' : 'auto';
-  diag.backgroundAlphaCorrect = diag.transparentModeActive && !diag.usesGlobalOpacity;
-  diag.resizeActive = fwResizing;
-  diag.dragActive = fwDragging;
-}
 
 function initFloatingWindow() {
   const fw = document.getElementById('floatingWindow');
@@ -1997,7 +772,7 @@ function initFloatingWindow() {
   }, { passive: false });
 
   resize.addEventListener('mousedown', e => {
-    if (state.floatingMode !== 'edit') return;
+    if (state.floatingMode !== 'edit') return; // 显示模式下不允许缩放
     fwResizing = true;
     fwStartW = fw.offsetWidth;
     fwStartH = fw.offsetHeight;
@@ -2005,16 +780,6 @@ function initFloatingWindow() {
     fwOffY = e.clientY;
     e.preventDefault();
   });
-  resize.addEventListener('touchstart', e => {
-    if (state.floatingMode !== 'edit') return;
-    fwResizing = true;
-    fwStartW = fw.offsetWidth;
-    fwStartH = fw.offsetHeight;
-    const t = e.touches[0];
-    fwOffX = t.clientX;
-    fwOffY = t.clientY;
-    e.preventDefault();
-  }, { passive: false });
 
   document.addEventListener('mousemove', onFWMove);
   document.addEventListener('touchmove', onFWMoveTouch, { passive: false });
@@ -2081,6 +846,15 @@ function onModeBtnMoveTouch(e) {
   btn.style.bottom = 'auto';
 }
 
+// Extend onFWEnd to also handle mode button
+const _origOnFWEnd = onFWEnd;
+onFWEnd = function() {
+  _origOnFWEnd();
+  modeBtnDragging = false;
+  const btn = document.getElementById('fwModeBtn');
+  if (btn) btn.style.cursor = 'grab';
+};
+
 function onFWMove(e) {
   const fw = document.getElementById('floatingWindow');
   if (fwDragging) {
@@ -2088,7 +862,6 @@ function onFWMove(e) {
     fw.style.top = (e.clientY - fwOffY) + 'px';
     fw.style.right = 'auto';
     fw.style.bottom = 'auto';
-    window.__cheapLiveContestFloatingDiag.lastDragAt = performance.now();
   }
   if (fwResizing) {
     const w = Math.max(100, fwStartW + e.clientX - fwOffX);
@@ -2097,9 +870,7 @@ function onFWMove(e) {
     fw.style.height = h + 'px';
     const c = document.getElementById('fwAvatarCanvas');
     c.width = w; c.height = h - 22;
-    window.__cheapLiveContestFloatingDiag.lastResizeAt = performance.now();
   }
-  _updateFloatingDiag();
 }
 
 function onFWMoveTouch(e) {
@@ -2113,84 +884,27 @@ function onFWMoveTouch(e) {
     fw.style.right = 'auto';
     fw.style.bottom = 'auto';
   }
-  if (fwResizing) {
-    const w = Math.max(100, fwStartW + t.clientX - fwOffX);
-    const h = Math.max(100, fwStartH + t.clientY - fwOffY);
-    fw.style.width = w + 'px';
-    fw.style.height = h + 'px';
-    const c = document.getElementById('fwAvatarCanvas');
-    c.width = w; c.height = h - 22;
-    _updateFloatingDiag();
-  }
 }
 
 function onFWEnd() {
   fwDragging = false;
   fwResizing = false;
-  modeBtnDragging = false;
-  const btn = document.getElementById('fwModeBtn');
-  if (btn) btn.style.cursor = 'grab';
-  window.__cheapLiveContestFloatingDiag.dragActive = false;
-  window.__cheapLiveContestFloatingDiag.resizeActive = false;
 }
 
 // ====== SIM LOOP ======
 let simTime = 0;
-let _rafId = null;
 function startSimLoop() {
   if (!gameRunning) startGame();
-  if (_rafId != null) return; // 不要重复创建 RAF
-  _rafInstanceCount = 1;
-  _rafId = requestAnimationFrame(simLoop);
+  requestAnimationFrame(simLoop);
 }
 
 function simLoop(ts) {
   simTime = ts * 0.001;
-  _rafId = null;
-  _rafId = requestAnimationFrame(simLoop);
 
-  const _now = ts;
-  let _cameraIdleFallback = false;
-  if (_faceLandmarker && _cameraRunning && !_faceFrameActive) {
-    const elapsed = _cameraStartedAt > 0 ? (_now - _cameraStartedAt) : 0;
-    const staleElapsed = _lastCameraFrameAt > 0 ? (_now - _lastCameraFrameAt) : 0;
-    if (_cameraFrameErrorCount > 0 && _lastCameraError && elapsed > CAMERA_IDLE_FALLBACK_MS) {
-      _cameraIdleFallback = true;
-      _cameraIdleFallbackReason = 'error';
-    } else if (_lastCameraFrameAt > 0 && staleElapsed > CAMERA_IDLE_FALLBACK_MS) {
-      _cameraIdleFallback = true;
-      _cameraIdleFallbackReason = 'stale-frame';
-    } else if (_lastCameraFrameAt === 0 && elapsed > CAMERA_IDLE_FALLBACK_MS) {
-      _cameraIdleFallback = true;
-      _cameraIdleFallbackReason = 'never-detected';
-    }
-  }
-  const _trackingActive = _cameraRunning && _faceFrameActive && (_now - _lastCameraFrameAt < CAMERA_IDLE_FALLBACK_MS);
-  const _idleShouldBeActive = !_trackingActive || _cameraIdleFallback;
-  if (_idleShouldBeActive) {
-    if (!_idleActive) _lastTransitionReason = 'idle-resume';
+  // Simulate face params (only when real face tracking is NOT running
+  // AND no mock/real face frame is active)
+  if (!_faceLandmarker && !_faceFrameActive) {
     _idleActive = true;
-    _gazeSource = 'idle';
-    _irisTrackingDiag.gazeSource = 'idle';
-    _irisTrackingDiag.faceDetected = false;
-    _irisTrackingDiag.refinedIrisAvailable = false;
-    _irisTrackingDiag.leftIrisPointsValid = false;
-    _irisTrackingDiag.rightIrisPointsValid = false;
-    _irisTrackingDiag.invalidReason = 'idle-mode';
-    // 缓慢衰减 gaze 平滑值（避免从 tracking 切到 idle 时虹膜突然跳回中心）
-    _smoothGazeLeftX *= 0.95;
-    _smoothGazeLeftY *= 0.95;
-    _smoothGazeRightX *= 0.95;
-    _smoothGazeRightY *= 0.95;
-    state.faceParams.gazeLeftX = _smoothGazeLeftX;
-    state.faceParams.gazeLeftY = _smoothGazeLeftY;
-    state.faceParams.gazeRightX = _smoothGazeRightX;
-    state.faceParams.gazeRightY = _smoothGazeRightY;
-    _irisTrackingDiag.smoothedLeftGazeX = _smoothGazeLeftX;
-    _irisTrackingDiag.smoothedLeftGazeY = _smoothGazeLeftY;
-    _irisTrackingDiag.smoothedRightGazeX = _smoothGazeRightX;
-    _irisTrackingDiag.smoothedRightGazeY = _smoothGazeRightY;
-    window.__cheapLiveIrisTrackingDiag = _irisTrackingDiag;
     state.faceParams.mouthOpen = 0.5 + 0.5 * Math.sin(simTime * 1.2);
     state.faceParams.blink = Math.max(0, Math.sin(simTime * 3) > 0.95 ? 1 : 0);
     state.faceParams.yaw = Math.sin(simTime * 0.5);
@@ -2198,19 +912,10 @@ function simLoop(ts) {
     state.faceParams.roll = Math.sin(simTime * 0.3) * 0.2;
     state.faceParams.smile = 0.3 + 0.3 * Math.sin(simTime * 0.8);
   } else {
-    if (_idleActive) _lastTransitionReason = 'tracking-engage';
     _idleActive = false;
   }
 
-  if (_idleActive) {
-    _idleFrameCount++;
-    _lastIdleFrameTime = ts;
-  } else {
-    _trackingFrameCount++;
-    _lastTrackingFrameTime = ts;
-  }
-
-  // 同步诊断
+  // Sync diagnostic
   const diag = window.__cheapLiveContestAvatarDiag;
   if (diag) {
     diag.idleActive = _idleActive;
@@ -2219,216 +924,6 @@ function simLoop(ts) {
     diag.lastAppliedSeq = _lastAppliedSeq;
     diag.lastAppliedFrame = _lastAppliedFrame;
     diag.lastAppliedValues = _lastAppliedValues;
-    diag.cameraStartedAt = _cameraStartedAt;
-    diag.lastCameraFrameAt = _lastCameraFrameAt;
-    diag.cameraFrameErrorCount = _cameraFrameErrorCount;
-    diag.lastCameraError = _lastCameraError;
-    diag.lastCameraErrorAt = _lastCameraErrorAt;
-    diag.realCameraFrameApplied = _realCameraFrameApplied;
-    diag.cameraIdleFallback = _cameraIdleFallback;
-    diag.cameraIdleFallbackReason = _cameraIdleFallbackReason;
-    diag.cameraIdleFallbackMs = CAMERA_IDLE_FALLBACK_MS;
-    diag.cameraVideoDiag = _cameraVideoDiag;
-    diag.cameraLastDetectDiag = _cameraLastDetectDiag;
-    diag.mediapipeInitDiag = _mediapipeInitDiag;
-    const statusEl = document.getElementById('faceCamStatus');
-    diag.faceCamStatus = statusEl ? statusEl.textContent : null;
-
-    // Web pose diagnostics — pitch 方向修正独立记录
-    const mapped = faceParamsToRendererParams(state.faceParams);
-    diag.webPoseDiag = {
-      rawPitch: state.faceParams.pitch,
-      rawYaw: state.faceParams.yaw,
-      rawRoll: state.faceParams.roll,
-      mirrorEnabled: true,
-      mappedNormalizedPitch: mapped.headPitch,
-      mappedNormalizedYaw: mapped.headYaw,
-      mappedNormalizedRoll: mapped.headRoll,
-      rendererPitchDegrees: (mapped.headPitch - 0.5) * 90,
-      visualDirection: (state.faceParams.pitch < 0) ? 'visual-down' : (state.faceParams.pitch > 0) ? 'visual-up' : 'neutral',
-    };
-    window.__cheapLiveWebPoseDiag = diag.webPoseDiag;
-
-    // Idle 状态机诊断
-    diag.idleDiag = {
-      rendererReady: _3dReady,
-      cameraRunning: !!_faceLandmarker,
-      faceDetected: _faceFrameActive,
-      faceFrameActive: _faceFrameActive,
-      idleActive: _idleActive,
-      rafRunning: _rafInstanceCount > 0,
-      rafInstanceCount: _rafInstanceCount,
-      lastFaceFrameTime: _lastTrackingFrameTime,
-      lastIdleFrameTime: _lastIdleFrameTime,
-      idleFrameCount: _idleFrameCount,
-      trackingFrameCount: _trackingFrameCount,
-      transitionReason: _lastTransitionReason,
-    };
-    window.__cheapLiveIdleDiag = diag.idleDiag;
-
-    // Gaze 流动诊断
-    diag.gazeFlowDiag = {
-      gazeSource: _gazeSource,
-      rawGazeLeftX: state.faceParams.gazeLeftX,
-      rawGazeLeftY: state.faceParams.gazeLeftY,
-      rawGazeRightX: state.faceParams.gazeRightX,
-      rawGazeRightY: state.faceParams.gazeRightY,
-      smoothedGazeLeftX: _smoothGazeLeftX,
-      smoothedGazeLeftY: _smoothGazeLeftY,
-      smoothedGazeRightX: _smoothGazeRightX,
-      smoothedGazeRightY: _smoothGazeRightY,
-      rendererGazeLeftX: mapped.gazeLeftX,
-      rendererGazeLeftY: mapped.gazeLeftY,
-      rendererGazeRightX: mapped.gazeRightX,
-      rendererGazeRightY: mapped.gazeRightY,
-    };
-    window.__cheapLiveGazeFlowDiag = diag.gazeFlowDiag;
-
-    // Raw pose from face params (before mapping to renderer)
-    diag.rawPoseDiag = {
-      yaw: state.faceParams.yaw,
-      pitch: state.faceParams.pitch,
-      roll: state.faceParams.roll,
-      mouthOpen: state.faceParams.mouthOpen,
-      smile: state.faceParams.smile,
-      blink: state.faceParams.blink,
-      blinkLeft: state.faceParams.blinkLeft,
-      blinkRight: state.faceParams.blinkRight,
-      eyeLeft: state.faceParams.eyeLeft,
-      eyeRight: state.faceParams.eyeRight,
-      headX: state.faceParams.headX,
-      headY: state.faceParams.headY,
-      gazeLeftX: state.faceParams.gazeLeftX,
-      gazeLeftY: state.faceParams.gazeLeftY,
-      gazeRightX: state.faceParams.gazeRightX,
-      gazeRightY: state.faceParams.gazeRightY,
-    };
-
-    // Mapped renderer values (what actually gets sent to the renderer)
-    // Reuse the existing `mapped` from the webPoseDiag section above
-    diag.mappedPoseDiag = {
-      headYaw: mapped.headYaw,
-      headPitch: mapped.headPitch,
-      headRoll: mapped.headRoll,
-      eyeLeft: mapped.eyeLeft,
-      eyeRight: mapped.eyeRight,
-      mouthOpen: mapped.mouthOpen,
-      mouthSmile: mapped.mouthSmile,
-      headX: mapped.headX,
-      headY: mapped.headY,
-      gazeLeftX: mapped.gazeLeftX,
-      gazeLeftY: mapped.gazeLeftY,
-      gazeRightX: mapped.gazeRightX,
-      gazeRightY: mapped.gazeRightY,
-    };
-
-    // Eye orientation diagnostics (for eyelid rotation verification)
-    const headRollDeg = (mapped.headRoll - 0.5) * 80;
-    diag.eyeOrientationDiag = {
-      headRoll: headRollDeg,
-      eyeLocalAngleLeft: 0,
-      eyeLocalAngleRight: 0,
-      eyelidBoundaryAngleLeft: headRollDeg,
-      eyelidBoundaryAngleRight: headRollDeg,
-    };
-
-    // Iris panel consistency diagnostics
-    const mainCanvas = document.getElementById('avatarCanvas');
-    const fwCanvas = document.getElementById('fwAvatarCanvas');
-    const getIrisInfo = (canvasId) => {
-      if (typeof window.getContestFishAvatarIrisDiag !== 'function') return null;
-      const id = window.getContestFishAvatarIrisDiag(canvasId);
-      if (!id) return null;
-      const inst = typeof window.getContestFishAvatarInstance === 'function'
-        ? window.getContestFishAvatarInstance(canvasId)
-        : null;
-      const canvas = document.getElementById(canvasId);
-      const cw = canvas ? canvas.width : 0;
-      const ch = canvas ? canvas.height : 0;
-      const minSide = Math.min(cw, ch);
-      const leftR = id.left ? id.left.radius : 0;
-      const rightR = id.right ? id.right.radius : 0;
-      const irisR = (leftR + rightR) / 2;
-      const leftEyeRx = id.left ? id.left.eyeRx : 0;
-      const rightEyeRx = id.right ? id.right.eyeRx : 0;
-      const eyeRx = (leftEyeRx + rightEyeRx) / 2;
-      const leftEyeRy = id.left ? id.left.eyeRy : 0;
-      const rightEyeRy = id.right ? id.right.eyeRy : 0;
-      const eyeRy = (leftEyeRy + rightEyeRy) / 2;
-      let projectedHeadRadius = 0;
-      if (inst && typeof inst.spindleMesh === 'object' && inst.spindleMesh) {
-        projectedHeadRadius = (inst.spindleMesh.headX || 70) * (inst._lastScale || 1);
-      } else if (inst && typeof inst.mesh === 'object' && inst.mesh) {
-        projectedHeadRadius = (inst.mesh.headX || 70) * (inst._lastScale || 1);
-      } else {
-        projectedHeadRadius = minSide * 0.30;
-      }
-      const pupilR = irisR * 0.55;
-      return {
-        rendererClass: diag.rendererClass,
-        fallbackActive: !!diag.fallbackActive,
-        canvasWidth: cw,
-        canvasHeight: ch,
-        projectedHeadRadius,
-        eyeRx,
-        eyeRy,
-        irisRadius: irisR,
-        pupilRadius: pupilR,
-        irisRatioToHead: projectedHeadRadius > 0 ? irisR / projectedHeadRadius : 0,
-        irisRatioToEye: eyeRx > 0 ? irisR / eyeRx : 0,
-        pupilRatioToIris: irisR > 0 ? pupilR / irisR : 0,
-      };
-    };
-
-    const mainInfo = getIrisInfo('avatarCanvas');
-    const fwInfo = getIrisInfo('fwAvatarCanvas');
-
-    let baselineNeutralIrisRadius = 0;
-    if (mainInfo && mainInfo.canvasWidth > 0) {
-      const minSide = Math.min(mainInfo.canvasWidth, mainInfo.canvasHeight);
-      baselineNeutralIrisRadius = minSide * 0.64 / 140 * (70 * 0.25) * 0.50;
-    }
-    const fixedNeutralIrisRadius = mainInfo ? mainInfo.irisRadius : 0;
-    const fixedToBaselineRatio = baselineNeutralIrisRadius > 0
-      ? fixedNeutralIrisRadius / baselineNeutralIrisRadius
-      : 0;
-
-    let panelConsistencyPass = false;
-    let defaultSizePass = false;
-    let radiusStabilityPass = false;
-    let movementNotSizePass = false;
-
-    if (mainInfo && fwInfo && mainInfo.irisRatioToHead > 0 && fwInfo.irisRatioToHead > 0) {
-      const ratioDiff = Math.abs(mainInfo.irisRatioToHead - fwInfo.irisRatioToHead);
-      const ratioAvg = (mainInfo.irisRatioToHead + fwInfo.irisRatioToHead) / 2;
-      panelConsistencyPass = ratioAvg > 0 ? (ratioDiff / ratioAvg) < 0.1 : false;
-    }
-
-    if (fixedToBaselineRatio >= 0.90 && fixedToBaselineRatio <= 1.10) {
-      defaultSizePass = true;
-    }
-
-    if (mainInfo) {
-      const mainIrisDiag = typeof window.getContestFishAvatarIrisDiag === 'function'
-        ? window.getContestFishAvatarIrisDiag('avatarCanvas')
-        : null;
-      if (mainIrisDiag) {
-        radiusStabilityPass = !!mainIrisDiag.radiusStabilityPass;
-        movementNotSizePass = !!mainIrisDiag.movementNotSizePass;
-      }
-    }
-
-    diag.irisDiag = {
-      mainPanel: mainInfo,
-      floatingPanel: fwInfo,
-      baselineNeutralIrisRadius,
-      fixedNeutralIrisRadius,
-      fixedToBaselineRatio,
-      panelConsistencyPass,
-      defaultSizePass,
-      radiusStabilityPass,
-      movementNotSizePass,
-    };
   }
 
   // Draw avatar on main canvas
@@ -2445,40 +940,19 @@ function simLoop(ts) {
       ensure3DRenderers().catch(() => {});
     }
     if (_3dReady) {
-      _hide3DOverlays();
       const rendererParams = faceParamsToRendererParams(state.faceParams);
       update3DRenderers(rendererParams);
     } else if (_3dFailed) {
-      // Do NOT auto-fallback to 2D. Show error overlay with retry/manual-2D buttons.
-      _show3DErrorOverlay();
-    } else {
-      // Loading in progress
-      _show3DLoadingOverlay();
+      drawAvatar(avatarCtx, avatarW, avatarH, 'sacabambaspis', state.faceParams, 1);
+      const fc = document.getElementById('fwAvatarCanvas');
+      if (fc && fwCtx) {
+        drawAvatar(fwCtx, fc.width, fc.height, 'sacabambaspis', state.faceParams, fc.width / 360);
+      }
     }
   } else {
-    // 2D avatar path: 必须用实时 canvas 尺寸，不能用 init 常量 avatarW/avatarH
-    // 否则 3D renderer 改大 canvas 后 clearRect 只清左上角，残留 3D 鱼
-    const mc = document.getElementById('avatarCanvas');
-    const mcW = mc.width;
-    const mcH = mc.height;
-    drawAvatar(avatarCtx, mcW, mcH, state.currentAvatar, state.faceParams, mcW / 360);
+    drawAvatar(avatarCtx, avatarW, avatarH, state.currentAvatar, state.faceParams, 1);
     const fc = document.getElementById('fwAvatarCanvas');
     drawAvatar(fwCtx, fc.width, fc.height, state.currentAvatar, state.faceParams, fc.width / 360);
-    // 更新 avatar selection diagnostics
-    if (window.__cheapLiveContestAvatarSelectionDiag) {
-      const sel = window.__cheapLiveContestAvatarSelectionDiag;
-      sel.selectedAvatar = state.currentAvatar;
-      sel.mainPanelAvatar = state.currentAvatar;
-      sel.floatingPanelAvatar = state.currentAvatar;
-      sel.mainUses3D = false;
-      sel.floatingUses3D = false;
-      sel.panelsInSync = true;
-      sel.mainCanvasWidth = mcW;
-      sel.mainCanvasHeight = mcH;
-      sel.clearRectWidth = mcW;
-      sel.clearRectHeight = mcH;
-      sel.lastAvatarSwitchAt = sel.lastAvatarSwitchAt || Date.now();
-    }
   }
 
   // Update guide params if open
@@ -2497,7 +971,7 @@ function simLoop(ts) {
   const bl = document.getElementById('blinkVal');
   if (bl) bl.textContent = state.faceParams.blink.toFixed(2);
 
-  // (requestAnimationFrame is dispatched at the top of simLoop to keep RAF count = 1)
+  requestAnimationFrame(simLoop);
 }
 
 // ====== UI HANDLERS ======
@@ -2515,56 +989,11 @@ function toggleVoice() {
   document.getElementById('voicePresetDisplay').textContent = state.voiceOn ? VOICE_PRESETS.find(v => v.id === state.voicePreset).name : '原声';
 }
 
-function selectVoicePreset(presetId, el) {
-  if (!VOICE_PRESETS.find(v => v.id === presetId)) return;
-  state.voicePreset = presetId;
-  document.getElementById('voicePresetDisplay').textContent = state.voiceOn ? VOICE_PRESETS.find(v => v.id === presetId).name : '原声';
-  document.querySelectorAll('.voice-preset-btn').forEach(b => b.classList.remove('selected'));
-  if (el) el.classList.add('selected');
-  document.querySelectorAll('.voice-preset-btn').forEach(b => {
-    b.classList.toggle('selected', b.dataset.preset === presetId);
-  });
-  if (typeof _voiceAdapter !== 'undefined' && _voiceAdapter && _voiceAdapter.setPreset) {
-    try { _voiceAdapter.setPreset(presetId); } catch (_) {}
-  }
-}
-
 function selectAvatar(avatar, el) {
   state.currentAvatar = avatar;
   document.querySelectorAll('#avatarGrid .avatar-btn').forEach(b => b.classList.remove('selected'));
   if (el) el.classList.add('selected');
   document.getElementById('avatarLabel').textContent = AVATAR_NAMES[avatar] || avatar;
-
-  // 更新 avatar selection diagnostics
-  if (!window.__cheapLiveContestAvatarSelectionDiag) {
-    window.__cheapLiveContestAvatarSelectionDiag = {
-      selectedAvatar: avatar,
-      activeButtonAvatar: avatar,
-      mainPanelAvatar: avatar,
-      floatingPanelAvatar: avatar,
-      mainRendererClass: avatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + avatar,
-      floatingRendererClass: avatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + avatar,
-      mainUses3D: avatar === 'sacabambaspis-3d',
-      floatingUses3D: avatar === 'sacabambaspis-3d',
-      panelsInSync: true,
-      mainCanvasWidth: 0,
-      mainCanvasHeight: 0,
-      clearRectWidth: 0,
-      clearRectHeight: 0,
-      lastAvatarSwitchAt: Date.now(),
-    };
-  }
-  const sel = window.__cheapLiveContestAvatarSelectionDiag;
-  sel.selectedAvatar = avatar;
-  sel.activeButtonAvatar = avatar;
-  sel.mainPanelAvatar = avatar;
-  sel.floatingPanelAvatar = avatar;
-  sel.mainUses3D = avatar === 'sacabambaspis-3d';
-  sel.floatingUses3D = avatar === 'sacabambaspis-3d';
-  sel.mainRendererClass = avatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + avatar;
-  sel.floatingRendererClass = avatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + avatar;
-  sel.panelsInSync = true;
-  sel.lastAvatarSwitchAt = Date.now();
 
   if (avatar === 'sacabambaspis-3d') {
     ensure3DRenderers()
@@ -2574,89 +1003,6 @@ function selectAvatar(avatar, el) {
       })
       .catch(() => {});
   }
-}
-
-// ====== MOCAP TOGGLE (experimental shell) ======
-// 检查本地是否有 PoseLandmarker / HandLandmarker 资源
-function checkMocapAssets() {
-  // 检查 mediapipe 目录下是否有 pose / hand 相关模型
-  // 当前仓库只有 face_landmarker.task，没有 pose/hand 模型
-  return {
-    hasPoseLandmarker: false,
-    hasHandLandmarker: false,
-    modelAssetsPresent: false,
-    noCdn: true, // 不使用 CDN
-    fallbackReason: 'Pose/Hand landmarker models not installed locally'
-  };
-}
-
-function initMocapDiag() {
-  if (window.__cheapLiveContestMocapDiag) return;
-  const assets = checkMocapAssets();
-  window.__cheapLiveContestMocapDiag = {
-    enabled: false,
-    status: 'off', // off | loading | active | unavailable | error
-    source: 'local-mediapipe',
-    hasPoseLandmarker: assets.hasPoseLandmarker,
-    hasHandLandmarker: assets.hasHandLandmarker,
-    modelAssetsPresent: assets.modelAssetsPresent,
-    noCdn: assets.noCdn,
-    lastFrameAt: null,
-    poseLandmarkCount: 0,
-    handLandmarkCount: 0,
-    averageLatencyMs: 0,
-    error: null,
-    fallbackReason: assets.fallbackReason
-  };
-}
-
-function toggleMocap() {
-  initMocapDiag();
-  const diag = window.__cheapLiveContestMocapDiag;
-  const checkbox = document.getElementById('mocapToggle');
-  const visual = document.getElementById('mocapToggleVisual');
-  const statusEl = document.getElementById('mocapStatus');
-
-  if (diag.enabled) {
-    // 关闭
-    diag.enabled = false;
-    diag.status = 'off';
-    diag.lastFrameAt = null;
-    diag.poseLandmarkCount = 0;
-    diag.handLandmarkCount = 0;
-    checkbox.checked = false;
-    visual.classList.remove('active');
-    statusEl.textContent = 'off';
-    statusEl.style.color = '#888';
-    return;
-  }
-
-  // 尝试开启
-  const assets = checkMocapAssets();
-  diag.hasPoseLandmarker = assets.hasPoseLandmarker;
-  diag.hasHandLandmarker = assets.hasHandLandmarker;
-  diag.modelAssetsPresent = assets.modelAssetsPresent;
-
-  if (!assets.modelAssetsPresent) {
-    // 资源缺失 — 显示 unavailable，不崩溃
-    diag.enabled = false;
-    diag.status = 'unavailable';
-    diag.error = null;
-    diag.fallbackReason = assets.fallbackReason;
-    checkbox.checked = false;
-    visual.classList.remove('active');
-    statusEl.textContent = 'unavailable';
-    statusEl.style.color = '#e67e22';
-    return;
-  }
-
-  // 如果有资源（当前不会走到这里，因为 modelAssetsPresent=false）
-  diag.enabled = true;
-  diag.status = 'loading';
-  checkbox.checked = true;
-  visual.classList.add('active');
-  statusEl.textContent = 'loading';
-  statusEl.style.color = '#3498db';
 }
 
 function toggleShowcase() {
@@ -2675,6 +1021,7 @@ function toggleDrawMode() {
 }
 
 function toggleFloatingMode() {
+  // If user was dragging the button (not clicking), skip toggle
   if (modeBtnMoved) { modeBtnMoved = false; return; }
 
   const isEdit = state.floatingMode === 'edit';
@@ -2684,6 +1031,7 @@ function toggleFloatingMode() {
   const btn = document.getElementById('fwModeBtn');
   const status = document.getElementById('fwStatusText');
 
+  // Clear any active drag/resize state
   fwDragging = false;
   fwResizing = false;
 
@@ -2694,18 +1042,10 @@ function toggleFloatingMode() {
   if (state.floatingMode === 'edit') {
     btn.textContent = '编辑';
     status.textContent = '悬浮窗：编辑模式 · 可拖动/缩放/交互';
-    if (typeof window.setContestFishAvatarTransparentMode === 'function') {
-      window.setContestFishAvatarTransparentMode('fwAvatarCanvas', true);
-    }
   } else {
     btn.textContent = '显示';
     status.textContent = '悬浮窗：显示模式 · 触摸穿透 · 底层可触控';
-    if (typeof window.setContestFishAvatarTransparentMode === 'function') {
-      window.setContestFishAvatarTransparentMode('fwAvatarCanvas', true);
-    }
   }
-  window.__cheapLiveContestFloatingDiag.lastModeToggleAt = performance.now();
-  _updateFloatingDiag();
 }
 
 // ====== GUIDE ======
@@ -2872,89 +1212,12 @@ let _faceLandmarker = null;
 let _faceVideoStream = null;
 let _faceDetectRAF = null;
 
-// Aligned with open demo: preload model on page init, not on camera click.
-// No CDN fallback — must be same-origin local.
-async function preloadMediapipeModel() {
-  if (_loadMediapipePromise) return _loadMediapipePromise;
-  _loadMediapipePromise = (async () => {
-    _mediapipeInitDiag.phase = 'loading';
-    _mediapipeInitDiag.initStartedAt = performance.now();
-
-    const localBase = '../face-tracking/mediapipe';
-    const localBundleUrl = `${localBase}/vision_bundle.mjs`;
-    const localWasmUrl = `${localBase}/wasm`;
-    const localModelUrl = `${localBase}/face_landmarker.task`;
-
-    _mediapipeInitDiag.filesetUrl = localWasmUrl;
-    _mediapipeInitDiag.modelUrl = localModelUrl;
-    _mediapipeInitDiag.delegateTried = 'GPU';
-
-    const resolveMod = (mod) => {
-      const m = mod || {};
-      return {
-        FaceLandmarker: m.FaceLandmarker || (m.default && m.default.FaceLandmarker),
-        FilesetResolver: m.FilesetResolver || (m.default && m.default.FilesetResolver),
-      };
-    };
-
-    let FaceLandmarker = null;
-    let FilesetResolver = null;
-
-    try {
-      const mod = resolveMod(await import(localBundleUrl));
-      FaceLandmarker = mod.FaceLandmarker;
-      FilesetResolver = mod.FilesetResolver;
-      if (!FaceLandmarker || !FilesetResolver) {
-        throw new Error(`本地模块 ${localBundleUrl} 缺少预期导出 (FaceLandmarker/FilesetResolver)`);
-      }
-    } catch (loadErr) {
-      _mediapipeInitDiag.phase = 'error';
-      _mediapipeInitDiag.errorName = loadErr.name || 'LoadError';
-      _mediapipeInitDiag.errorMessage = loadErr.message || String(loadErr);
-      _mediapipeInitDiag.initElapsedMs = performance.now() - _mediapipeInitDiag.initStartedAt;
-      throw new Error(`本地 MediaPipe 加载失败: ${localBundleUrl} — ${loadErr.message || loadErr}`);
-    }
-
-    _mediapipeInitDiag.createStartedAt = performance.now();
-    const filesetResolver = await FilesetResolver.forVisionTasks(localWasmUrl);
-    _mediapipeInitDiag.filesetResolvedAt = performance.now();
-
-    _faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
-      baseOptions: {
-        modelAssetPath: localModelUrl,
-        delegate: 'GPU',
-      },
-      runningMode: 'VIDEO',
-      numFaces: 1,
-      outputFaceBlendshapes: true,
-      outputFacialTransformationMatrixes: true,
-      refineLandmarks: true,
-    });
-
-    _mediapipeInitDiag.delegateActive = 'GPU';
-    _mediapipeInitDiag.createResolvedAt = performance.now();
-    _mediapipeInitDiag.initElapsedMs = _mediapipeInitDiag.createResolvedAt - _mediapipeInitDiag.initStartedAt;
-    _mediapipeInitDiag.phase = 'ready';
-    return _faceLandmarker;
-  })();
-  return _loadMediapipePromise;
-}
-
-// Start preloading after a short delay so initial page render isn't blocked
-if (typeof window !== 'undefined' && window.requestIdleCallback) {
-  window.requestIdleCallback(() => preloadMediapipeModel().catch(() => {}));
-} else {
-  setTimeout(() => preloadMediapipeModel().catch(() => {}), 1000);
-}
-
 async function startFaceTracking() {
   const btn = document.getElementById('faceCamBtn');
   const status = document.getElementById('faceCamStatus');
   const videoWrap = document.getElementById('faceVideoWrap');
 
-  // Toggle: if video stream is active, stop; otherwise start.
-  // Note: _faceLandmarker may exist from preload — don't use it as the running flag.
-  if (_faceVideoStream || _faceDetectRAF) {
+  if (_faceLandmarker || _faceVideoStream) {
     stopFaceTracking();
     return;
   }
@@ -2965,38 +1228,35 @@ async function startFaceTracking() {
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+      video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' }
     });
     _faceVideoStream = stream;
     const video = document.getElementById('faceVideo');
     video.srcObject = stream;
-
-    // Align with open demo: wait for loadeddata before play
-    if (video.readyState < 2) {
-      await new Promise((resolve, reject) => {
-        video.onloadeddata = () => resolve();
-        video.onerror = () => reject(new Error('视频加载失败'));
-        setTimeout(() => reject(new Error('视频加载超时')), 5000);
-      });
-    }
     await video.play();
 
-    // Ensure model is ready (preload may still be in progress on slow connections)
-    if (!_faceLandmarker) {
-      status.textContent = 'MediaPipe 模型加载中...';
-      await preloadMediapipeModel();
-    }
+    status.textContent = '加载 MediaPipe 模型（约 3MB）...';
+
+    const mp = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/+esm');
+    const { FilesetResolver, FaceLandmarker } = mp;
+
+    const filesetResolver = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/wasm'
+    );
+
+    _faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        delegate: 'GPU'
+      },
+      runningMode: 'VIDEO',
+      numFaces: 1,
+    });
 
     status.textContent = '面捕运行中';
     videoWrap.style.display = 'block';
     btn.textContent = '停止面捕';
     btn.disabled = false;
-
-    _cameraStartedAt = performance.now();
-    _cameraRunning = true;
-    _cameraIdleFallbackReason = null;
-    _realCameraFrameApplied = false;
-    _lastCameraFrameAt = 0;
 
     startFaceDetectionLoop(video);
 
@@ -3013,168 +1273,23 @@ async function startFaceTracking() {
 
 function startFaceDetectionLoop(video) {
   let lastTime = -1;
-  let lastCameraFrameStatus = 'waiting';
-  let _diagLogThrottle = 0;
-  let _detectCallCount = 0;
-
   function loop() {
     if (!_faceLandmarker || !_faceVideoStream) return;
-
-    const videoDiag = {
-      currentTime: video.currentTime,
-      videoWidth: video.videoWidth,
-      videoHeight: video.videoHeight,
-      readyState: video.readyState,
-      networkState: video.networkState,
-      paused: video.paused,
-      ended: video.ended,
-      tracksLive: _faceVideoStream ? _faceVideoStream.getVideoTracks().map(t => t.readyState) : [],
-      tracksEnabled: _faceVideoStream ? _faceVideoStream.getVideoTracks().map(t => t.enabled) : [],
-    };
-    _cameraVideoDiag = videoDiag;
-
     if (video.currentTime !== lastTime) {
       lastTime = video.currentTime;
-      _detectCallCount++;
-      let detectResults = null;
-      let detectError = null;
       try {
-        detectResults = _faceLandmarker.detectForVideo(video, performance.now());
-      } catch (e) {
-        detectError = e;
-      }
-
-      if (detectResults) {
-        const hasLandmarks = !!(detectResults.faceLandmarks && detectResults.faceLandmarks.length > 0);
-        const hasBlendshapes = !!(detectResults.faceBlendshapes && detectResults.faceBlendshapes.length > 0);
-        const firstFace = hasLandmarks ? detectResults.faceLandmarks[0] : null;
-        const firstBlendshapes = hasBlendshapes ? detectResults.faceBlendshapes[0] : null;
-        _cameraLastDetectDiag = {
-          detectLoopRunning: true,
-          detectCallCount: _detectCallCount,
-          hasFaceLandmarks: hasLandmarks,
-          faceCount: detectResults.faceLandmarks ? detectResults.faceLandmarks.length : 0,
-          landmarkCountForFirstFace: firstFace ? firstFace.length : 0,
-          hasFaceBlendshapes: hasBlendshapes,
-          blendshapeSetCount: detectResults.faceBlendshapes ? detectResults.faceBlendshapes.length : 0,
-          blendshapeCategoryCount: firstBlendshapes ? (firstBlendshapes.categories ? firstBlendshapes.categories.length : 0) : 0,
-          hasTransformationMatrices: !!(detectResults.facialTransformationMatrixes && detectResults.facialTransformationMatrixes.length > 0),
-        };
-      } else {
-        _cameraLastDetectDiag = {
-          detectLoopRunning: true,
-          detectCallCount: _detectCallCount,
-          hasFaceLandmarks: false,
-          faceCount: 0,
-          landmarkCountForFirstFace: 0,
-          hasFaceBlendshapes: false,
-          blendshapeSetCount: 0,
-          blendshapeCategoryCount: 0,
-          hasTransformationMatrices: false,
-          detectError: detectError ? (detectError.message || String(detectError)) : null,
-        };
-      }
-
-      if (detectError) {
-        const now = performance.now();
-        _cameraFrameErrorCount++;
-        _lastCameraError = (detectError && detectError.message) ? detectError.message : String(detectError);
-        _lastCameraErrorAt = now;
-        if (now - _cameraErrorLogThrottle > CAMERA_ERROR_LOG_INTERVAL_MS) {
-          _cameraErrorLogThrottle = now;
-          console.warn('[CheapLiveFaceTracking] detectForVideo error (x' + _cameraFrameErrorCount + '):', _lastCameraError);
+        const results = _faceLandmarker.detectForVideo(video, performance.now());
+        if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
+          updateFaceParamsFromBlendshapes(results.faceBlendshapes[0], results.facialTransformationMatrixes);
         }
-        lastCameraFrameStatus = 'error';
-      } else if (detectResults.faceBlendshapes && detectResults.faceBlendshapes.length > 0) {
-        const landmarksForUpdate = (detectResults.faceLandmarks && detectResults.faceLandmarks.length > 0)
-          ? detectResults.faceLandmarks[0]
-          : null;
-        updateFaceParamsFromBlendshapes(detectResults.faceBlendshapes[0], detectResults.facialTransformationMatrixes, landmarksForUpdate);
-        _lastCameraFrameAt = performance.now();
-        _realCameraFrameApplied = true;
-        _cameraFrameErrorCount = 0;
-        _cameraIdleFallbackReason = null;
-        lastCameraFrameStatus = 'ok';
-      } else {
-        lastCameraFrameStatus = 'no-face';
-      }
-
-      // Update status text with honest, specific messaging
-      const statusEl = document.getElementById('faceCamStatus');
-      if (statusEl) {
-        if (lastCameraFrameStatus === 'ok') {
-          statusEl.textContent = '面捕运行中 · 已检测到人脸';
-        } else if (lastCameraFrameStatus === 'no-face') {
-          // Check if video actually has frames
-          const hasVideo = videoDiag.videoWidth > 0 && videoDiag.videoHeight > 0 && videoDiag.currentTime > 0;
-          if (!hasVideo) {
-            statusEl.textContent = '摄像头已打开 · 等待视频画面（videoWidth=' + videoDiag.videoWidth + '）';
-          } else if (!videoDiag.tracksLive.includes('live')) {
-            statusEl.textContent = '摄像头 track 未 live（' + JSON.stringify(videoDiag.tracksLive) + '）';
-          } else {
-            statusEl.textContent = '面捕运行中 · 未检测到人脸（视频正常，请对准人脸）';
-          }
-        } else if (lastCameraFrameStatus === 'error') {
-          statusEl.textContent = '面捕帧错误（x' + _cameraFrameErrorCount + '）：' + (_lastCameraError || '').slice(0, 60);
-        }
-      }
-
-      // Log full diagnostics every 3s
-      const now = performance.now();
-      if (now - _diagLogThrottle > 3000) {
-        _diagLogThrottle = now;
-        console.log('[CheapLiveFaceTracking diag]', {
-          video: videoDiag,
-          detect: _cameraLastDetectDiag,
-          realCameraFrameApplied: _realCameraFrameApplied,
-          lastCameraFrameAt: _lastCameraFrameAt,
-          cameraStartedAt: _cameraStartedAt,
-          cameraFrameErrorCount: _cameraFrameErrorCount,
-        });
-      }
+      } catch (e) { /* ignore per-frame errors */ }
     }
     _faceDetectRAF = requestAnimationFrame(loop);
   }
   loop();
 }
 
-// Smoothing helpers for gaze (ported from open demo face-tracker.js)
-const _gazeSmootherState = {};
-function _smoothGaze(key, value, alpha) {
-  const a = (typeof alpha === 'number' && alpha > 0 && alpha < 1) ? alpha : 0.35;
-  const prev = _gazeSmootherState[key];
-  const next = (prev === undefined) ? value : prev * (1 - a) + value * a;
-  _gazeSmootherState[key] = next;
-  return next;
-}
-
-// Compute per-eye gaze (iris position relative to eye corners) from MediaPipe 478 landmarks.
-// Returns { x, y } in [-1, 1] per eye, or null if landmarks insufficient.
-function _computeGazeFromIris(landmarks, irisIdx, eyeLeftIdx, eyeRightIdx, eyeTopIdx, eyeBottomIdx) {
-  if (!landmarks || landmarks.length < 478) return null;
-  const iris = landmarks[irisIdx];
-  const eyeLeft = landmarks[eyeLeftIdx];
-  const eyeRight = landmarks[eyeRightIdx];
-  const eyeTop = landmarks[eyeTopIdx];
-  const eyeBottom = landmarks[eyeBottomIdx];
-  if (!iris || !eyeLeft || !eyeRight || !eyeTop || !eyeBottom) return null;
-  if (!Number.isFinite(iris.x) || !Number.isFinite(iris.y)) return null;
-  if (!Number.isFinite(eyeLeft.x) || !Number.isFinite(eyeLeft.y)) return null;
-  if (!Number.isFinite(eyeRight.x) || !Number.isFinite(eyeRight.y)) return null;
-  if (!Number.isFinite(eyeTop.x) || !Number.isFinite(eyeTop.y)) return null;
-  if (!Number.isFinite(eyeBottom.x) || !Number.isFinite(eyeBottom.y)) return null;
-  const eyeW = eyeRight.x - eyeLeft.x;
-  const eyeH = eyeBottom.y - eyeTop.y;
-  if (Math.abs(eyeW) < 0.001 || Math.abs(eyeH) < 0.001) return { x: 0, y: 0 };
-  const nx = (iris.x - eyeLeft.x) / eyeW;
-  const ny = (iris.y - eyeTop.y) / eyeH;
-  return {
-    x: Math.max(-1, Math.min(1, (nx - 0.5) * 2)),
-    y: Math.max(-1, Math.min(1, (ny - 0.5) * 2)),
-  };
-}
-
-function updateFaceParamsFromBlendshapes(blendshapes, matrices, landmarks) {
+function updateFaceParamsFromBlendshapes(blendshapes, matrices) {
   const categories = blendshapes.categories || [];
   const getVal = (name) => {
     const cat = categories.find(c => c.categoryName === name);
@@ -3189,233 +1304,21 @@ function updateFaceParamsFromBlendshapes(blendshapes, matrices, landmarks) {
 
   state.faceParams.mouthOpen = mouthOpen;
   state.faceParams.blink = Math.max(blinkLeft, blinkRight);
-  state.faceParams.blinkLeft = blinkLeft;
-  state.faceParams.blinkRight = blinkRight;
-  state.faceParams.eyeLeft = 1 - blinkLeft;
-  state.faceParams.eyeRight = 1 - blinkRight;
   state.faceParams.smile = (smileLeft + smileRight) / 2;
   state.faceParams.faceDetected = true;
 
-  // Head pose: extract yaw/pitch/roll from facialTransformationMatrixes.
-  // Aligned with open demo formulas (column-major 4x4 matrix):
-  //   yaw   = atan2(m[8],  m[10])
-  //   pitch = atan2(-m[9], sqrt(m[1]^2 + m[5]^2))
-  //   roll  = atan2(m[1],  m[0])    ← previous contest demo used atan2(m[2], m[10]) which is wrong
-  let yawDeg = 0, pitchDeg = 0, rollDeg = 0;
+  // Extract yaw from transformation matrix if available
   if (matrices && matrices.length > 0) {
     const m = matrices[0].data;
-    yawDeg = Math.atan2(m[8], m[10]) * 180 / Math.PI;
-    pitchDeg = Math.atan2(-m[9], Math.sqrt(m[1] * m[1] + m[5] * m[5])) * 180 / Math.PI;
-    rollDeg = Math.atan2(m[1], m[0]) * 180 / Math.PI;
+    // 4x4 matrix: extract yaw from rotation
+    const yaw = Math.atan2(m[8], m[10]);
+    state.faceParams.yaw = (yaw / Math.PI + 1) / 2; // normalize to 0-1
   }
-
-  state.faceParams.yaw = Math.max(-1, Math.min(1, yawDeg / 60));
-  state.faceParams.pitch = Math.max(-1, Math.min(1, pitchDeg / 45));
-  state.faceParams.roll = Math.max(-1, Math.min(1, rollDeg / 40));
-
-  // Head pan (headX/headY): use nose tip landmark (index 1) position, mirrored for selfie.
-  // Aligned with open demo: headX = 1 - nose.x (mirror), headY = nose.y.
-  if (landmarks && landmarks.length > 1) {
-    const nose = landmarks[1];
-    if (nose && typeof nose.x === 'number' && typeof nose.y === 'number') {
-      state.faceParams.headX = Math.max(0, Math.min(1, 1 - nose.x));
-      state.faceParams.headY = Math.max(0, Math.min(1, nose.y));
-    }
-  }
-
-  const hasLandmarks = landmarks && landmarks.length > 0;
-  const landmarkCount = hasLandmarks ? landmarks.length : 0;
-  const refinedIrisAvailable = landmarkCount >= 478;
-
-  _irisTrackingDiag.faceDetected = true;
-  _irisTrackingDiag.landmarkCount = landmarkCount;
-  _irisTrackingDiag.refinedIrisAvailable = refinedIrisAvailable;
-  _irisTrackingDiag.invalidReason = null;
-
-  let leftIrisValid = false, rightIrisValid = false;
-  let leftIrisCenter = null, rightIrisCenter = null;
-  let leftInner = null, leftOuter = null, rightInner = null, rightOuter = null;
-  let leftUpper = null, leftLower = null, rightUpper = null, rightLower = null;
-
-  if (refinedIrisAvailable) {
-    const irisL = landmarks[468];
-    const irisR = landmarks[473];
-    leftInner = landmarks[33];
-    leftOuter = landmarks[133];
-    rightInner = landmarks[362];
-    rightOuter = landmarks[263];
-    leftUpper = landmarks[159];
-    leftLower = landmarks[145];
-    rightUpper = landmarks[386];
-    rightLower = landmarks[374];
-
-    leftIrisValid = irisL && Number.isFinite(irisL.x) && Number.isFinite(irisL.y) &&
-      leftInner && Number.isFinite(leftInner.x) && Number.isFinite(leftInner.y) &&
-      leftOuter && Number.isFinite(leftOuter.x) && Number.isFinite(leftOuter.y) &&
-      leftUpper && Number.isFinite(leftUpper.x) && Number.isFinite(leftUpper.y) &&
-      leftLower && Number.isFinite(leftLower.x) && Number.isFinite(leftLower.y);
-
-    rightIrisValid = irisR && Number.isFinite(irisR.x) && Number.isFinite(irisR.y) &&
-      rightInner && Number.isFinite(rightInner.x) && Number.isFinite(rightInner.y) &&
-      rightOuter && Number.isFinite(rightOuter.x) && Number.isFinite(rightOuter.y) &&
-      rightUpper && Number.isFinite(rightUpper.x) && Number.isFinite(rightUpper.y) &&
-      rightLower && Number.isFinite(rightLower.x) && Number.isFinite(rightLower.y);
-
-    if (leftIrisValid) {
-      leftIrisCenter = { x: irisL.x, y: irisL.y };
-    }
-    if (rightIrisValid) {
-      rightIrisCenter = { x: irisR.x, y: irisR.y };
-    }
-  }
-
-  _irisTrackingDiag.leftIrisPointsValid = leftIrisValid;
-  _irisTrackingDiag.rightIrisPointsValid = rightIrisValid;
-  _irisTrackingDiag.leftIrisCenter = leftIrisCenter;
-  _irisTrackingDiag.rightIrisCenter = rightIrisCenter;
-  _irisTrackingDiag.leftEyeInnerCorner = leftInner ? { x: leftInner.x, y: leftInner.y } : null;
-  _irisTrackingDiag.leftEyeOuterCorner = leftOuter ? { x: leftOuter.x, y: leftOuter.y } : null;
-  _irisTrackingDiag.rightEyeInnerCorner = rightInner ? { x: rightInner.x, y: rightInner.y } : null;
-  _irisTrackingDiag.rightEyeOuterCorner = rightOuter ? { x: rightOuter.x, y: rightOuter.y } : null;
-  _irisTrackingDiag.leftUpperLid = leftUpper ? { x: leftUpper.x, y: leftUpper.y } : null;
-  _irisTrackingDiag.leftLowerLid = leftLower ? { x: leftLower.x, y: leftLower.y } : null;
-  _irisTrackingDiag.rightUpperLid = rightUpper ? { x: rightUpper.x, y: rightUpper.y } : null;
-  _irisTrackingDiag.rightLowerLid = rightLower ? { x: rightLower.x, y: rightLower.y } : null;
-
-  const leftGaze = _computeGazeFromIris(landmarks, 468, 33, 133, 159, 145);
-  const rightGaze = _computeGazeFromIris(landmarks, 473, 362, 263, 386, 374);
-
-  _irisTrackingDiag.normalizedLeftGazeX = leftGaze ? leftGaze.x : null;
-  _irisTrackingDiag.normalizedLeftGazeY = leftGaze ? leftGaze.y : null;
-  _irisTrackingDiag.normalizedRightGazeX = rightGaze ? rightGaze.x : null;
-  _irisTrackingDiag.normalizedRightGazeY = rightGaze ? rightGaze.y : null;
-
-  const irisValid = leftGaze && rightGaze;
-  if (irisValid) {
-    _gazeSource = 'iris-landmarks';
-    _irisTrackingDiag.gazeSource = 'iris-landmarks';
-    _irisTrackingDiag.invalidReason = null;
-
-    const sLX = _smoothGaze('gazeLeftX', leftGaze.x);
-    const sLY = _smoothGaze('gazeLeftY', leftGaze.y);
-    const sRX = _smoothGaze('gazeRightX', rightGaze.x);
-    const sRY = _smoothGaze('gazeRightY', rightGaze.y);
-    _smoothGazeLeftX = sRX;
-    _smoothGazeLeftY = sRY;
-    _smoothGazeRightX = sLX;
-    _smoothGazeRightY = sLY;
-    state.faceParams.gazeLeftX = sRX;
-    state.faceParams.gazeLeftY = sRY;
-    state.faceParams.gazeRightX = sLX;
-    state.faceParams.gazeRightY = sLY;
-  } else if (leftGaze) {
-    _gazeSource = 'iris-landmarks';
-    _irisTrackingDiag.gazeSource = 'iris-landmarks';
-    _irisTrackingDiag.invalidReason = 'right-iris-invalid';
-    const sLX = _smoothGaze('gazeLeftX', leftGaze.x);
-    const sLY = _smoothGaze('gazeLeftY', leftGaze.y);
-    _smoothGazeLeftX = sLX;
-    _smoothGazeLeftY = sLY;
-    _smoothGazeRightX = sLX;
-    _smoothGazeRightY = sLY;
-    state.faceParams.gazeLeftX = sLX;
-    state.faceParams.gazeLeftY = sLY;
-    state.faceParams.gazeRightX = sLX;
-    state.faceParams.gazeRightY = sLY;
-  } else if (rightGaze) {
-    _gazeSource = 'iris-landmarks';
-    _irisTrackingDiag.gazeSource = 'iris-landmarks';
-    _irisTrackingDiag.invalidReason = 'left-iris-invalid';
-    const sRX = _smoothGaze('gazeRightX', rightGaze.x);
-    const sRY = _smoothGaze('gazeRightY', rightGaze.y);
-    _smoothGazeLeftX = sRX;
-    _smoothGazeLeftY = sRY;
-    _smoothGazeRightX = sRX;
-    _smoothGazeRightY = sRY;
-    state.faceParams.gazeLeftX = sRX;
-    state.faceParams.gazeLeftY = sRY;
-    state.faceParams.gazeRightX = sRX;
-    state.faceParams.gazeRightY = sRY;
-  } else {
-    _gazeSource = 'unavailable';
-    _irisTrackingDiag.gazeSource = 'unavailable';
-    _irisTrackingDiag.invalidReason = refinedIrisAvailable ? 'iris-landmarks-invalid' : 'refined-iris-not-available';
-  }
-
-  _irisTrackingDiag.smoothedLeftGazeX = state.faceParams.gazeLeftX;
-  _irisTrackingDiag.smoothedLeftGazeY = state.faceParams.gazeLeftY;
-  _irisTrackingDiag.smoothedRightGazeX = state.faceParams.gazeRightX;
-  _irisTrackingDiag.smoothedRightGazeY = state.faceParams.gazeRightY;
-
-  window.__cheapLiveIrisTrackingDiag = _irisTrackingDiag;
-
-  _faceFrameActive = true;
-  _faceFrameSource = 'camera';
-  _lastAppliedSeq++;
-  _lastAppliedValues = {
-    yaw: state.faceParams.yaw,
-    pitch: state.faceParams.pitch,
-    roll: state.faceParams.roll,
-    mouthOpen: state.faceParams.mouthOpen,
-    smile: state.faceParams.smile,
-    blink: state.faceParams.blink,
-    blinkLeft: state.faceParams.blinkLeft,
-    blinkRight: state.faceParams.blinkRight,
-    eyeLeft: state.faceParams.eyeLeft,
-    eyeRight: state.faceParams.eyeRight,
-    headX: state.faceParams.headX,
-    headY: state.faceParams.headY,
-    gazeLeftX: state.faceParams.gazeLeftX,
-    gazeLeftY: state.faceParams.gazeLeftY,
-    gazeRightX: state.faceParams.gazeRightX,
-    gazeRightY: state.faceParams.gazeRightY,
-  };
-
-  const diag = window.__cheapLiveContestAvatarDiag;
-  if (diag) {
-    diag.faceFrameActive = true;
-    diag.frameSource = 'camera';
-    diag.lastAppliedSeq = _lastAppliedSeq;
-    diag.lastCameraFrame = {
-      timestamp: performance.now(),
-      hasFace: true,
-      appliedToAvatar: true,
-      source: 'camera',
-      headYaw: yawDeg,
-      headPitch: pitchDeg,
-      headRoll: rollDeg,
-      mouthOpen: mouthOpen,
-      mouthSmile: state.faceParams.smile,
-      eyeLeft: 1 - blinkLeft,
-      eyeRight: 1 - blinkRight,
-      headX: state.faceParams.headX,
-      headY: state.faceParams.headY,
-      gazeLeftX: state.faceParams.gazeLeftX,
-      gazeLeftY: state.faceParams.gazeLeftY,
-      gazeRightX: state.faceParams.gazeRightX,
-      gazeRightY: state.faceParams.gazeRightY,
-    };
-  }
-
-  if (_frameTimeoutId) clearTimeout(_frameTimeoutId);
-  _frameTimeoutId = setTimeout(() => {
-    _faceFrameActive = false;
-    _faceFrameSource = null;
-    state.faceParams.faceDetected = false;
-    const d = window.__cheapLiveContestAvatarDiag;
-    if (d) {
-      d.faceFrameActive = false;
-      d.frameSource = null;
-    }
-    document.getElementById('faceDetectedVal').textContent = 'false';
-  }, FRAME_IDLE_TIMEOUT_MS);
 
   document.getElementById('faceDetectedVal').textContent = 'true';
   document.getElementById('mouthOpenVal').textContent = mouthOpen.toFixed(2);
   document.getElementById('blinkVal').textContent = Math.max(blinkLeft, blinkRight).toFixed(2);
   document.getElementById('smileVal').textContent = state.faceParams.smile.toFixed(2);
-  const yv = document.getElementById('headYawVal');
-  if (yv) yv.textContent = state.faceParams.yaw.toFixed(2);
 }
 
 function stopFaceTracking() {
@@ -3427,18 +1330,7 @@ function stopFaceTracking() {
     _faceVideoStream.getTracks().forEach(t => t.stop());
     _faceVideoStream = null;
   }
-  // Aligned with open demo: keep FaceLandmarker instance for reuse on next start.
-  // Model loading is expensive; only stop video stream and detect loop.
-  _cameraStartedAt = 0;
-  _cameraRunning = false;
-  _lastCameraFrameAt = 0;
-  _cameraFrameErrorCount = 0;
-  _lastCameraError = null;
-  _lastCameraErrorAt = 0;
-  _realCameraFrameApplied = false;
-  _cameraIdleFallbackReason = null;
-  _cameraVideoDiag = null;
-  _cameraLastDetectDiag = null;
+  _faceLandmarker = null;
   const btn = document.getElementById('faceCamBtn');
   const status = document.getElementById('faceCamStatus');
   const videoWrap = document.getElementById('faceVideoWrap');
@@ -3514,38 +1406,6 @@ function stopMicLevel() {
   status.textContent = '点击开启麦克风';
   valEl.textContent = '—';
   valEl.style.color = 'var(--cl-text-muted)';
-}
-
-// ====== MIC MONITOR (音频监听) ======
-let _monitorAudioContext = null;
-let _monitorStream = null;
-let _monitorSource = null;
-
-function toggleMicMonitor() {
-  const btn = document.getElementById('monitorBtn');
-  const status = document.getElementById('monitorStatus');
-
-  if (_voiceAdapter.monitorActive) {
-    _voiceAdapter.setMonitorActive(false);
-    _voiceAdapter.stop();
-    btn.textContent = '监听麦克风';
-    status.textContent = '监听已关闭';
-    status.style.color = 'var(--cl-text-muted)';
-    return;
-  }
-
-  navigator.mediaDevices.getUserMedia({ audio: true })
-    .then(stream => {
-      _voiceAdapter.start(stream);
-      _voiceAdapter.setMonitorActive(true);
-      btn.textContent = '停止监听';
-      status.textContent = '监听中...';
-      status.style.color = 'var(--cl-green)';
-    })
-    .catch(err => {
-      status.textContent = '监听失败: ' + (err.message || '无法访问麦克风');
-      status.style.color = '#ff6b6b';
-    });
 }
 
 // ============================================================
@@ -4057,7 +1917,6 @@ class _ProceduralMeshRenderer {
     };
     this.mirror = true;
     this.appMode = false;
-    this.transparentMode = false;
     this.debugMesh = false;
     this._resizeHandler = () => this.resize();
     window.addEventListener('resize', this._resizeHandler);
@@ -4094,25 +1953,15 @@ class _ProceduralMeshRenderer {
     const h = this.canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    if (!this.appMode && !this.transparentMode) {
+    if (!this.appMode) {
       ctx.fillStyle = '#0d1420';
       ctx.fillRect(0, 0, w, h);
-    } else if (this.appMode && !this.transparentMode) {
-      ctx.fillStyle = '#F7F5EE';
-      ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = '#888888';
-      ctx.font = '14px monospace';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      ctx.fillText('#F7F5EE', 10, 20);
+    } else {
+      ctx.fillStyle = 'transparent';
+      ctx.clearRect(0, 0, w, h);
     }
 
     this._render(ctx, w, h);
-  }
-
-  setTransparentMode(enabled) {
-    this.transparentMode = !!enabled;
-    this.draw();
   }
 
   _render(ctx, w, h) { /* noop */ }
@@ -4350,22 +2199,16 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
       const squintScaleY = 1 - (eyeSquint || 0) * 0.55;
       const squintScaleX = 1 + (eyeSquint || 0) * 0.08;
       rx *= squintScaleX; ry *= squintScaleY;
-      const minAspect = 0.55;
-      if (rx < ry * minAspect) rx = ry * minAspect;
-      if (ry < rx * minAspect) ry = rx * minAspect;
       const ang = proj.angle;
 
       const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
       const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
-      // Iris/pupil: size based on eyeBase (stable across head rotation),
-      // not on projected ellipse axes. Only overall scale affects iris size.
-      const irisBaseR = eyeBase * scale * 0.50;
-      const pupilBaseR = eyeBase * scale * 0.28;
-      const wideBoost = 1 + Math.max(0, (eyeWide || 0)) * 0.15;
-      const irisR = Math.min(irisBaseR * wideBoost, Math.min(rx, ry) * 0.85);
-      const pupilR2 = Math.min(pupilBaseR * wideBoost, Math.min(rx, ry) * 0.55);
+      const irisScale = 0.50;
+      const pupilScale = 0.28;
+      const irisR = Math.min(rx, ry) * irisScale;
+      const pupilR2 = Math.min(rx, ry) * pupilScale;
 
       const maxOffsetX = Math.max(0, rx - irisR) * 0.55;
       const maxOffsetY = Math.max(0, ry - irisR) * 0.55;
@@ -4377,48 +2220,47 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
       ctx.save();
       ctx.globalAlpha = facing;
 
-      ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
-      ctx.fill();
-      ctx.lineWidth = Math.max(0.5, 1.0 * scale);
-      ctx.strokeStyle = '#222';
-      ctx.stroke();
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.ellipse(t.screenX, t.screenY, rx - 1, ry - 1, ang, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.beginPath();
-      ctx.ellipse(irisCX, irisCY, irisR, irisR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
-      ctx.fillStyle = '#7a6b5c';
-      ctx.globalAlpha = Math.max(0.4, facing) * easedOpen;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(irisCX, irisCY, pupilR2, pupilR2 * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
-      ctx.fillStyle = '#1a1a1a';
-      ctx.fill();
-      if (easedOpen > 0.5) {
-        const hlX = irisCX + irisR * 0.3;
-        const hlY = irisCY - irisR * 0.3;
+      if (easedOpen < 0.12) {
+        const closedH = ry * 0.08;
         ctx.beginPath();
-        ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.globalAlpha = Math.max(0.3, facing) * 0.7;
-        ctx.fill();
-      }
-      ctx.restore();
-      ctx.globalAlpha = facing;
-
-      if (easedClosed > 0.02) {
-        ctx.save();
+        ctx.moveTo(t.screenX - rx * 0.85, t.screenY);
+        ctx.quadraticCurveTo(t.screenX, t.screenY + closedH, t.screenX + rx * 0.85, t.screenY);
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = Math.max(1.5, 2.5 * scale);
+        ctx.stroke();
+      } else {
         ctx.beginPath();
         ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.lineWidth = Math.max(1, 2.0 * scale);
+        ctx.strokeStyle = '#222';
+        ctx.stroke();
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(t.screenX, t.screenY, rx - 1, ry - 1, ang, 0, Math.PI * 2);
         ctx.clip();
-        const eyelidY = -ry + ry * 2 * easedClosed;
-        ctx.fillStyle = mesh.faceTopColor || '#d1c394';
-        ctx.fillRect(-rx - 2, -ry - 2, rx * 2 + 4, eyelidY - (-ry) + 2);
+        ctx.beginPath();
+        ctx.ellipse(irisCX, irisCY, irisR, irisR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#7a6b5c';
+        ctx.globalAlpha = Math.max(0.4, facing) * easedOpen;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(irisCX, irisCY, pupilR2, pupilR2 * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fill();
+        if (easedOpen > 0.5) {
+          const hlX = irisCX + irisR * 0.3;
+          const hlY = irisCY - irisR * 0.3;
+          ctx.beginPath();
+          ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = Math.max(0.3, facing) * 0.7;
+          ctx.fill();
+        }
         ctx.restore();
+        ctx.globalAlpha = facing;
       }
       ctx.restore();
     };
@@ -4456,10 +2298,7 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
       const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * funnelNarrow;
       const openH = (3 * scale + 12 * scale * effectiveOpen) * funnelTall;
       const cornerUp = smile * 3 * scale;
-      const upperLipRatio = 0.15;
-      const lowerLipRatio = 0.70;
-      const upperLift = effectiveOpen * openH * upperLipRatio;
-      const lowerDrop = effectiveOpen * openH * lowerLipRatio;
+      const centerDown = smile * 5 * scale + effectiveOpen * openH * 0.5;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
@@ -4474,7 +2313,7 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
         ctx.stroke();
       } else if (effectiveOpen < 0.05) {
         const left = _mapFaceLocalPoint(t, -halfW, cornerUp);
-        const mid = _mapFaceLocalPoint(t, 0, cornerUp - 2 * scale);
+        const mid = _mapFaceLocalPoint(t, 0, centerDown - 2 * scale);
         const right = _mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
@@ -4483,9 +2322,9 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
       } else {
         ctx.fillStyle = '#4a2020';
         const left = _mapFaceLocalPoint(t, -halfW, cornerUp);
-        const topMid = _mapFaceLocalPoint(t, 0, cornerUp - upperLift);
+        const topMid = _mapFaceLocalPoint(t, 0, centerDown - openH * 0.85);
         const right = _mapFaceLocalPoint(t, halfW, cornerUp);
-        const botMid = _mapFaceLocalPoint(t, 0, cornerUp + lowerDrop);
+        const botMid = _mapFaceLocalPoint(t, 0, centerDown + openH * 0.15);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
         ctx.quadraticCurveTo(topMid.x, topMid.y, right.x, right.y);
@@ -4527,511 +2366,5 @@ class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
     drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile, np.mouthFunnel, np.mouthPress);
     drawNostril(-1);
     drawNostril(+1);
-
-    const headCenterLocal = _computeFaceAnchorXYZ(mesh, 0, 0, 0, 0.5);
-    const headCenterWorld = this._transformAnchor(headCenterLocal, rot, originX, originY, scale);
-    const leftEyeLocal = _computeFaceAnchorXYZ(mesh, anchors.leftEye.bodyT, anchors.leftEye.horizOffset, anchors.leftEye.vertOffset, anchors.leftEye.surfaceOffset);
-    const leftEyeWorld = this._transformAnchor(leftEyeLocal, rot, originX, originY, scale);
-    const rightEyeLocal = _computeFaceAnchorXYZ(mesh, anchors.rightEye.bodyT, anchors.rightEye.horizOffset, anchors.rightEye.vertOffset, anchors.rightEye.surfaceOffset);
-    const rightEyeWorld = this._transformAnchor(rightEyeLocal, rot, originX, originY, scale);
-
-    const mouthLocal = _computeFaceAnchorXYZ(mesh, anchors.mouth.bodyT, anchors.mouth.horizOffset, anchors.mouth.vertOffset, anchors.mouth.surfaceOffset);
-    const mouthWorld = this._transformAnchor(mouthLocal, rot, originX, originY, scale);
-    const smileWiden = 1 + np.mouthSmile * 0.40;
-    const effectiveOpen = Math.max(0, np.mouthOpen - (np.mouthPress || 0) * 0.3);
-    const halfW = (anchors.mouth.mouthWidth || mesh.headX * 0.28) * scale * smileWiden;
-    const openH = (3 * scale + 12 * scale * effectiveOpen);
-    const cornerUp = np.mouthSmile * 3 * scale;
-    const upperLipRatio = 0.15;
-    const lowerLipRatio = 0.70;
-    const upperLift = effectiveOpen * openH * upperLipRatio;
-    const lowerDrop = effectiveOpen * openH * lowerLipRatio;
-
-    window.__cheapLiveFishPoseDiag = {
-      source: 'public-demo',
-      inputYaw: this.params.headYaw,
-      inputPitch: this.params.headPitch,
-      inputRoll: this.params.headRoll,
-      normalizedYaw: np.headYaw,
-      normalizedPitch: np.headPitch,
-      normalizedRoll: np.headRoll,
-      rotationOrder: 'Z->X->Y',
-      headCenterLocal: { x: headCenterLocal.x, y: headCenterLocal.y, z: headCenterLocal.z },
-      headCenterWorld: { x: headCenterWorld.worldX, y: headCenterWorld.worldY, z: headCenterWorld.worldZ },
-      leftEyeAnchorLocal: { x: leftEyeLocal.x, y: leftEyeLocal.y, z: leftEyeLocal.z },
-      leftEyeAnchorWorld: { x: leftEyeWorld.worldX, y: leftEyeWorld.worldY, z: leftEyeWorld.worldZ },
-      rightEyeAnchorLocal: { x: rightEyeLocal.x, y: rightEyeLocal.y, z: rightEyeLocal.z },
-      rightEyeAnchorWorld: { x: rightEyeWorld.worldX, y: rightEyeWorld.worldY, z: rightEyeWorld.worldZ },
-      leftEyeRelativeToHead: {
-        x: leftEyeWorld.worldX - headCenterWorld.worldX,
-        y: leftEyeWorld.worldY - headCenterWorld.worldY,
-        z: leftEyeWorld.worldZ - headCenterWorld.worldZ,
-      },
-      rightEyeRelativeToHead: {
-        x: rightEyeWorld.worldX - headCenterWorld.worldX,
-        y: rightEyeWorld.worldY - headCenterWorld.worldY,
-        z: rightEyeWorld.worldZ - headCenterWorld.worldZ,
-      },
-      eyePitchFollowsHead: true,
-      eyeRollFollowsHead: true,
-      eyeAttachedToHead: true,
-    };
-
-    window.__cheapLiveMouthDiag = {
-      source: 'public-demo',
-      mouthOpen: np.mouthOpen,
-      smile: np.mouthSmile,
-      leftCorner: _mapFaceLocalPoint(mouthWorld, -halfW, cornerUp),
-      rightCorner: _mapFaceLocalPoint(mouthWorld, halfW, cornerUp),
-      upperLipMidpoint: _mapFaceLocalPoint(mouthWorld, 0, cornerUp - upperLift),
-      lowerLipMidpoint: _mapFaceLocalPoint(mouthWorld, 0, cornerUp + lowerDrop),
-      upperLipDeltaY: -upperLift,
-      lowerLipDeltaY: lowerDrop,
-      upperEndpointsStable: true,
-      upperLipMovesSlightly: upperLift > 0,
-      lowerLipMovesMore: lowerDrop > upperLift,
-      lowerToUpperMotionRatio: upperLift > 0 ? lowerDrop / upperLift : Infinity,
-    };
   }
 }
-
-// ====== VOICE ADAPTER (WebAudio Voice Effects) ======
-// 增强版 preset：每个 preset 在 EQ / 滤波 / 失真 / 压缩 / comb 上有显著差异，
-// 不引入第三方库，不引入 oscillator 直连输出。
-// 设计目标：
-//   - original：尽量原声；
-//   - cute：高通 + 高频提升 + formant-ish 中频峰 + 轻度过载；
-//   - robot：窄带通 + comb 滤波（短延迟反馈）+ 较重失真；
-//   - deep：低通 + 低频提升 + 高频削减；
-//   - radio：电话波段窄带通 + 重压缩 + 较重饱和。
-const VOICE_PRESET_CONFIGS = {
-  original: {
-    name: '原声',
-    filterType: 'allpass',
-    filterFreq: 1000,
-    filterQ: 1,
-    filterGain: 0,
-    gain: 1.0,
-    delayTime: 0,
-    delayFeedback: 0,
-    delayMix: 0,
-    compressorThreshold: -24,
-    compressorRatio: 1,
-    waveShaperAmount: 0,
-    gateThreshold: 0.02,
-    eqLowGain: 0,
-    eqLowFreq: 200,
-    eqMidGain: 0,
-    eqMidFreq: 1000,
-    eqMidQ: 1,
-    eqHighGain: 0,
-    eqHighFreq: 3000,
-  },
-  cute: {
-    name: '可爱',
-    // 高通 + 高频大幅提升 + formant-ish 中频峰 + 轻度过载
-    filterType: 'highpass',
-    filterFreq: 500,
-    filterQ: 0.7,
-    filterGain: 0,
-    gain: 1.12,
-    delayTime: 0,
-    delayFeedback: 0,
-    delayMix: 0,
-    compressorThreshold: -28,
-    compressorRatio: 4,
-    waveShaperAmount: 0.18,
-    gateThreshold: 0.02,
-    eqLowGain: -12,
-    eqLowFreq: 220,
-    eqMidGain: 5,
-    eqMidFreq: 1800,
-    eqMidQ: 2,
-    eqHighGain: 14,
-    eqHighFreq: 4200,
-  },
-  robot: {
-    name: '机器人',
-    // 窄带通 + comb 滤波（短延迟反馈）+ 较重失真
-    filterType: 'bandpass',
-    filterFreq: 850,
-    filterQ: 8,
-    filterGain: 0,
-    gain: 1.05,
-    delayTime: 0.022,
-    delayFeedback: 0.4,
-    delayMix: 0.5,
-    compressorThreshold: -12,
-    compressorRatio: 15,
-    waveShaperAmount: 0.55,
-    gateThreshold: 0.02,
-    eqLowGain: -12,
-    eqLowFreq: 200,
-    eqMidGain: 10,
-    eqMidFreq: 850,
-    eqMidQ: 4,
-    eqHighGain: -10,
-    eqHighFreq: 3000,
-  },
-  deep: {
-    name: '低沉',
-    // 低通 + 低频大幅提升 + 高频削减
-    filterType: 'lowpass',
-    filterFreq: 2200,
-    filterQ: 0.7,
-    filterGain: 0,
-    gain: 1.12,
-    delayTime: 0,
-    delayFeedback: 0,
-    delayMix: 0,
-    compressorThreshold: -20,
-    compressorRatio: 3,
-    waveShaperAmount: 0.12,
-    gateThreshold: 0.02,
-    eqLowGain: 15,
-    eqLowFreq: 150,
-    eqMidGain: -3,
-    eqMidFreq: 1500,
-    eqMidQ: 1.5,
-    eqHighGain: -15,
-    eqHighFreq: 3500,
-  },
-  radio: {
-    name: '电台',
-    // 电话波段窄带通 + 重压缩 + 较重饱和
-    filterType: 'bandpass',
-    filterFreq: 1700,
-    filterQ: 2,
-    filterGain: 0,
-    gain: 1.05,
-    delayTime: 0.02,
-    delayFeedback: 0.05,
-    delayMix: 0.12,
-    compressorThreshold: -10,
-    compressorRatio: 8,
-    waveShaperAmount: 0.38,
-    gateThreshold: 0.02,
-    eqLowGain: -16,
-    eqLowFreq: 250,
-    eqMidGain: 9,
-    eqMidFreq: 1700,
-    eqMidQ: 1.5,
-    eqHighGain: -16,
-    eqHighFreq: 4000,
-  },
-};
-
-// 变声实现 credits：明确声明实现方式与第三方组件
-window.__cheapLiveContestVoiceCredits = {
-  implementation: 'WebAudio preset chain (BiquadFilter x4 + DynamicsCompressor + WaveShaper + Delay + Gain + Analyser + noise gate). No third-party voice library.',
-  thirdPartyLibraries: [],
-  licenseNotes: 'Implemented with browser-native Web Audio API. No external DSP libraries bundled.',
-  attributionRequired: false,
-};
-
-class VoiceAdapter {
-  constructor() {
-    this.audioContext = null;
-    this.source = null;
-    this.stream = null;
-    this.inputGain = null;
-    this.eqLow = null;
-    this.eqMid = null;
-    this.eqHigh = null;
-    this.filter = null;
-    this.compressor = null;
-    this.waveShaper = null;
-    this.delay = null;
-    this.delayFeedback = null;
-    this.delayMixGain = null;
-    this.dryGain = null;
-    this.wetGain = null;
-    this.gateGain = null;
-    this.outputGain = null;
-    this.analyserInput = null;
-    this.analyserOutput = null;
-    this._gateRaf = null;
-    this._gateOpen = true;
-    this._currentGateThreshold = 0.02;
-    this.currentPreset = 'original';
-    this.monitorActive = false;
-    this._diag = window.__cheapLiveContestVoiceDiag = {
-      audioContextState: 'closed',
-      micStreamActive: false,
-      monitorActive: false,
-      selectedPreset: 'original',
-      processedChainActive: false,
-      nodesConnected: false,
-      oscillatorActive: false,
-      oscillatorConnectedToOutput: false,
-      activeOscillatorCount: 0,
-      activeNodeCount: 0,
-      rawBypassConnected: false,
-      gateActive: true,
-      inputRms: 0,
-      outputRms: 0,
-      silenceDetected: true,
-      presetParams: null,
-      lastPresetAppliedAt: 0,
-      outputAnalysisByPreset: {},
-    };
-  }
-
-  async start(stream) {
-    if (this.audioContext) this.stop();
-
-    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    this.stream = stream;
-    this.source = this.audioContext.createMediaStreamSource(stream);
-
-    this.inputGain = this.audioContext.createGain();
-    this.inputGain.gain.value = 1.0;
-
-    this.eqLow = this.audioContext.createBiquadFilter();
-    this.eqLow.type = 'lowshelf';
-    this.eqLow.frequency.value = 200;
-    this.eqLow.gain.value = 0;
-
-    this.eqMid = this.audioContext.createBiquadFilter();
-    this.eqMid.type = 'peaking';
-    this.eqMid.frequency.value = 1000;
-    this.eqMid.Q.value = 1;
-    this.eqMid.gain.value = 0;
-
-    this.eqHigh = this.audioContext.createBiquadFilter();
-    this.eqHigh.type = 'highshelf';
-    this.eqHigh.frequency.value = 3000;
-    this.eqHigh.gain.value = 0;
-
-    this.filter = this.audioContext.createBiquadFilter();
-    this.compressor = this.audioContext.createDynamicsCompressor();
-    this.waveShaper = this.audioContext.createWaveShaper();
-    this.waveShaper.oversample = '2x';
-    this.waveShaper.curve = this._makeWaveShaperCurve(0);
-
-    this.delay = this.audioContext.createDelay(0.5);
-    this.delayFeedback = this.audioContext.createGain();
-    this.delayFeedback.gain.value = 0;
-    this.delayMixGain = this.audioContext.createGain();
-    this.delayMixGain.gain.value = 0;
-
-    this.dryGain = this.audioContext.createGain();
-    this.dryGain.gain.value = 1.0;
-    this.wetGain = this.audioContext.createGain();
-    this.wetGain.gain.value = 0;
-
-    this.gateGain = this.audioContext.createGain();
-    this.gateGain.gain.value = 1.0;
-
-    this.outputGain = this.audioContext.createGain();
-    this.outputGain.gain.value = 0;
-
-    this.analyserInput = this.audioContext.createAnalyser();
-    this.analyserInput.fftSize = 2048;
-    this.analyserOutput = this.audioContext.createAnalyser();
-    this.analyserOutput.fftSize = 2048;
-
-    this.source.connect(this.inputGain);
-    this.inputGain.connect(this.analyserInput);
-    this.analyserInput.connect(this.eqLow);
-    this.eqLow.connect(this.eqMid);
-    this.eqMid.connect(this.eqHigh);
-    this.eqHigh.connect(this.filter);
-    this.filter.connect(this.compressor);
-    this.compressor.connect(this.waveShaper);
-
-    this.waveShaper.connect(this.dryGain);
-    this.waveShaper.connect(this.delay);
-    this.delay.connect(this.delayFeedback);
-    this.delayFeedback.connect(this.delay);
-    this.delay.connect(this.delayMixGain);
-    this.delayMixGain.connect(this.wetGain);
-
-    this.dryGain.connect(this.gateGain);
-    this.wetGain.connect(this.gateGain);
-
-    this.gateGain.connect(this.analyserOutput);
-    this.analyserOutput.connect(this.outputGain);
-    this.outputGain.connect(this.audioContext.destination);
-
-    this._startGateLoop();
-    this._updateDiag();
-    this.setPreset(this.currentPreset);
-  }
-
-  stop() {
-    if (this._gateRaf) {
-      cancelAnimationFrame(this._gateRaf);
-      this._gateRaf = null;
-    }
-
-    if (this.source) { try { this.source.disconnect(); } catch(e) {} this.source = null; }
-    if (this.inputGain) { try { this.inputGain.disconnect(); } catch(e) {} this.inputGain = null; }
-    if (this.eqLow) { try { this.eqLow.disconnect(); } catch(e) {} this.eqLow = null; }
-    if (this.eqMid) { try { this.eqMid.disconnect(); } catch(e) {} this.eqMid = null; }
-    if (this.eqHigh) { try { this.eqHigh.disconnect(); } catch(e) {} this.eqHigh = null; }
-    if (this.filter) { try { this.filter.disconnect(); } catch(e) {} this.filter = null; }
-    if (this.compressor) { try { this.compressor.disconnect(); } catch(e) {} this.compressor = null; }
-    if (this.waveShaper) { try { this.waveShaper.disconnect(); } catch(e) {} this.waveShaper = null; }
-    if (this.delay) { try { this.delay.disconnect(); } catch(e) {} this.delay = null; }
-    if (this.delayFeedback) { try { this.delayFeedback.disconnect(); } catch(e) {} this.delayFeedback = null; }
-    if (this.delayMixGain) { try { this.delayMixGain.disconnect(); } catch(e) {} this.delayMixGain = null; }
-    if (this.dryGain) { try { this.dryGain.disconnect(); } catch(e) {} this.dryGain = null; }
-    if (this.wetGain) { try { this.wetGain.disconnect(); } catch(e) {} this.wetGain = null; }
-    if (this.gateGain) { try { this.gateGain.disconnect(); } catch(e) {} this.gateGain = null; }
-    if (this.outputGain) { try { this.outputGain.disconnect(); } catch(e) {} this.outputGain = null; }
-    if (this.analyserInput) { try { this.analyserInput.disconnect(); } catch(e) {} this.analyserInput = null; }
-    if (this.analyserOutput) { try { this.analyserOutput.disconnect(); } catch(e) {} this.analyserOutput = null; }
-
-    if (this.audioContext) { this.audioContext.close(); this.audioContext = null; }
-    if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; }
-    this.monitorActive = false;
-    this._gateOpen = true;
-    this._updateDiag();
-  }
-
-  setPreset(presetId) {
-    const config = VOICE_PRESET_CONFIGS[presetId];
-    if (!config) return;
-
-    this.currentPreset = presetId;
-
-    if (!this.audioContext) {
-      this._updateDiag();
-      return;
-    }
-
-    this.eqLow.type = 'lowshelf';
-    this.eqLow.frequency.value = config.eqLowFreq || 200;
-    this.eqLow.gain.value = config.eqLowGain !== undefined ? config.eqLowGain : 0;
-
-    this.eqMid.type = 'peaking';
-    this.eqMid.frequency.value = config.eqMidFreq || 1000;
-    this.eqMid.Q.value = config.eqMidQ !== undefined ? config.eqMidQ : 1;
-    this.eqMid.gain.value = config.eqMidGain !== undefined ? config.eqMidGain : 0;
-
-    this.eqHigh.type = 'highshelf';
-    this.eqHigh.frequency.value = config.eqHighFreq || 3000;
-    this.eqHigh.gain.value = config.eqHighGain !== undefined ? config.eqHighGain : 0;
-
-    this.filter.type = config.filterType;
-    this.filter.frequency.value = config.filterFreq;
-    this.filter.Q.value = config.filterQ;
-    if (config.filterGain !== undefined) {
-      this.filter.gain.value = config.filterGain;
-    }
-
-    this.compressor.threshold.value = config.compressorThreshold;
-    this.compressor.ratio.value = config.compressorRatio;
-    this.compressor.knee.value = 30;
-    this.compressor.attack.value = 0.003;
-    this.compressor.release.value = 0.25;
-
-    this.waveShaper.curve = this._makeWaveShaperCurve(config.waveShaperAmount);
-
-    this.delay.delayTime.value = config.delayTime;
-    this.delayFeedback.gain.value = config.delayFeedback;
-    const delayMix = config.delayMix !== undefined ? config.delayMix : 0;
-    this.delayMixGain.gain.value = delayMix;
-    this.dryGain.gain.value = 1.0 - Math.min(delayMix * 0.5, 0.5);
-    this.wetGain.gain.value = delayMix;
-
-    this._currentGateThreshold = config.gateThreshold || 0.02;
-
-    if (this.monitorActive) {
-      this.outputGain.gain.value = config.gain;
-    }
-
-    this._diag.lastPresetAppliedAt = performance.now();
-    this._diag.presetParams = { ...config };
-    this._updateDiag();
-  }
-
-  _startGateLoop() {
-    if (this._gateRaf) return;
-    const loop = () => {
-      this._updateGate();
-      this._gateRaf = requestAnimationFrame(loop);
-    };
-    this._gateRaf = requestAnimationFrame(loop);
-  }
-
-  _updateGate() {
-    if (!this.analyserInput || !this.audioContext) return;
-
-    const buf = new Float32Array(this.analyserInput.fftSize);
-    this.analyserInput.getFloatTimeDomainData(buf);
-    let sum = 0;
-    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-    const inputRms = Math.sqrt(sum / buf.length);
-
-    const outBuf = new Float32Array(this.analyserOutput.fftSize);
-    this.analyserOutput.getFloatTimeDomainData(outBuf);
-    let outSum = 0;
-    for (let i = 0; i < outBuf.length; i++) outSum += outBuf[i] * outBuf[i];
-    const outputRms = Math.sqrt(outSum / outBuf.length);
-
-    const threshold = this._currentGateThreshold;
-    if (inputRms < threshold * 0.5) {
-      this._gateOpen = false;
-    } else if (inputRms > threshold) {
-      this._gateOpen = true;
-    }
-
-    const targetGain = this._gateOpen ? 1.0 : 0.0001;
-    if (this.gateGain) {
-      this.gateGain.gain.setTargetAtTime(targetGain, this.audioContext.currentTime, 0.01);
-    }
-
-    this._diag.inputRms = inputRms;
-    this._diag.outputRms = outputRms;
-    this._diag.silenceDetected = !this._gateOpen;
-  }
-
-  _makeWaveShaperCurve(amount) {
-    const samples = 2048;
-    const curve = new Float32Array(samples);
-    const k = amount * 100;
-
-    for (let i = 0; i < samples; i++) {
-      const x = (i * 2) / samples - 1;
-      if (k === 0) {
-        curve[i] = x;
-      } else {
-        curve[i] = ((3 + k) * x * Math.PI / 180) / (Math.PI + k * Math.abs(x));
-      }
-    }
-    return curve;
-  }
-
-  _updateDiag() {
-    this._diag.audioContextState = this.audioContext ? this.audioContext.state : 'closed';
-    this._diag.micStreamActive = !!this.stream;
-    this._diag.monitorActive = this.monitorActive;
-    this._diag.selectedPreset = this.currentPreset;
-    this._diag.processedChainActive = !!this.audioContext && this.audioContext.state === 'running';
-    this._diag.nodesConnected = !!this.filter && !!this.outputGain;
-    this._diag.oscillatorActive = false;
-    this._diag.oscillatorConnectedToOutput = false;
-    this._diag.activeOscillatorCount = 0;
-    const nodes = [this.inputGain, this.eqLow, this.eqMid, this.eqHigh,
-      this.filter, this.compressor, this.waveShaper, this.delay,
-      this.delayFeedback, this.delayMixGain, this.dryGain, this.wetGain,
-      this.gateGain, this.outputGain, this.analyserInput, this.analyserOutput];
-    this._diag.activeNodeCount = nodes.filter(n => !!n).length;
-    this._diag.rawBypassConnected = false;
-    this._diag.gateActive = !!this.gateGain;
-  }
-
-  setMonitorActive(active) {
-    this.monitorActive = active;
-    if (this.outputGain && this.audioContext) {
-      const config = VOICE_PRESET_CONFIGS[this.currentPreset];
-      const target = active ? (config ? config.gain : 1.0) : 0;
-      this.outputGain.gain.setTargetAtTime(target, this.audioContext.currentTime, 0.01);
-    }
-    this._updateDiag();
-  }
-}
-
-let _voiceAdapter = new VoiceAdapter();

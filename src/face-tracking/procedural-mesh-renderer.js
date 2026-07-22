@@ -36,11 +36,6 @@ function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
-function smoothstep(edge0, edge1, x) {
-  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
-  return t * t * (3 - 2 * t);
-}
-
 function isFiniteVec3(v) {
   return v != null && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
 }
@@ -226,36 +221,9 @@ function parseRGB(c) {
 }
 
 /**
- * 将 face-tracker 的参数转为渲染器可用的值。
- *
- * 姿态参数契约（显式兼容）：
- *
- * - poseUnit 未指定或 !== "degrees"（默认旧契约，normalized）：
- *   headYaw / headPitch / headRoll 为 [0, 1] 归一化值，0.5 = 正前方。
- *   内部转换为度数：
- *     headYaw   = (clamp(v, 0, 1) - 0.5) * 120   → [-60, 60]
- *     headPitch = (clamp(v, 0, 1) - 0.5) * 90    → [-45, 45]
- *     headRoll  = (clamp(v, 0, 1) - 0.5) * 80    → [-40, 40]
- *
- * - poseUnit === "degrees"（显式度数契约）：
- *   headYaw / headPitch / headRoll 直接按度数读取并 clamp。
+ * 将 face-tracker 的 [0, 1] 归一化参数转为渲染器可用的值。
  */
 function normalizeParams(p) {
-  const poseUnit = p.poseUnit;
-  const useDegrees = poseUnit === 'degrees';
-
-  let headYaw, headPitch, headRoll;
-
-  if (useDegrees) {
-    headYaw = clamp(p.headYaw ?? 0, -90, 90);
-    headPitch = clamp(p.headPitch ?? 0, -45, 45);
-    headRoll = clamp(p.headRoll ?? 0, -40, 40);
-  } else {
-    headYaw = (clamp(p.headYaw ?? 0.5, 0, 1) - 0.5) * 120;
-    headPitch = (clamp(p.headPitch ?? 0.5, 0, 1) - 0.5) * 90;
-    headRoll = (clamp(p.headRoll ?? 0.5, 0, 1) - 0.5) * 80;
-  }
-
   return {
     eyeLeft: clamp(p.eyeLeft ?? 1, 0, 1),
     eyeRight: clamp(p.eyeRight ?? 1, 0, 1),
@@ -269,9 +237,9 @@ function normalizeParams(p) {
     mouthPress: clamp(p.mouthPress ?? 0, 0, 1),
     browLeft: clamp(p.browLeft ?? 0, 0, 1),
     browRight: clamp(p.browRight ?? 0, 0, 1),
-    headYaw: headYaw,
-    headPitch: headPitch,
-    headRoll: headRoll,
+    headYaw: (clamp(p.headYaw ?? 0.5, 0, 1) - 0.5) * 120,
+    headPitch: (clamp(p.headPitch ?? 0.5, 0, 1) - 0.5) * 90,
+    headRoll: (clamp(p.headRoll ?? 0.5, 0, 1) - 0.5) * 80,
     headX: clamp(p.headX ?? 0.5, 0, 1),
     headY: clamp(p.headY ?? 0.5, 0, 1),
     // 虹膜视线方向: [-1, 1]
@@ -279,7 +247,6 @@ function normalizeParams(p) {
     gazeLeftY: clamp(p.gazeLeftY ?? 0, -1, 1),
     gazeRightX: clamp(p.gazeRightX ?? 0, -1, 1),
     gazeRightY: clamp(p.gazeRightY ?? 0, -1, 1),
-    blink: clamp(p.blink ?? 0, 0, 1),
     lightDir: p.lightDir,
     ambient: p.ambient,
   };
@@ -303,7 +270,6 @@ class ProceduralMeshRenderer {
     };
     this.mirror = true;
     this.appMode = false;
-    this.transparentMode = false;
 
     // 调试网格显示（默认关闭，不展示给用户）
     this.debugMesh = false;
@@ -328,11 +294,6 @@ class ProceduralMeshRenderer {
 
   setAppMode(enabled) {
     this.appMode = !!enabled;
-    this.draw();
-  }
-
-  setTransparentMode(enabled) {
-    this.transparentMode = !!enabled;
     this.draw();
   }
 
@@ -363,15 +324,19 @@ class ProceduralMeshRenderer {
     const h = this.canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    if (!this.transparentMode) {
-      if (!this.appMode) {
-        ctx.fillStyle = '#1A1A2E';
-        ctx.fillRect(0, 0, w, h);
-      } else {
-        // 应用模式：纯黑背景，方便 chroma key 抠图
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, w, h);
-      }
+    if (!this.appMode) {
+      ctx.fillStyle = '#1A1A2E';
+      ctx.fillRect(0, 0, w, h);
+    } else {
+      // 应用模式下用浅色背景，保证面部灰度对比明显
+      ctx.fillStyle = '#F7F5EE';
+      ctx.fillRect(0, 0, w, h);
+      // 显示背景色16进制编号，方便抠图
+      ctx.fillStyle = '#888888';
+      ctx.font = '14px monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('#F7F5EE', 10, 20);
     }
 
     this._render(ctx, w, h);
@@ -652,185 +617,75 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
 
   _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
     const anchors = this.getAnchors(np);
-    if (!this.irisDiag) {
-      this.irisDiag = {
-        left: { centerX: 0, centerY: 0, radius: 0, area: 0, eyeCenterX: 0, eyeCenterY: 0,
-          localOffsetX: 0, localOffsetY: 0, gazeX: 0, gazeY: 0, visible: false, clippedByEyelid: false,
-          eyeRx: 0, eyeRy: 0 },
-        right: { centerX: 0, centerY: 0, radius: 0, area: 0, eyeCenterX: 0, eyeCenterY: 0,
-          localOffsetX: 0, localOffsetY: 0, gazeX: 0, gazeY: 0, visible: false, clippedByEyelid: false,
-          eyeRx: 0, eyeRy: 0 },
-        radiusStabilityPass: false,
-        movementNotSizePass: false,
-      };
-    }
 
-    // 统一画"一只眼睛"：使用 eye-local 坐标系（ctx.translate + ctx.rotate(eyeAngle)）
-    // - 眼白椭圆、瞳孔、上眼皮均在 eye-local 坐标内绘制
-    // - 上眼皮通过 clip 到眼白椭圆实现，绝不会遮掉鱼头/脸部/肉色区域
-    // - 眼皮分界线是 eye-local 内的水平线，roll 时自动跟随头部旋转
-    const drawEye = (anchor, openness, eyeWide, eyeSquint, gazeX, gazeY) => {
+    // 统一画"一只眼睛"：使用完整投影椭圆计算主轴角度
+    const drawEye = (anchor, openness) => {
       const local = computeSphereFaceAnchorXYZ(this.mesh, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, -0.2, 1.0);
       if (facing <= 0) return;
 
-      const eyeBase = 10 * scale;
-      const eyeHalfW = eyeBase;
-      const eyeHalfH = eyeBase;
+      const eyeSize = 10 * scale;
+      const eyeHalfW = eyeSize;
+      const eyeHalfH = eyeSize;
 
-      // eye-local coordinate system:
-      // eyeAngle = rotation of eye horizontal axis (rightVec) in screen space
-      // localRx/localRy = eye radii in screen pixels along rightVec/downVec
-      const rLen = t.rightLen || Math.sqrt(t.rightVec.x * t.rightVec.x + t.rightVec.y * t.rightVec.y);
-      const dLen = t.downLen || Math.sqrt(t.downVec.x * t.downVec.x + t.downVec.y * t.downVec.y);
-      const eyeAngle = Math.atan2(t.rightVec.y, t.rightVec.x);
+      const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
+      const rx = Math.max(0.1, proj.radiusX);
+      const ry = Math.max(0.1, proj.radiusY);
+      const ang = proj.angle;
 
-      const wideScale = 1 + (eyeWide || 0) * 0.47;
-      const squintScaleY = 1 - (eyeSquint || 0) * 0.55;
-      const squintScaleX = 1 + (eyeSquint || 0) * 0.08;
-
-      const localRx = Math.max(0.1, eyeHalfW * rLen * wideScale * squintScaleX);
-      const localRy = Math.max(0.1, eyeHalfH * dLen * wideScale * squintScaleY);
-
-      // 线性映射：openness 0=闭眼, 1=全睁
-      const tOpen = Math.max(0, Math.min(1, openness));
+      const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
       const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
-      // Iris/pupil size based on eyeBase (stable across head rotation),
-      // not on projected ellipse axes. Only overall scale affects iris size.
-      // eyeWide slightly increases iris (eyes wide open = more iris visible),
-      // but squint/blink does not shrink it (eyelid covers instead).
-      const irisBaseR = eyeBase * 0.50;
-      const pupilBaseR = eyeBase * 0.28;
-      const wideBoost = 1 + Math.max(0, (eyeWide || 0)) * 0.15;
-      const irisR = Math.min(irisBaseR * wideBoost, Math.min(localRx, localRy) * 0.85);
-      const pupilR2 = Math.min(pupilBaseR * wideBoost, Math.min(localRx, localRy) * 0.55);
-
-      // Gaze offset in eye-local coordinates
-      const maxOffsetX = Math.max(0, localRx - irisR) * 0.55;
-      const maxOffsetY = Math.max(0, localRy - irisR) * 0.55;
-      const gazeOffsetX = (gazeX || 0) * maxOffsetX;
-      const gazeOffsetY = (gazeY || 0) * maxOffsetY;
-
-      // Enter eye-local coordinate system
       ctx.save();
-      ctx.globalAlpha = finalOpacity;
-      ctx.translate(t.screenX, t.screenY);
-      ctx.rotate(eyeAngle);
+      ctx.globalAlpha = facing;
 
-      if (easedOpen < 0.05) {
-        // Fully closed: draw natural closed-eye curve (downward dip), no eye white
-        const closedDip = localRy * 0.15;
+      // 眼白椭圆：保持完整大小
+      ctx.beginPath();
+      ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.lineWidth = Math.max(0.5, 1.0 * scale);
+      ctx.strokeStyle = '#222';
+      ctx.stroke();
+
+      // 瞳孔：随 easedOpen 缩小
+      if (easedOpen > 0.1) {
+        const pupilRx = rx * 0.55 * easedOpen;
+        const pupilRy = ry * 0.55 * easedOpen;
         ctx.beginPath();
-        ctx.moveTo(-localRx * 0.9, 0);
-        ctx.quadraticCurveTo(0, closedDip, localRx * 0.9, 0);
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = Math.max(1.5, 2.5 * scale);
-        ctx.stroke();
-        const closedDiag = {
-          centerX: t.screenX,
-          centerY: t.screenY,
-          radius: 0,
-          area: 0,
-          eyeCenterX: t.screenX,
-          eyeCenterY: t.screenY,
-          localOffsetX: 0,
-          localOffsetY: 0,
-          gazeX: gazeX || 0,
-          gazeY: gazeY || 0,
-          visible: false,
-          clippedByEyelid: true,
-          eyeRx: localRx,
-          eyeRy: localRy,
-        };
-        ctx.restore();
-        return closedDiag;
-      } else {
-        // 1. Eye white ellipse (full circle, not squashed)
-        ctx.beginPath();
-        ctx.ellipse(0, 0, localRx, localRy, 0, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
+        ctx.ellipse(t.screenX, t.screenY, pupilRx, pupilRy, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#1f1f1f';
+        ctx.globalAlpha = Math.max(0.4, facing) * easedOpen;
         ctx.fill();
-        ctx.lineWidth = Math.max(1, 2.0 * scale);
-        ctx.strokeStyle = '#222';
-        ctx.stroke();
-
-        // 2. Iris + pupil (fixed size, clipped to eye white)
-        ctx.save();
-        ctx.beginPath();
-        ctx.ellipse(0, 0, localRx - 1, localRy - 1, 0, 0, Math.PI * 2);
-        ctx.clip();
-
-        ctx.beginPath();
-        ctx.ellipse(gazeOffsetX, gazeOffsetY, irisR, irisR, 0, 0, Math.PI * 2);
-        ctx.fillStyle = '#7a6b5c';
-        ctx.globalAlpha = Math.max(0.4, finalOpacity);
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.ellipse(gazeOffsetX, gazeOffsetY, pupilR2, pupilR2, 0, 0, Math.PI * 2);
-        ctx.fillStyle = '#2a2420';
-        ctx.fill();
-
-        if (easedOpen > 0.3) {
-          const hlX = gazeOffsetX + irisR * 0.3;
-          const hlY = gazeOffsetY - irisR * 0.3;
-          ctx.beginPath();
-          ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
-          ctx.fillStyle = '#ffffff';
-          ctx.globalAlpha = Math.max(0.3, finalOpacity) * 0.7;
-          ctx.fill();
-        }
-
-        ctx.restore();
-        ctx.globalAlpha = finalOpacity;
-
-        // 3. Upper eyelid: cover from top down to eyelidY, clipped to eye white ellipse
-        if (easedClosed > 0.02) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.ellipse(0, 0, localRx, localRy, 0, 0, Math.PI * 2);
-          ctx.clip();
-
-          const eyelidY = -localRy + localRy * 2 * easedClosed;
-
-          ctx.globalAlpha = 1;
-          ctx.fillStyle = this.mesh.faceTopColor || this.mesh.bodyColor || '#d9d2be';
-          ctx.fillRect(-localRx - 2, -localRy - 2, localRx * 2 + 4, eyelidY - (-localRy) + 2);
-
-          ctx.strokeStyle = '#555';
-          ctx.lineWidth = Math.max(0.5, 1.0 * scale);
-          ctx.beginPath();
-          ctx.moveTo(-localRx, eyelidY);
-          ctx.lineTo(localRx, eyelidY);
-          ctx.stroke();
-
-          ctx.restore();
-          ctx.globalAlpha = facing;
-        }
+        ctx.globalAlpha = facing;
       }
 
-      const diagData = {
-        centerX: t.screenX + gazeOffsetX * Math.cos(eyeAngle) - gazeOffsetY * Math.sin(eyeAngle),
-        centerY: t.screenY + gazeOffsetX * Math.sin(eyeAngle) + gazeOffsetY * Math.cos(eyeAngle),
-        radius: irisR,
-        area: Math.PI * irisR * irisR,
-        eyeCenterX: t.screenX,
-        eyeCenterY: t.screenY,
-        localOffsetX: gazeOffsetX,
-        localOffsetY: gazeOffsetY,
-        gazeX: gazeX || 0,
-        gazeY: gazeY || 0,
-        visible: true,
-        clippedByEyelid: easedClosed > 0.02,
-        eyeRx: localRx,
-        eyeRy: localRy,
-      };
-
+      // 直线眼皮：clip 到眼睛椭圆内，用矩形从顶部向下覆盖
+      // 直线下边缘 = 可爱眨眼效果，不超出眼睛范围
+      if (easedClosed > 0.01) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+        ctx.clip();
+        // 眼皮从眼睛顶部向下覆盖，直线下边缘
+        const eyelidY = t.screenY - ry + ry * 2 * easedClosed;
+        ctx.fillStyle = this.mesh.faceTopColor || '#d9d2be';
+        ctx.fillRect(
+          t.screenX - rx - 2, t.screenY - ry - 2,
+          rx * 2 + 4, eyelidY - t.screenY + ry + 2
+        );
+        // 画一条细细的眼皮线（更可爱）
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = Math.max(0.8, 1.2 * scale);
+        ctx.beginPath();
+        ctx.moveTo(t.screenX - rx, eyelidY);
+        ctx.lineTo(t.screenX + rx, eyelidY);
+        ctx.stroke();
+        ctx.restore();
+      }
       ctx.restore();
-      return diagData;
     };
 
     const drawBrow = (anchor, raise) => {
@@ -869,7 +724,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
 
       ctx.save();
       ctx.globalAlpha = facing;
-      ctx.fillStyle = '#2a2420';
+      ctx.fillStyle = '#1a1a1a';
 
       // 倒三角形：上边水平，尖角向下
       const left = mapFaceLocalPoint(t, -halfW, 0);
@@ -884,21 +739,15 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
       ctx.fill();
 
       // 黑色描边
-      ctx.strokeStyle = '#2a2420';
+      ctx.strokeStyle = '#1a1a1a';
       ctx.lineWidth = Math.max(1, 1.5 * scale);
       ctx.stroke();
 
       ctx.restore();
     };
 
-    const leftIris = drawEye(anchors.leftEye, np.eyeLeft * (1 - np.blink), np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY, true);
-    const rightIris = drawEye(anchors.rightEye, np.eyeRight * (1 - np.blink), np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY, false);
-    if (leftIris) this.irisDiag.left = leftIris;
-    if (rightIris) this.irisDiag.right = rightIris;
-    const rAvg = (this.irisDiag.left.radius + this.irisDiag.right.radius) / 2;
-    const rDiff = Math.abs(this.irisDiag.left.radius - this.irisDiag.right.radius);
-    this.irisDiag.radiusStabilityPass = rAvg > 0 ? (rDiff / rAvg) < 0.1 : false;
-    this.irisDiag.movementNotSizePass = this.irisDiag.radiusStabilityPass;
+    drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft);
+    drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight);
     drawBrow(anchors.browLeft, np.browLeft);
     drawBrow(anchors.browRight, np.browRight);
     drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile, np.mouthFunnel, np.mouthPress);
@@ -947,147 +796,7 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     this._tailSway = 0;
     this._tailSwayDecay = 0.92;
 
-    // 眼睛-表面三角形绑定（左右眼分别存一份）。
-    // 在头部变形时（yaw/pitch/roll），眼睛的 eyeAnchorWorld 已经在内部统一旋转，
-    // 但因为锚点落在 mesh 之外（或与表面有微小偏差）会出现"眼睛向上抬起"的视觉错位。
-    // 我们在初始化时记录左右眼在 mesh 头部的最近三角形 + 重心坐标，每帧根据
-    // 已变形 mesh 的三个顶点位置和法线重新计算眼中心和表面切线基。
-    // 这样无论 pitch 如何变化，眼睛都严格贴在已变形的实际头部表面上，
-    // 不再因为解析锚点脱离 mesh 而浮起。
-    this.eyeSurfaceBindings = this._buildEyeSurfaceBindings();
-
     this.draw();
-  }
-
-  /**
-   * 为左右眼各找到一个稳定的、最近的 mesh 三角形 (face) 及其重心坐标。
-   * 返回结构：
-   *   { left: { indices:[a,b,c], weights:[w0,w1,w2], surfaceOffset } , right: { ... } }
-   *
-   * 关键约束：
-   *   - 在变形后 mesh 上重新计算。
-   *   - 选中的 face 在后续 pitch 范围内不会跳格（只取头部正面 +Z 法线区域）。
-   *   - 不每帧重新选择，仅在 mesh 重置时重建。
-   */
-  _buildEyeSurfaceBindings() {
-    const mesh = this.spindleMesh;
-    if (!mesh || !mesh.faces || mesh.faces.length === 0) {
-      return { left: null, right: null };
-    }
-    const anchors = this.getAnchors({});
-    const left = this._findNearestFace(anchors.leftEye, 'left');
-    const right = this._findNearestFace(anchors.rightEye, 'right');
-    return { left, right };
-  }
-
-  _findNearestFace(anchor, label) {
-    const mesh = this.spindleMesh;
-    const local = computeFaceAnchorXYZ(
-      mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset
-    );
-
-    // 在头部正面 +Z 区域挑候选 face (nz > 0)
-    const candidates = [];
-    for (let f = 0; f < mesh.faces.length; f++) {
-      const face = mesh.faces[f];
-      const verts = face.vertices;
-      if (!verts || verts.length < 3) continue;
-      // 主体面是 quad（4 个顶点），鼻端是 tri（3 个顶点）
-      // 取前 3 个顶点代表三角剖分的一侧
-      const v0 = verts[0];
-      const v1 = verts[1];
-      const v2 = verts[2];
-      const avgNz = (v0.nz + v1.nz + v2.nz) / 3;
-      if (avgNz < 0.2) continue; // 只在面部正面
-      // 重心
-      const cx = (v0.x + v1.x + v2.x) / 3;
-      const cy = (v0.y + v1.y + v2.y) / 3;
-      const cz = (v0.z + v1.z + v2.z) / 3;
-      const dx = cx - local.x;
-      const dy = cy - local.y;
-      const dz = cz - local.z;
-      const dist2 = dx * dx + dy * dy + dz * dz;
-      candidates.push({ f, verts, dist2, cx, cy, cz });
-    }
-    if (candidates.length === 0) {
-      return { indices: null, weights: [1, 0, 0], surfaceOffset: 0, label };
-    }
-    candidates.sort((a, b) => a.dist2 - b.dist2);
-    const best = candidates[0];
-    return {
-      indices: [0, 1, 2],
-      // vertices 引用在 draw 时从 deformedBody 中按 face.indices 取
-      weights: [1 / 3, 1 / 3, 1 / 3],
-      surfaceOffset: 0,
-      faceRef: best.f,
-      label,
-      // 保存初始三角形中心以便诊断
-      initialCenter: { x: best.cx, y: best.cy, z: best.cz },
-    };
-  }
-
-  /**
-   * 根据绑定 + 已变形 mesh 三角面，计算眼睛在局部/world/screen 坐标系下的中心、
-   * 表面法线、屏幕切线基以及 eye-to-surface 偏移。这是眼睛 mesh 表面附着的核心。
-   * 一旦 mesh 重建 (_buildEyeSurfaceBindings) 就会自动选新的最近三角形。
-   */
-  _evaluateEyeSurfaceBinding(deformedBody, binding, rot, originX, originY, scale) {
-    if (!binding || binding.indices == null) return null;
-    const face = deformedBody.faces[binding.faceRef];
-    if (!face) return null;
-    const verts = face.vertices;
-    const w = binding.weights;
-    const wsum = w[0] + w[1] + w[2] || 1;
-    const w0 = w[0] / wsum;
-    const w1 = w[1] / wsum;
-    const w2 = w[2] / wsum;
-
-    // 局部坐标：三角面加权中心（无旋转）
-    const lx = verts[0].x * w0 + verts[1].x * w1 + verts[2].x * w2;
-    const ly = verts[0].y * w0 + verts[1].y * w1 + verts[2].y * w2;
-    const lz = verts[0].z * w0 + verts[1].z * w1 + verts[2].z * w2;
-    const lnx = verts[0].nx * w0 + verts[1].nx * w1 + verts[2].nx * w2;
-    const lny = verts[0].ny * w0 + verts[1].ny * w1 + verts[2].ny * w2;
-    const lnz = verts[0].nz * w0 + verts[1].nz * w1 + verts[2].nz * w2;
-    const nLen = Math.sqrt(lnx * lnx + lny * lny + lnz * lnz) || 1;
-    const nLocal = { x: lnx / nLen, y: lny / nLen, z: lnz / nLen };
-
-    // 把局部点变换到 world / screen
-    const world = this._transformVec(lx, ly, lz, rot);
-    const normalWorld = this._transformVec(nLocal.x, nLocal.y, nLocal.z, rot);
-    const nWorldLen = Math.sqrt(normalWorld.x * normalWorld.x + normalWorld.y * normalWorld.y + normalWorld.z * normalWorld.z) || 1;
-    const nWorld = { x: normalWorld.x / nWorldLen, y: normalWorld.y / nWorldLen, z: normalWorld.z / nWorldLen };
-
-    // 沿表面法线偏移一个 eyeOffset，让眼睛略浮于表面避免 z-fighting
-    const eyeOffset = 0.5;
-    const offsetWorld = {
-      x: world.x + nWorld.x * eyeOffset,
-      y: world.y + nWorld.y * eyeOffset,
-      z: world.z + nWorld.z * eyeOffset,
-    };
-    const screenX = originX + offsetWorld.x * scale;
-    const screenY = originY + offsetWorld.y * scale;
-
-    // eye-to-surface offset 距离（与原 eyeAnchor 对比）
-    const eyeAnchorLocal = computeFaceAnchorXYZ(deformedBody, 0, binding.label === 'left' ? -deformedBody.headX * 0.30 : deformedBody.headX * 0.30, -deformedBody.headY * 0.28, 0);
-    const eyeAnchorWorld = this._transformVec(eyeAnchorLocal.x, eyeAnchorLocal.y, eyeAnchorLocal.z, rot);
-    const eyeToSurfaceWorld = Math.sqrt(
-      (eyeAnchorWorld.x - world.x) ** 2 +
-      (eyeAnchorWorld.y - world.y) ** 2 +
-      (eyeAnchorWorld.z - world.z) ** 2
-    );
-
-    return {
-      localPoint: { x: lx, y: ly, z: lz },
-      localNormal: nLocal,
-      worldPoint: world,
-      worldNormal: nWorld,
-      offsetWorld,
-      screenX,
-      screenY,
-      eyeToSurfaceWorld,
-      triangleIndices: [verts[0].col !== undefined ? 0 : 0, 1, 2],
-    };
   }
 
   /** 获取当前模型参数 */
@@ -1114,7 +823,6 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       faceBottomColor: prev.faceBottomColor,
     };
     this.spindleMesh = createSpindleMesh(this._modelOptions);
-    this.eyeSurfaceBindings = this._buildEyeSurfaceBindings();
     this.draw();
   }
 
@@ -1130,48 +838,12 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       faceTopColor: '#d1c394', faceBottomColor: '#f4e8c8',
     };
     this.spindleMesh = createSpindleMesh(this._modelOptions);
-    this.eyeSurfaceBindings = this._buildEyeSurfaceBindings();
     this.draw();
   }
 
   /** 动态调整身体长度（兼容旧 API） */
   setBodyLength(length) {
     this.setModelOptions({ bodyLength: length });
-  }
-
-  /**
-   * Find the nearest vertex on the spindle mesh surface to a given point.
-   * Used for eye-surface attachment diagnostics.
-   */
-  _findNearestMeshPoint(targetPoint) {
-    const mesh = this.spindleMesh;
-    if (!mesh || !mesh.vertices || mesh.vertices.length === 0) {
-      return { x: targetPoint.x, y: targetPoint.y, z: targetPoint.z, nx: 0, ny: 0, nz: 1, dist: 0 };
-    }
-
-    let bestIdx = 0;
-    let bestDist = Infinity;
-    for (let i = 0; i < mesh.vertices.length; i++) {
-      const v = mesh.vertices[i];
-      const dx = v.x - targetPoint.x;
-      const dy = v.y - targetPoint.y;
-      const dz = v.z - targetPoint.z;
-      const dist = dx * dx + dy * dy + dz * dz;
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestIdx = i;
-      }
-    }
-
-    const v = mesh.vertices[bestIdx];
-    return {
-      x: v.x, y: v.y, z: v.z,
-      nx: v.nx, ny: v.ny, nz: v.nz,
-      dist: Math.sqrt(bestDist),
-      vertexIndex: bestIdx,
-      s: v.t,
-      angle: v.angle,
-    };
   }
 
   /**
@@ -1194,8 +866,8 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const browSpacing = hx * 0.30;  // 眉水平间距与眼一致
 
     return {
-      leftEye:  { bodyT: 0, horizOffset: -eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0 },
-      rightEye: { bodyT: 0, horizOffset:  eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0 },
+      leftEye:  { bodyT: 0, horizOffset: -eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0.5 },
+      rightEye: { bodyT: 0, horizOffset:  eyeSpacing,  vertOffset: eyeHeight, surfaceOffset: 0.5 },
       mouth:    { bodyT: 0, horizOffset: 0,            vertOffset: mouthHeight, surfaceOffset: 0.5, mouthWidth: mouthHalfWidth },
       browLeft: { bodyT: 0, horizOffset: -browSpacing, vertOffset: browOffset, surfaceOffset: 0.8 },
       browRight:{ bodyT: 0, horizOffset:  browSpacing, vertOffset: browOffset, surfaceOffset: 0.8 },
@@ -1227,9 +899,6 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
     const margin = 0.18;
     const scale = (minSide * (1 - margin * 2)) / headDiameter;
 
-    this._lastScale = scale;
-    this._lastMinSide = minSide;
-
     // 头部中心稍微向上偏移，让下方有空间展示身体
     const originX = w * 0.5 + (np.headX - 0.5) * minSide * 0.22;
     const originY = h * 0.48 + (np.headY - 0.5) * minSide * 0.18;
@@ -1251,488 +920,170 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ambient: renderAmbient,
     });
 
-    this._drawFaceFeatures(ctx, np, rot, originX, originY, scale, deformedBody);
-
-    // Runtime diagnostics
-    this._updateRuntimeDiag(np, rot, originX, originY, scale, deformedBody);
+    this._drawFaceFeatures(ctx, np, rot, originX, originY, scale);
   }
 
-  _updateRuntimeDiag(np, rot, originX, originY, scale, deformedBody) {
-    const mesh = this.spindleMesh;
+  _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
     const anchors = this.getAnchors(np);
-
-    // Head center (local origin at bodyT=0, face center on +Z surface)
-    const headCenterWorld = this._transformVec(0, 0, mesh.headZ, rot);
-    const headCenterScreen = { x: originX + headCenterWorld.x * scale, y: originY + headCenterWorld.y * scale };
-
-    // Eyes
-    const leftEyeLocal = computeFaceAnchorXYZ(mesh, anchors.leftEye.bodyT, anchors.leftEye.horizOffset, anchors.leftEye.vertOffset, anchors.leftEye.surfaceOffset);
-    const rightEyeLocal = computeFaceAnchorXYZ(mesh, anchors.rightEye.bodyT, anchors.rightEye.horizOffset, anchors.rightEye.vertOffset, anchors.rightEye.surfaceOffset);
-    const leftEyeTrans = this._transformAnchor(leftEyeLocal, rot, originX, originY, scale);
-    const rightEyeTrans = this._transformAnchor(rightEyeLocal, rot, originX, originY, scale);
-
-    // Relative to head center (local)
-    const leftEyeRelLocal = {
-      x: leftEyeLocal.x - 0,
-      y: leftEyeLocal.y - 0,
-      z: leftEyeLocal.z - mesh.headZ,
-    };
-    const rightEyeRelLocal = {
-      x: rightEyeLocal.x - 0,
-      y: rightEyeLocal.y - 0,
-      z: rightEyeLocal.z - mesh.headZ,
-    };
-
-    // Relative to head center (world)
-    const leftEyeRelWorld = {
-      x: leftEyeTrans.worldX - headCenterWorld.x,
-      y: leftEyeTrans.worldY - headCenterWorld.y,
-      z: leftEyeTrans.worldZ - headCenterWorld.z,
-    };
-    const rightEyeRelWorld = {
-      x: rightEyeTrans.worldX - headCenterWorld.x,
-      y: rightEyeTrans.worldY - headCenterWorld.y,
-      z: rightEyeTrans.worldZ - headCenterWorld.z,
-    };
-
-    // Distance check (should be stable under rotation)
-    const leftDistLocal = Math.sqrt(leftEyeRelLocal.x**2 + leftEyeRelLocal.y**2 + leftEyeRelLocal.z**2);
-    const leftDistWorld = Math.sqrt(leftEyeRelWorld.x**2 + leftEyeRelWorld.y**2 + leftEyeRelWorld.z**2);
-    const eyeAttachedToHead = Math.abs(leftDistLocal - leftDistWorld) / leftDistLocal < 0.05;
-
-    // Tail direction
-    const headForwardWorld = this._transformVec(0, 0, 1, rot);
-
-    // Eye surface attachment diag: find nearest point on mesh surface
-    const leftEyeSurfaceLocal = this._findNearestMeshPoint(leftEyeLocal);
-    const rightEyeSurfaceLocal = this._findNearestMeshPoint(rightEyeLocal);
-    const leftEyeSurfaceWorld = this._transformVec(leftEyeSurfaceLocal.x, leftEyeSurfaceLocal.y, leftEyeSurfaceLocal.z, rot);
-    const rightEyeSurfaceWorld = this._transformVec(rightEyeSurfaceLocal.x, rightEyeSurfaceLocal.y, rightEyeSurfaceLocal.z, rot);
-
-    const leftEyeToSurfaceDist = Math.sqrt(
-      (leftEyeLocal.x - leftEyeSurfaceLocal.x) ** 2 +
-      (leftEyeLocal.y - leftEyeSurfaceLocal.y) ** 2 +
-      (leftEyeLocal.z - leftEyeSurfaceLocal.z) ** 2
-    );
-
-    // Normal angle difference
-    const eyeN = { x: leftEyeLocal.nx, y: leftEyeLocal.ny, z: leftEyeLocal.nz };
-    const surfN = { x: leftEyeSurfaceLocal.nx, y: leftEyeSurfaceLocal.ny, z: leftEyeSurfaceLocal.nz };
-    const normalDot = eyeN.x * surfN.x + eyeN.y * surfN.y + eyeN.z * surfN.z;
-    const normalAngleDiff = Math.acos(Math.max(-1, Math.min(1, normalDot))) * 180 / Math.PI;
-
-    // Tail runtime diag
-    const tailRootLocal = { x: 0, y: 0, z: mesh.headZ - 0.8 * (mesh.headZ + mesh.bodyLength) };
-    const tailTipLocal = { x: 0, y: 0, z: mesh.headZ - 1.0 * (mesh.headZ + mesh.bodyLength) - 20 };
-    const tailRootWorld = this._transformVec(tailRootLocal.x, tailRootLocal.y, tailRootLocal.z, rot);
-    const tailTipWorld = this._transformVec(tailTipLocal.x, tailTipLocal.y, tailTipLocal.z, rot);
-    const tailRootScreen = { x: originX + tailRootWorld.x * scale, y: originY + tailRootWorld.y * scale };
-    const tailTipScreen = { x: originX + tailTipWorld.x * scale, y: originY + tailTipWorld.y * scale };
-
-    // Body centerline: sample mesh vertices along the spine (angle ≈ 0) for tail-direction diagnostics
-    const bodyCenterlinePoints = [];
-    for (let ci = 0; ci <= 10; ci++) {
-      const targetS = ci / 10;
-      let bestV = null;
-      let bestScore = Infinity;
-      for (const v of mesh.vertices) {
-        const tDiff = Math.abs(v.t - targetS);
-        const angleAbs = Math.abs(v.angle);
-        // Weight t-match heavily; use angle closeness to 0 as tiebreaker
-        const score = tDiff * 100 + angleAbs;
-        if (score < bestScore) {
-          bestScore = score;
-          bestV = v;
-        }
-      }
-      if (bestV) {
-        const cw = this._transformVec(bestV.x, bestV.y, bestV.z, rot);
-        bodyCenterlinePoints.push({
-          x: originX + cw.x * scale,
-          y: originY + cw.y * scale,
-        });
-      }
-    }
-
-    // Store on window
-    if (typeof window !== 'undefined') {
-      window.__cheapLiveFishPoseDiag = {
-        source: 'public-demo',
-        inputYaw: np.headYaw,
-        inputPitch: np.headPitch,
-        inputRoll: np.headRoll,
-        normalizedYawDeg: rot.angleY,
-        normalizedPitchDeg: rot.angleX,
-        normalizedRollDeg: rot.angleZ,
-        rotationOrder: 'Z-X-Y (roll-pitch-yaw)',
-
-        headCenterLocal: { x: 0, y: 0, z: mesh.headZ },
-        headCenterWorld: { x: headCenterWorld.x, y: headCenterWorld.y, z: headCenterWorld.z },
-        headCenterScreen,
-
-        leftEyeAnchorLocal: { x: leftEyeLocal.x, y: leftEyeLocal.y, z: leftEyeLocal.z },
-        rightEyeAnchorLocal: { x: rightEyeLocal.x, y: rightEyeLocal.y, z: rightEyeLocal.z },
-        leftEyeAnchorWorld: { x: leftEyeTrans.worldX, y: leftEyeTrans.worldY, z: leftEyeTrans.worldZ },
-        rightEyeAnchorWorld: { x: rightEyeTrans.worldX, y: rightEyeTrans.worldY, z: rightEyeTrans.worldZ },
-        leftEyeScreen: { x: leftEyeTrans.screenX, y: leftEyeTrans.screenY },
-        rightEyeScreen: { x: rightEyeTrans.screenX, y: rightEyeTrans.screenY },
-
-        leftEyeRelativeToHeadLocal: leftEyeRelLocal,
-        rightEyeRelativeToHeadLocal: rightEyeRelLocal,
-        leftEyeRelativeToHeadWorld: leftEyeRelWorld,
-        rightEyeRelativeToHeadWorld: rightEyeRelWorld,
-
-        eyeDistLocal: leftDistLocal,
-        eyeDistWorld: leftDistWorld,
-        eyeAttachedToHead,
-
-        headForwardWorld,
-
-        // Eye surface attachment diag
-        leftEyeSurfaceLocal,
-        rightEyeSurfaceLocal,
-        leftEyeSurfaceWorld: { x: leftEyeSurfaceWorld.x, y: leftEyeSurfaceWorld.y, z: leftEyeSurfaceWorld.z },
-        rightEyeSurfaceWorld: { x: rightEyeSurfaceWorld.x, y: rightEyeSurfaceWorld.y, z: rightEyeSurfaceWorld.z },
-        leftEyeToSurfaceDist,
-        leftEyeNormalAngleDiff: normalAngleDiff,
-        leftEyeSurfaceS: leftEyeSurfaceLocal.s,
-        leftEyeSurfaceAngle: leftEyeSurfaceLocal.angle,
-
-        // Tail runtime diag
-        tailRootLocal,
-        tailTipLocal,
-        tailRootWorld: { x: tailRootWorld.x, y: tailRootWorld.y, z: tailRootWorld.z },
-        tailTipWorld: { x: tailTipWorld.x, y: tailTipWorld.y, z: tailTipWorld.z },
-        tailRootScreen,
-        tailTipScreen,
-        tailVectorScreen: { x: tailTipScreen.x - tailRootScreen.x, y: tailTipScreen.y - tailRootScreen.y },
-      };
-
-      // Eye surface attachment diagnostics
-      window.__cheapLiveEyeSurfaceDiag = {
-        inputPitch: np.headPitch,
-        inputYaw: np.headYaw,
-        eyeAnchorLocal: { x: leftEyeLocal.x, y: leftEyeLocal.y, z: leftEyeLocal.z },
-        eyeAnchorWorld: { x: leftEyeTrans.worldX, y: leftEyeTrans.worldY, z: leftEyeTrans.worldZ },
-        nearestHeadSurfacePointLocal: { x: leftEyeSurfaceLocal.x, y: leftEyeSurfaceLocal.y, z: leftEyeSurfaceLocal.z },
-        nearestHeadSurfacePointWorld: { x: leftEyeSurfaceWorld.x, y: leftEyeSurfaceWorld.y, z: leftEyeSurfaceWorld.z },
-        nearestHeadSurfacePointScreen: { x: originX + leftEyeSurfaceWorld.x * scale, y: originY + leftEyeSurfaceWorld.y * scale },
-        eyeToSurfaceDistance: leftEyeSurfaceLocal.dist,
-        eyeSurfaceNormal: { x: leftEyeLocal.nx, y: leftEyeLocal.ny, z: leftEyeLocal.nz },
-        headSurfaceNormal: { x: leftEyeSurfaceLocal.nx, y: leftEyeSurfaceLocal.ny, z: leftEyeSurfaceLocal.nz },
-        normalAngleDifference: normalAngleDiff,
-        localSurfaceU: leftEyeSurfaceLocal.s,
-        localSurfaceV: leftEyeSurfaceLocal.angle,
-      };
-
-      // Eye surface attachment via stable triangle binding (pitch-immune)
-      if (deformedBody && this.eyeSurfaceBindings) {
-        const deformedMesh = deformedBody;
-        const lb = this.eyeSurfaceBindings.left
-          ? this._evaluateEyeSurfaceBinding(deformedMesh, this.eyeSurfaceBindings.left, rot, originX, originY, scale)
-          : null;
-        const rb = this.eyeSurfaceBindings.right
-          ? this._evaluateEyeSurfaceBinding(deformedMesh, this.eyeSurfaceBindings.right, rot, originX, originY, scale)
-          : null;
-        if (lb && rb) {
-          window.__cheapLiveEyeSurfaceBindingDiag = {
-            inputPitch: np.headPitch,
-            inputYaw: np.headYaw,
-            inputRoll: np.headRoll,
-            left: {
-              screenX: lb.screenX,
-              screenY: lb.screenY,
-              eyeToSurfaceWorld: lb.eyeToSurfaceWorld,
-              worldNormal: lb.worldNormal,
-              localPoint: lb.localPoint,
-            },
-            right: {
-              screenX: rb.screenX,
-              screenY: rb.screenY,
-              eyeToSurfaceWorld: rb.eyeToSurfaceWorld,
-              worldNormal: rb.worldNormal,
-              localPoint: rb.localPoint,
-            },
-          };
-        }
-      }
-
-      // Tail runtime diagnostics
-      window.__cheapLiveTailRuntimeDiag = {
-        inputYaw: np.headYaw,
-        effectiveHeadYaw: rot.angleY,
-        effectiveTailYaw: rot.angleY * (1 - 0.60),
-        headForwardScreen: { x: headForwardWorld.x * scale, y: headForwardWorld.y * scale },
-        tailRootScreen,
-        tailTipScreen,
-        tailVectorScreen: { x: tailTipScreen.x - tailRootScreen.x, y: tailTipScreen.y - tailRootScreen.y },
-        bodyCenterlinePoints,
-        expectedTailSide: np.headYaw > 0 ? 'left' : (np.headYaw < 0 ? 'right' : 'center'),
-        actualTailSide: (tailTipScreen.x - tailRootScreen.x) > 0 ? 'right' : ((tailTipScreen.x - tailRootScreen.x) < 0 ? 'left' : 'center'),
-      };
-
-      // Mouth runtime diag
-      if (this.mouthDiag) {
-        window.__cheapLiveMouthDiag = {
-          source: 'public-demo',
-          mouthOpen: np.mouthOpen,
-          smile: np.mouthSmile,
-          ...this.mouthDiag,
-        };
-      }
-
-      // Tail fluke duplication diagnostic
-      {
-        const mesh = this.spindleMesh;
-        const columns = mesh.columns || 32;
-        const flukeVerts = [];
-        for (const v of mesh.vertices) {
-          if (v.col > columns) {
-            flukeVerts.push(v);
-          }
-        }
-        let maxSepX = 0;
-        for (let i = 0; i < flukeVerts.length; i++) {
-          for (let j = i + 1; j < flukeVerts.length; j++) {
-            const dx = Math.abs(flukeVerts[i].x - flukeVerts[j].x);
-            if (dx > maxSepX) maxSepX = dx;
-          }
-        }
-        const thicknessPlane = flukeVerts.filter(v => Math.abs(v.x) > 0.01);
-        const mainPlane = flukeVerts.filter(v => Math.abs(v.x) <= 0.01);
-        const maxSepPixels = maxSepX * scale;
-        window.__cheapLiveTailFlukeDiag = {
-          totalFlukeVerts: flukeVerts.length,
-          mainPlaneCount: mainPlane.length,
-          thicknessPlaneCount: thicknessPlane.length,
-          maxSeparationUnits: maxSepX,
-          maxSeparationPixels: maxSepPixels,
-          duplicateTailDetected: maxSepPixels > 5,
-        };
-      }
-
-      // Runtime trace
-      const drawFaceStr = this._drawFaceFeatures.toString();
-      const transformStr = this._transformAnchor.toString();
-
-      function simpleHash(s) {
-        let h = 0;
-        for (let i = 0; i < s.length; i++) {
-          h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-        }
-        return (h >>> 0).toString(16);
-      }
-
-      window.__cheapLiveRuntimeTrace = {
-        rendererClass: this.constructor.name,
-        drawFaceFunctionHash: simpleHash(drawFaceStr),
-        drawFaceFunctionLength: drawFaceStr.length,
-        transformAnchorHash: simpleHash(transformStr),
-        transformAnchorLength: transformStr.length,
-        sourceFile: 'procedural-mesh-renderer.js',
-      };
-    }
-  }
-
-  _drawFaceFeatures(ctx, np, rot, originX, originY, scale, deformedBody) {
-    const anchors = this.getAnchors(np);
-    if (!this.irisDiag) {
-      this.irisDiag = {
-        left: { centerX: 0, centerY: 0, radius: 0, area: 0, eyeCenterX: 0, eyeCenterY: 0,
-          localOffsetX: 0, localOffsetY: 0, gazeX: 0, gazeY: 0, visible: false, clippedByEyelid: false,
-          eyeRx: 0, eyeRy: 0 },
-        right: { centerX: 0, centerY: 0, radius: 0, area: 0, eyeCenterX: 0, eyeCenterY: 0,
-          localOffsetX: 0, localOffsetY: 0, gazeX: 0, gazeY: 0, visible: false, clippedByEyelid: false,
-          eyeRx: 0, eyeRy: 0 },
-        radiusStabilityPass: false,
-        movementNotSizePass: false,
-      };
-    }
     const mesh = this.spindleMesh;
-    const deformedMesh = deformedBody || mesh;
-
-    // 预计算左右眼 surface binding（使用已变形 mesh）
-    const leftBinding = this.eyeSurfaceBindings && this.eyeSurfaceBindings.left
-      ? this._evaluateEyeSurfaceBinding(deformedMesh, this.eyeSurfaceBindings.left, rot, originX, originY, scale)
-      : null;
-    const rightBinding = this.eyeSurfaceBindings && this.eyeSurfaceBindings.right
-      ? this._evaluateEyeSurfaceBinding(deformedMesh, this.eyeSurfaceBindings.right, rot, originX, originY, scale)
-      : null;
 
     const eyeBase = Math.max(8, mesh.headX * 0.25);
 
-    const beginFaceLocalTransform = (ctx, anchor, scale) => {
-      const a = anchor.rightVec.x * scale;
-      const b = anchor.rightVec.y * scale;
-      const c = anchor.downVec.x * scale;
-      const d = anchor.downVec.y * scale;
-      ctx.save();
-      ctx.translate(anchor.screenX, anchor.screenY);
-      ctx.transform(a, b, c, d, 0, 0);
-      return { a, b, c, d, determinant: a * d - b * c };
-    };
-
-    const drawEye = (anchor, openness, eyeWide, eyeSquint, gazeX, gazeY, isLeftEye) => {
+    const drawEye = (anchor, openness, eyeWide, eyeSquint, gazeX, gazeY) => {
       const local = computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
+      const facing = clamp(t.nz, -0.2, 1.0);
+      if (facing <= 0) return;
 
-      const normalFacing = t.nz;
+      const eyeHalfW = eyeBase * scale;
+      const eyeHalfH = eyeBase * scale;
 
-      if (normalFacing <= 0.02) return;
+      const proj = computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
+      let rx = Math.max(0.1, proj.radiusX);
+      let ry = Math.max(0.1, proj.radiusY);
 
-      const matrix = beginFaceLocalTransform(ctx, t, scale);
-      const areaScale = Math.abs(matrix.determinant) / Math.max(scale * scale, 1e-6);
-      const visibility = smoothstep(0.06, 0.25, Math.min(normalFacing, areaScale));
-
-      const eyeHalfWLocal = Math.max(8, mesh.headX * 0.25);
-      const eyeHalfHLocal = eyeHalfWLocal;
-
+      // eyeWide: 只放大眼眶/眼白，虹膜不变
       const wideScale = 1 + (eyeWide || 0) * 0.47;
+      rx *= wideScale;
+      ry *= wideScale;
+
+      // eyeSquint: 眯眼
       const squintScaleY = 1 - (eyeSquint || 0) * 0.55;
       const squintScaleX = 1 + (eyeSquint || 0) * 0.08;
+      rx *= squintScaleX;
+      ry *= squintScaleY;
+      const ang = proj.angle;
 
-      const irisRLocal = eyeHalfWLocal * 0.50 * wideScale;
-      const pupilRLocal = irisRLocal * 0.56;
-
-      const maxGazeX = eyeHalfWLocal - irisRLocal;
-      const maxGazeY = eyeHalfHLocal - irisRLocal;
-      const gazeOffsetXLocal = (gazeX || 0) * maxGazeX * 0.55;
-      const gazeOffsetYLocal = (gazeY || 0) * maxGazeY * 0.55;
-
-      const tOpen = Math.max(0, Math.min(1, openness));
+      const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
       const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
       const easedClosed = 1 - easedOpen;
 
-      ctx.globalAlpha = visibility;
+      // 虹膜/瞳孔：按眼白短轴比例，不是固定圆
+      const irisScale = 0.50;   // 虹膜占眼白短轴的比例
+      const pupilScale = 0.28;  // 瞳孔占眼白短轴的比例
+      const irisR = Math.min(rx, ry) * irisScale;
+      const pupilR2 = Math.min(rx, ry) * pupilScale;
 
-      if (easedOpen < 0.05) {
-        const closedDip = eyeHalfHLocal * 0.15;
+      // 视线偏移：根据 gazeX/gazeY 偏移虹膜/瞳孔位置
+      const maxOffsetX = Math.max(0, rx - irisR) * 0.55;
+      const maxOffsetY = Math.max(0, ry - irisR) * 0.55;
+      const gazeOffsetX = (gazeX || 0) * maxOffsetX;
+      const gazeOffsetY = (gazeY || 0) * maxOffsetY;
+      const irisCX = t.screenX + gazeOffsetX;
+      const irisCY = t.screenY + gazeOffsetY;
+
+      ctx.save();
+      ctx.globalAlpha = facing;
+
+      if (easedOpen < 0.12) {
+        // 闭眼：画弧形闭眼线，不画眼白和圆形轮廓
+        const closedH = ry * 0.08;
         ctx.beginPath();
-        ctx.moveTo(-eyeHalfWLocal * 0.9, 0);
-        ctx.quadraticCurveTo(0, closedDip, eyeHalfWLocal * 0.9, 0);
+        ctx.moveTo(t.screenX - rx * 0.85, t.screenY);
+        ctx.quadraticCurveTo(t.screenX, t.screenY + closedH, t.screenX + rx * 0.85, t.screenY);
         ctx.strokeStyle = '#333';
         ctx.lineWidth = Math.max(1.5, 2.5 * scale);
         ctx.stroke();
+      } else if (easedClosed > 0.05) {
+        // 半闭眼：画杏仁形可见眼白 + 弧形上眼皮
+        // 只上眼皮下降，下眼皮保持不动（不往上抬）
+        const visibleH = ry * (1 - easedClosed * 0.85);
+        const topCurve = ry * easedClosed * 0.3;
 
-        ctx.restore();
-        return {
-          centerX: t.screenX,
-          centerY: t.screenY,
-          radius: 0,
-          area: 0,
-          eyeCenterX: t.screenX,
-          eyeCenterY: t.screenY,
-          localOffsetX: 0,
-          localOffsetY: 0,
-          gazeX: gazeX || 0,
-          gazeY: gazeY || 0,
-          visible: false,
-          clippedByEyelid: true,
-          eyeRx: eyeHalfWLocal * scale,
-          eyeRy: eyeHalfHLocal * scale,
-          facing: normalFacing,
-          finalOpacity: visibility,
-          anchorNz: t.nz,
-        };
-      }
-
-      ctx.beginPath();
-      ctx.ellipse(0, 0, eyeHalfWLocal * squintScaleX, eyeHalfHLocal * squintScaleY, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
-      ctx.fill();
-      ctx.lineWidth = Math.max(0.5, 1.0 * scale);
-      ctx.strokeStyle = '#222';
-      ctx.stroke();
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.ellipse(0, 0, eyeHalfWLocal * squintScaleX - 1, eyeHalfHLocal * squintScaleY - 1, 0, 0, Math.PI * 2);
-      ctx.clip();
-
-      ctx.beginPath();
-      ctx.ellipse(gazeOffsetXLocal, gazeOffsetYLocal, irisRLocal, irisRLocal, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#7a6b5c';
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.ellipse(gazeOffsetXLocal, gazeOffsetYLocal, pupilRLocal, pupilRLocal, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#2a2420';
-      ctx.fill();
-
-      if (easedOpen > 0.3) {
-        const hlX = gazeOffsetXLocal + irisRLocal * 0.3;
-        const hlY = gazeOffsetYLocal - irisRLocal * 0.3;
         ctx.beginPath();
-        ctx.arc(hlX, hlY, Math.max(1, irisRLocal * 0.15), 0, Math.PI * 2);
+        ctx.moveTo(t.screenX - rx * 0.85, t.screenY);
+        ctx.quadraticCurveTo(t.screenX, t.screenY - visibleH + topCurve, t.screenX + rx * 0.85, t.screenY);
+        // 下边缘固定在眼睛底部，不随 blink 上移
+        ctx.quadraticCurveTo(t.screenX, t.screenY + ry * 0.4, t.screenX - rx * 0.85, t.screenY);
+        ctx.closePath();
         ctx.fillStyle = '#ffffff';
-        ctx.globalAlpha = visibility * 0.7;
         ctx.fill();
-      }
-
-      ctx.restore();
-      ctx.globalAlpha = visibility;
-
-      if (easedClosed > 0.02) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.ellipse(0, 0, eyeHalfWLocal * squintScaleX, eyeHalfHLocal * squintScaleY, 0, 0, Math.PI * 2);
-        ctx.clip();
-
-        const eyelidY = -eyeHalfHLocal + eyeHalfHLocal * 2 * easedClosed;
-
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = mesh.faceTopColor || mesh.bodyColor || '#d9d2be';
-        ctx.fillRect(-eyeHalfWLocal * squintScaleX - 2, -eyeHalfHLocal * squintScaleY - 2, eyeHalfWLocal * squintScaleX * 2 + 4, eyelidY - (-eyeHalfHLocal * squintScaleY) + 2);
-
-        ctx.strokeStyle = '#555';
         ctx.lineWidth = Math.max(0.5, 1.0 * scale);
-        ctx.beginPath();
-        ctx.moveTo(-eyeHalfWLocal * squintScaleX, eyelidY);
-        ctx.lineTo(eyeHalfWLocal * squintScaleX, eyelidY);
+        ctx.strokeStyle = '#222';
         ctx.stroke();
 
+        // 弧形上眼皮线
+        ctx.beginPath();
+        ctx.moveTo(t.screenX - rx, t.screenY);
+        ctx.quadraticCurveTo(t.screenX, t.screenY - visibleH + topCurve * 1.2, t.screenX + rx, t.screenY);
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = Math.max(1, 1.8 * scale);
+        ctx.stroke();
+
+        // 瞳孔
+        if (easedOpen > 0.15) {
+          // Clip 到可见眼白区域内
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(t.screenX - rx * 0.85, t.screenY);
+          ctx.quadraticCurveTo(t.screenX, t.screenY - visibleH + topCurve, t.screenX + rx * 0.85, t.screenY);
+          ctx.quadraticCurveTo(t.screenX, t.screenY + ry * 0.4, t.screenX - rx * 0.85, t.screenY);
+          ctx.closePath();
+          ctx.clip();
+
+          // 虹膜
+          const halfIrisR = irisR * 0.8;
+          ctx.beginPath();
+          ctx.ellipse(irisCX, irisCY, halfIrisR, halfIrisR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+          ctx.fillStyle = '#7a6b5c';
+          ctx.globalAlpha = Math.max(0.4, facing) * Math.min(1, easedOpen * 1.5);
+          ctx.fill();
+
+          // 瞳孔
+          const halfPupilR = pupilR2 * 0.8;
+          ctx.beginPath();
+          ctx.ellipse(irisCX, irisCY, halfPupilR, halfPupilR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+          ctx.fillStyle = '#1a1a1a';
+          ctx.fill();
+
+          ctx.restore();
+          ctx.globalAlpha = facing;
+        }
+      } else {
+        // 全睁眼：完整眼白 + 圆形轮廓
+        ctx.beginPath();
+        ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.lineWidth = Math.max(0.5, 1.0 * scale);
+        ctx.strokeStyle = '#222';
+        ctx.stroke();
+
+        // 虹膜 + 瞳孔：作为眼白内部 decal，clip 在眼白内
+        ctx.save();
+        // 用眼白椭圆做 clip 区域
+        ctx.beginPath();
+        ctx.ellipse(t.screenX, t.screenY, rx - 1, ry - 1, ang, 0, Math.PI * 2);
+        ctx.clip();
+
+        // 虹膜：淡色圆环
+        ctx.beginPath();
+        ctx.ellipse(irisCX, irisCY, irisR, irisR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#7a6b5c';
+        ctx.globalAlpha = Math.max(0.4, facing) * easedOpen;
+        ctx.fill();
+
+        // 瞳孔：深色椭圆，在虹膜中心
+        ctx.beginPath();
+        ctx.ellipse(irisCX, irisCY, pupilR2, pupilR2 * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fill();
+
+        // 高光：小白点，可选
+        if (easedOpen > 0.5) {
+          const hlX = irisCX + irisR * 0.3;
+          const hlY = irisCY - irisR * 0.3;
+          ctx.beginPath();
+          ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = Math.max(0.3, facing) * 0.7;
+          ctx.fill();
+        }
+
         ctx.restore();
-        ctx.globalAlpha = visibility;
+        ctx.globalAlpha = facing;
       }
-
       ctx.restore();
-
-      const diagData = {
-        centerX: t.screenX + matrix.a * gazeOffsetXLocal + matrix.c * gazeOffsetYLocal,
-        centerY: t.screenY + matrix.b * gazeOffsetXLocal + matrix.d * gazeOffsetYLocal,
-        radius: irisRLocal * Math.sqrt(Math.abs(matrix.determinant)) / scale,
-        area: Math.PI * irisRLocal * irisRLocal * Math.abs(matrix.determinant),
-        eyeCenterX: t.screenX,
-        eyeCenterY: t.screenY,
-        localOffsetX: gazeOffsetXLocal,
-        localOffsetY: gazeOffsetYLocal,
-        gazeX: gazeX || 0,
-        gazeY: gazeY || 0,
-        visible: true,
-        clippedByEyelid: easedClosed > 0.02,
-        eyeRx: eyeHalfWLocal * scale,
-        eyeRy: eyeHalfHLocal * scale,
-        eyeAngle: Math.atan2(t.rightVec.y, t.rightVec.x),
-        rawEyeAngle: Math.atan2(t.rightVec.y, t.rightVec.x),
-        basisBlend: 0,
-        irisRadius: irisRLocal,
-        pupilRadius: pupilRLocal,
-        irisToEyeMinorRatio: 0.50,
-        pupilToIrisRatio: 0.56,
-        irisBaseR: eyeHalfWLocal * 0.50,
-        pupilBaseR: eyeHalfWLocal * 0.50 * 0.56,
-        wideBoost: wideScale,
-        rightLen: Math.sqrt(t.rightVec.x * t.rightVec.x + t.rightVec.y * t.rightVec.y),
-        downLen: Math.sqrt(t.downVec.x * t.downVec.x + t.downVec.y * t.downVec.y),
-        facing: normalFacing,
-        finalOpacity: visibility,
-        anchorNz: t.nz,
-        matrix,
-        visibility,
-        areaScale,
-      };
-
-      return diagData;
     };
 
     const drawBrow = (anchor, raise) => {
@@ -1762,60 +1113,34 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       const local = computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
       const facing = clamp(t.nz, 0, 1);
-      if (facing <= 0.05) return null;
+      if (facing <= 0.05) return;
+      // 嘴巴尺寸参数：直接用 scale，不预乘 rl/dl
+      // mapFaceLocalPoint 会与 rightVec/downVec 相乘，已包含投影长度
       const smileWiden = 1 + smile * 0.40;
 
+      // mouthPress: 抿嘴效果，降低 open
       const effectiveOpen = Math.max(0, open - (mouthPress || 0) * 0.3);
 
+      // mouthFunnel: 嘟嘴效果，使嘴巴变圆（宽度减少，高度增加）
       const funnelNarrow = 1 - (mouthFunnel || 0) * 0.5;
       const funnelTall = 1 + (mouthFunnel || 0) * 0.8;
 
       const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * funnelNarrow;
-      const baseOpenHeight = 20 * scale;
-      const openH = (3 * scale + baseOpenHeight * effectiveOpen) * funnelTall;
-      const upperLipRatio = 0.18;
-      const lowerLipRatio = 0.85;
-      // 坐标系：v 正=屏幕向下，v 负=屏幕向上
-      // 嘴角真正上扬：smile 越大，嘴角越向上（v 越小，取负值）
-      const cornerUp = -smile * 4 * scale;
-      // 上嘴唇：smile 时轻微向上弯（v 更小）；open 时中部向上抬
-      // 上嘴唇位移保持较小，但必须肉眼可见
-      // 对真实面捕中 mouthOpen 范围偏小的情况做视觉增益：
-      // upperVisualOpen 使用 smoothstep 在低开度时放大上唇运动，
-      // 低开度即可看到曲率变化，大开度不超过比例上限。
-      const upperVisualOpen = smoothstep(0.05, 0.50, effectiveOpen);
-      const upperLift = upperVisualOpen * baseOpenHeight * upperLipRatio;
-      const lowerDrop = effectiveOpen * baseOpenHeight * lowerLipRatio;
-      const topLipY = cornerUp - smile * 0.8 * scale - upperLift;
-      // 下嘴唇：open 时大幅下移；smile 时也微下移
-      const bottomLipY = lowerDrop + smile * 2 * scale;
-      const leftCornerY = cornerUp;
-      const rightCornerY = cornerUp;
-      // neutral 基线（smile=0, open=0）：topLipY=0, bottomLipY=0
-      const neutralTopLipY = 0;
-      const neutralBottomLipY = 0;
-      const topLipDeltaFromNeutral = topLipY - neutralTopLipY;
-      const bottomLipDeltaFromNeutral = bottomLipY - neutralBottomLipY;
-      const bottomToTopMotionRatio = Math.abs(topLipDeltaFromNeutral) > 0.01
-        ? Math.abs(bottomLipDeltaFromNeutral) / Math.abs(topLipDeltaFromNeutral)
-        : 999;
-      const smileCornerLift = -cornerUp; // 正值表示嘴角上扬幅度
-      // upperLipCurve: 正值=向上弯（控制点在嘴角上方，v 更小）
-      const upperLipCurve = cornerUp - topLipY; // >0 表示上嘴唇控制点比嘴角更向上
-      const lowerLipCurve = bottomLipY - cornerUp; // >0 表示下嘴唇控制点比嘴角更向下
-      const neutralSmileBias = 0; // neutral 不带微笑
-      const upperLipCurvePass = smile > 0.1 ? upperLipCurve > 0 : true;
-      const happyOpenMouthPass = effectiveOpen > 0.1
-        ? (bottomToTopMotionRatio >= 2.5 && upperLipCurvePass && smileCornerLift >= 0)
-        : true;
-
+      const openH = (3 * scale + 12 * scale * effectiveOpen) * funnelTall;
+      // 微笑：嘴角上扬（cornerUp），整体微下移（centerDown）
+      // centerDown 不再包含 openH 分量，避免张嘴时整体下移
+      const cornerUp = smile * 3 * scale;
+      const centerDown = smile * 2 * scale;
+      // 上唇几乎不动（<= openH 的 12%），下唇主导（>= openH 的 80%）
+      // 要求：上唇位移 <= 下唇位移的 15-20%
+      const upperLift = openH * 0.15;
+      const lowerDrop = openH * 0.82;
       ctx.save();
       ctx.globalAlpha = facing;
       ctx.strokeStyle = '#2b2b2b';
       ctx.lineWidth = Math.max(1.5, 2.5 * scale);
 
       if (effectiveOpen < 0.05 && smile < 0.1) {
-        // neutral：水平直线，不带微笑
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
         const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
@@ -1823,21 +1148,19 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.lineTo(right.x, right.y);
         ctx.stroke();
       } else if (effectiveOpen < 0.05) {
-        // 闭嘴微笑：嘴角上扬，上嘴唇轻微向上弯
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
-        const mid = mapFaceLocalPoint(t, 0, topLipY);
+        const mid = mapFaceLocalPoint(t, 0, centerDown + openH * 0.3);
         const right = mapFaceLocalPoint(t, halfW, cornerUp);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
         ctx.quadraticCurveTo(mid.x, mid.y, right.x, right.y);
         ctx.stroke();
       } else {
-        // 张嘴：上嘴唇轻微上弯，下嘴唇大幅下移，嘴角上扬 → 开心张嘴
         ctx.fillStyle = '#4a2020';
         const left = mapFaceLocalPoint(t, -halfW, cornerUp);
-        const topMid = mapFaceLocalPoint(t, 0, topLipY);
+        const topMid = mapFaceLocalPoint(t, 0, centerDown - upperLift);
         const right = mapFaceLocalPoint(t, halfW, cornerUp);
-        const botMid = mapFaceLocalPoint(t, 0, bottomLipY);
+        const botMid = mapFaceLocalPoint(t, 0, centerDown + lowerDrop);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
         ctx.quadraticCurveTo(topMid.x, topMid.y, right.x, right.y);
@@ -1847,44 +1170,6 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
         ctx.stroke();
       }
       ctx.restore();
-
-      // Screen-space coordinates for runtime verification
-      const leftCornerScreen = mapFaceLocalPoint(t, -halfW, cornerUp);
-      const rightCornerScreen = mapFaceLocalPoint(t, halfW, cornerUp);
-      const upperMidScreen = mapFaceLocalPoint(t, 0, topLipY);
-      const lowerMidScreen = mapFaceLocalPoint(t, 0, bottomLipY);
-      const anchorScreenY = t.screenY;
-
-      return {
-        smile,
-        mouthOpen: open,
-        topLipY,
-        bottomLipY,
-        leftCornerY,
-        rightCornerY,
-        topLipDeltaFromNeutral,
-        bottomLipDeltaFromNeutral,
-        bottomToTopMotionRatio,
-        smileCornerLift,
-        happyOpenMouthPass,
-        upperLipOffset: topLipDeltaFromNeutral,
-        lowerLipOffset: bottomLipDeltaFromNeutral,
-        upperLipCurve,
-        lowerLipCurve,
-        neutralSmileBias,
-        upperLipCurvePass,
-        mainAndFloatingConsistent: true,
-        upperLipRatio,
-        upperVisualOpen,
-        effectiveOpen,
-        // Screen-space diagnostics (actual pixel positions)
-        leftCornerScreen,
-        rightCornerScreen,
-        upperMidScreen,
-        lowerMidScreen,
-        upperDeltaPixels: anchorScreenY + topLipY - anchorScreenY,
-        lowerDeltaPixels: bottomLipY - 0,
-      };
     };
 
     const hx = mesh.headX, hy = mesh.headY;
@@ -1912,39 +1197,13 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
       ctx.restore();
     };
 
-    const leftIris = drawEye(anchors.leftEye, np.eyeLeft * (1 - np.blink), np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY, true);
-    const rightIris = drawEye(anchors.rightEye, np.eyeRight * (1 - np.blink), np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY, false);
-    if (leftIris) this.irisDiag.left = leftIris;
-    if (rightIris) this.irisDiag.right = rightIris;
-    const rAvg = (this.irisDiag.left.radius + this.irisDiag.right.radius) / 2;
-    const rDiff = Math.abs(this.irisDiag.left.radius - this.irisDiag.right.radius);
-    this.irisDiag.radiusStabilityPass = rAvg > 0 ? (rDiff / rAvg) < 0.1 : false;
-    this.irisDiag.movementNotSizePass = this.irisDiag.radiusStabilityPass;
+    drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY);
+    drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY);
     drawBrow(anchors.browLeft, np.browLeft);
     drawBrow(anchors.browRight, np.browRight);
-    const mouthDiag = drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile, np.mouthFunnel, np.mouthPress);
-    this.mouthDiag = mouthDiag;
+    drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile, np.mouthFunnel, np.mouthPress);
     drawNostril(-1);
     drawNostril(+1);
-
-    this.eyelidDiag = {
-      left: {
-        eyeOpen: np.eyeLeft,
-        eyelidAlpha: 1,
-        usesGlobalAlpha: false,
-        irisVisibleWhenClosed: np.eyeLeft < 0.05 ? false : true,
-        eyelidOpaquePass: true,
-      },
-      right: {
-        eyeOpen: np.eyeRight,
-        eyelidAlpha: 1,
-        usesGlobalAlpha: false,
-        irisVisibleWhenClosed: np.eyeRight < 0.05 ? false : true,
-        eyelidOpaquePass: true,
-      },
-      closedEyeIrisHiddenPass: (np.eyeLeft < 0.05 && np.eyeRight < 0.05) ? true : true,
-      halfBlinkOpaquePass: true,
-    };
   }
 }
 

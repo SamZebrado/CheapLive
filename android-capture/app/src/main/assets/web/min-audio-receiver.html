@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Min Audio Receive</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a0a0a; color:#e0e0e0; font-family:monospace; font-size:14px; padding:12px; }
+  h2 { color:#60a5fa; font-size:16px; margin-bottom:8px; }
+  .status { line-height:1.8; }
+  .status span { color:#fbbf24; }
+  .ok { color:#4ade80 !important; }
+  .warn { color:#f87171 !important; }
+  .info { color:#93c5fd !important; }
+  .muted { color:#6b7280 !important; }
+  .meter { width:100%; max-width:400px; height:24px; background:#1f2937; border-radius:6px; overflow:hidden; margin:10px 0; }
+  .meter-fill { height:100%; background:linear-gradient(90deg, #4ade80, #fbbf24, #f87171); width:0%; transition: width 0.05s linear; }
+  .meter-fill.purple { background:linear-gradient(90deg, #a78bfa, #ec4899, #f87171); }
+  .meter-label { font-size:12px; color:#9ca3af; margin-bottom:4px; }
+  .noaudio { color:#f87171; font-weight:bold; font-size:16px; margin:8px 0; }
+  .routing-note { color:#6b7280; font-size:12px; margin-top:16px; line-height:1.5; padding:8px; background:#111827; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<h2>MIN AUDIO RECEIVE</h2>
+<div class="status" id="status">
+  connected: <span id="rConnected">-</span><br>
+  bridgeStatus: <span id="rBridgeStatus">browser</span><br>
+  lastSource: <span id="rLastSource">-</span><br>
+  lastSeq: <span id="rLastSeq">0</span><br>
+  receiveCount: <span id="rReceiveCount">0</span><br>
+  lastFrameAgeMs: <span id="rLastFrameAgeMs">-</span><br>
+  audioMode: <span id="rAudioMode">-</span><br>
+  effectMode: <span id="rEffectMode">-</span><br>
+  micLevel: <span id="rMicLevel">0</span><br>
+  processedLevel: <span id="rProcessedLevel">0</span>
+</div>
+<div id="noAudio" class="noaudio" style="display:none;">NO AUDIO DATA</div>
+<div class="meter-label">Mic Level (from Android App)</div>
+<div class="meter"><div class="meter-fill" id="micMeter"></div></div>
+<div class="meter-label">Processed Level (after voice effect)</div>
+<div class="meter"><div class="meter-fill purple" id="processedMeter"></div></div>
+
+<div class="routing-note">
+  Receiver only shows audio status; it does not solve live audio routing.<br>
+  Full live-stream audio routing is not solved here: the open question is how to<br>
+  send processed voice into the livestream while avoiding local monitor echo<br>
+  for the streamer.
+</div>
+
+<script>
+(function() {
+  const el = {
+    connected: document.getElementById('rConnected'),
+    bridgeStatus: document.getElementById('rBridgeStatus'),
+    lastSource: document.getElementById('rLastSource'),
+    lastSeq: document.getElementById('rLastSeq'),
+    receiveCount: document.getElementById('rReceiveCount'),
+    lastFrameAgeMs: document.getElementById('rLastFrameAgeMs'),
+    audioMode: document.getElementById('rAudioMode'),
+    effectMode: document.getElementById('rEffectMode'),
+    micLevel: document.getElementById('rMicLevel'),
+    processedLevel: document.getElementById('rProcessedLevel'),
+  };
+  const noAudioEl = document.getElementById('noAudio');
+  const micMeter = document.getElementById('micMeter');
+  const processedMeter = document.getElementById('processedMeter');
+
+  let receiveCount = 0;
+  let lastFrameTime = 0;
+  let ws = null;
+
+  function handleAudioFrame(msg) {
+    if (msg.type !== 'audio-level') return false;
+    receiveCount++;
+    lastFrameTime = Date.now();
+    el.receiveCount.textContent = receiveCount;
+    el.lastSource.textContent = msg.source || 'unknown';
+    el.lastSeq.textContent = msg.seq || 0;
+    el.audioMode.textContent = msg.audioMode || 'raw-level';
+    el.effectMode.textContent = msg.effectMode || 'off';
+    el.effectMode.className = (msg.effectMode && msg.effectMode !== 'off') ? 'info' : 'muted';
+
+    const level = msg.level !== undefined ? msg.level : (msg.micLevel !== undefined ? msg.micLevel : 0);
+    el.micLevel.textContent = (level * 100).toFixed(1) + '%';
+    el.micLevel.className = level > 0.01 ? 'ok' : 'muted';
+    micMeter.style.width = Math.min(100, level * 100) + '%';
+
+    const pLevel = msg.processedLevel !== undefined ? msg.processedLevel : level;
+    el.processedLevel.textContent = (pLevel * 100).toFixed(1) + '%';
+    el.processedLevel.className = pLevel > 0.01 ? 'ok' : 'muted';
+    processedMeter.style.width = Math.min(100, pLevel * 100) + '%';
+    return true;
+  }
+
+  function updateAge() {
+    if (lastFrameTime > 0) {
+      el.lastFrameAgeMs.textContent = (Date.now() - lastFrameTime) + 'ms';
+    }
+    const stale = lastFrameTime === 0 || (Date.now() - lastFrameTime) > 3000;
+    noAudioEl.style.display = stale ? 'block' : 'none';
+    requestAnimationFrame(updateAge);
+  }
+
+  function connect() {
+    const q = new URLSearchParams(location.search);
+    const token = q.get('token') || '';
+    const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws?token=' + token;
+
+    el.connected.textContent = 'connecting...';
+    el.connected.className = '';
+
+    ws = new WebSocket(wsUrl);
+    ws.onopen = function() {
+      el.connected.textContent = 'YES';
+      el.connected.className = 'ok';
+    };
+    ws.onclose = function() {
+      el.connected.textContent = 'NO';
+      el.connected.className = 'warn';
+      setTimeout(connect, 2000);
+    };
+    ws.onerror = function() {
+      el.connected.textContent = 'ERROR';
+      el.connected.className = 'warn';
+    };
+    ws.onmessage = function(ev) {
+      try {
+        const msg = JSON.parse(ev.data);
+        handleAudioFrame(msg);
+      } catch (_) {}
+    };
+  }
+
+  window.__testInjectAudioLevel = function(frame) {
+    try {
+      const msg = typeof frame === 'string' ? JSON.parse(frame) : frame;
+      return handleAudioFrame(msg);
+    } catch (e) {
+      console.warn('__testInjectAudioLevel error:', e);
+      return false;
+    }
+  };
+
+  connect();
+  updateAge();
+})();
+</script>
+</body>
+</html>

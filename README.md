@@ -6,6 +6,14 @@
 
 ---
 
+## 🏆 TRAE AI 创造力大赛结果
+
+CheapLive 在 TRAE AI 创造力大赛初赛中获得**专业评分 TOP 2000**，荣获**初赛优秀奖**。遗憾未进入专业评审通道 TOP 300，未能晋级复赛。
+
+**赛后状态**：比赛期间的源码保密限制已解除。Android Capture 源码现已开源，详见 [docs/POST_CONTEST_OPEN_SOURCE_DECISION.md](docs/POST_CONTEST_OPEN_SOURCE_DECISION.md)。
+
+---
+
 ## 当前状态一览
 
 | 功能 | 状态 | 说明 |
@@ -16,8 +24,8 @@
 | 实时变声 | 实验性 | 自动测试覆盖有限，真实麦克风和听感待验证 |
 | 多设备信令服务器 | 扩展玩法/待开发 | 局域网内多设备协作，需手动搭建 Node.js 服务 |
 | 网页旧多端模式 | 实验性 | 当前部署和真实跨设备连接仍有限制 |
-| CheapLive Capture Android App | ⏸️ 暂停开发 | 功能已移交参赛项目独立开发，比赛结束后酌情恢复 |
-| 参赛演示 Demo | 公开演示 | [3D 萨卡班甲鱼互动 Demo](src/contest-demo/contest-interactive-demo.html)；Android APK/源码比赛期间不公开 |
+| CheapLive Capture Android App | ✅ 开源可用 | 源码已公开，支持构建和安装 |
+| 参赛演示 Demo | 公开演示 | [3D 萨卡班甲鱼互动 Demo](src/contest-demo/contest-interactive-demo.html) |
 | Live2D Cubism | 规划中 | Demo 阶段冻结，当前不能实际渲染 Live2D 模型 |
 | 透明悬浮浏览器 | 规划中 | 当前尚未实现 |
 
@@ -33,14 +41,14 @@ CheapLive 是一个基于纯浏览器技术栈的**低成本移动端虚拟形�
 
 - 可体验：单机浏览器面捕 + 两个程序化 Avatar（球形头像 / 纺锤鲸鱼）
 - 实验性：实时变声，旧多端网页协同（依赖开发者本地信令服务）
-- ⏸️ 暂停开发：CheapLive Capture Android App（功能已移交参赛项目，比赛结束后酌情恢复）
+- ✅ 开源可用：CheapLive Capture Android App（源码已公开）
 - 规划中：Live2D Cubism SDK 集成，透明悬浮浏览器
 
 ### 两种产品模式
 
 **单机模式**：打开网页即可体验，无需安装。一台手机同时负责面捕 + 渲染 + 直播展示。
 
-**未来多端模式**：面捕手机安装 CheapLive Capture；直播端仍使用普通浏览器；无需电脑。多端模式**开发中，当前不可下载**。
+**多端模式**：面捕手机安装 CheapLive Capture；直播端仍使用普通浏览器；无需电脑。通过局域网传输面捕参数。
 
 ### 核心价值
 
@@ -74,6 +82,21 @@ python3 -m http.server 8080
 # 手机浏览器访问 http://电脑IP:8080/src/face-tracking/
 ```
 
+### 方式三：Android Capture App
+
+```bash
+# 进入 Android 项目目录
+cd android-capture
+
+# 构建 APK（需要 Java 17）
+JAVA_HOME=/path/to/java17 ./gradlew assembleDebug
+
+# 安装到设备
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+详细构建指南见 [android-capture/README.md](android-capture/README.md)。
+
 ---
 
 ## 项目结构
@@ -83,13 +106,20 @@ CheapLive/
 ├── index.html                 # 项目说明与统一入口（当前首页）
 ├── src/
 │   ├── contest-demo/          # 参赛演示 Demo（公开）
-│   │   └── dual-device-demo.html  # 双端模拟多设备交互演示
-│   └── face-tracking/         # 单机面捕核心（当前推荐体验路径）
-│       ├── index.html         # 主页面
-│       ├── face-tracker.js    # 面部捕捉核心逻辑
-│       ├── debug-avatar.js    # 程序化 Avatar（萨卡班甲鱼基础）
-│       └── style.css
-├── android-capture/           # CheapLive Capture Android App（⏸️ 暂停开发，已由参赛项目接管）
+│   │   ├── contest-interactive-demo.html  # 3D 萨卡班甲鱼互动演示
+│   │   └── dual-device-demo.html          # 双端模拟多设备交互演示
+│   ├── face-tracking/         # 单机面捕核心（当前推荐体验路径）
+│   │   ├── index.html         # 主页面
+│   │   ├── face-tracker.js    # 面部捕捉核心逻辑
+│   │   ├── procedural-mesh-renderer.js    # 程序化 Avatar
+│   │   └── style.css
+│   └── multi-device/          # 多设备信令服务器与旧多端模式
+├── android-capture/           # CheapLive Capture Android App（开源可用）
+│   ├── app/src/main/java/     # Kotlin 源码
+│   └── app/src/main/assets/web/  # WebView 页面（capture / receiver）
+├── docs/
+│   ├── POST_CONTEST_OPEN_SOURCE_DECISION.md  # 赛后开源决策
+│   └── signaling-server-setup.md              # 信令服务器搭建指南
 └── README.md                  # 本文件
 ```
 
@@ -144,11 +174,17 @@ node src/multi-device/signaling-server.js
 - 不包含认证机制，不要暴露到公网
 - 所有信令消息为 HTTP 明文传输（WebRTC 媒体流自身加密）
 
-### ⏸️ 暂停开发：CheapLive Capture Android App
+### ✅ 开源可用：CheapLive Capture Android App
 
-该功能已由参赛项目独立开发接管，主项目不再更新。比赛结束后根据代码质量和结果酌情回灌。
+基于 Android WebView 的面捕客户端。主要功能：
 
-**开发中**的说明（快照，仅供参考）：目标是在面捕手机上运行轻量 Android App，通过局域网向直播端浏览器发送面捕参数。目前 APK 未发布，真机链路未验证。
+- 本地 HTTP 服务器（端口 8765），提供 `/api/status`、`/api/control`、`/events` 等端点
+- Token 鉴权机制，确保局域网内安全访问
+- Capture 页面：使用 MediaPipe 进行面部捕捉
+- Receiver 页面：接收面捕参数并渲染虚拟形象
+- 后台服务生存能力，支持锁屏状态下继续运行
+
+**开发说明**：详见 [android-capture/README.md](android-capture/README.md)。
 
 ### 🔴 规划中：Live2D Cubism / 透明悬浮浏览器
 
@@ -162,7 +198,7 @@ node src/multi-device/signaling-server.js
 - **面部捕捉数据**：由 MediaPipe 模型在你的设备本地实时计算，所有数据（关键点、表情参数）留在浏览器中，不会上传到服务器
 - **摄像头画面**：仅在本地显示；单机模式不主动上传摄像头画面
 - **实验性功能**（变声、旧多端模式）可能触发额外的浏览器内处理，但不会向云端上传原始音频或视频流
-- **Android Capture**（⏸️ 暂停开发）未来在局域网内仅传输少量面捕参数，不传输摄像头视频
+- **Android Capture** 在局域网内仅传输少量面捕参数，不传输摄像头视频
 
 ---
 

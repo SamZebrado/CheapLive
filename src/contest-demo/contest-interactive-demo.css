@@ -58,6 +58,20 @@ body {
 .top-bar .links a { color: var(--cl-blue); text-decoration: none; }
 .top-bar .links a:hover { text-decoration: underline; }
 
+/* ====== Contest Banner ====== */
+.contest-banner {
+  background: linear-gradient(135deg, #ff6b4a, #ff8c42);
+  color: white;
+  padding: 8px 24px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+}
+.contest-banner .contest-badge {
+  margin-right: 8px;
+  font-size: 16px;
+}
+
 /* ====== Hero Section ====== */
 .hero {
   text-align: center;
@@ -206,7 +220,6 @@ body {
   flex-direction: column;
   min-height: 400px;
   position: relative;
-  min-width: 0;
 }
 .panel-header {
   padding: 10px 14px;
@@ -242,11 +255,13 @@ body {
   position: relative;
 }
 .avatar-canvas-wrap-inner {
+  /* 强制 1:1：在父容器宽/高中的较小一边内取正方形 */
   aspect-ratio: 1 / 1;
   width: 100%;
-  max-width: min(100%, 520px);
+  max-width: min(100%, var(--av-h, 100vh));
   max-height: 100%;
   position: relative;
+  /* 兜底：父容器高度为 0 时仍能渲染 */
   min-width: 0;
   min-height: 0;
 }
@@ -270,36 +285,6 @@ body {
 #gameCanvas { display: block; width: 100%; height: 100%; cursor: default; }
 #gameCanvas.draw-mode { cursor: crosshair; }
 
-/* ====== Version Stamp (top bar 标题右侧灰色小字) ====== */
-.version-stamp {
-  margin-left: 10px;
-  font-size: 11px;
-  color: var(--cl-text-muted);
-  font-weight: 400;
-  letter-spacing: 0.2px;
-  white-space: nowrap;
-}
-@media (max-width: 540px) {
-  .version-stamp { display: block; margin-left: 0; font-size: 10px; }
-}
-
-/* ====== Game focus hint (低调提示，不抢布局) ====== */
-.game-focus-hint {
-  position: absolute;
-  bottom: 6px;
-  left: 8px;
-  font-size: 10px;
-  color: var(--cl-text-muted);
-  background: rgba(13, 20, 32, 0.6);
-  padding: 2px 6px;
-  border-radius: 4px;
-  pointer-events: none;
-  opacity: 0.7;
-  z-index: 5;
-}
-#gamePanelBody:focus { outline: 2px solid var(--cl-blue); outline-offset: -2px; }
-#gamePanelBody:focus .game-focus-hint { opacity: 0; }
-
 /* ====== Floating Window ======
    修复：原本 .floating-window 没有显式 display:flex，导致 .fw-content 高度
    计算失效，canvas 被拉伸成 180×600+ 的纵向矩形，3D 鱼被垂直挤压。
@@ -311,9 +296,10 @@ body {
   display: flex;
   flex-direction: column;
   border-radius: 10px;
-  overflow: visible;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
   z-index: 50;
-  background: transparent;
+  transition: opacity 0.3s;
 }
 .fw-top-bar {
   height: 22px;
@@ -336,10 +322,10 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 0;
+  /* 关键：fw-content 强制正方形，canvas resize() 才能读到正方形父容器尺寸。
+     由于高度已经被 flex 父级限制为 178px，这里 width = 父容器 height 即可。 */
   width: 100%;
   aspect-ratio: 1 / 1;
-  background: transparent;
-  border-radius: 10px;
 }
 .fw-content canvas {
   position: absolute;
@@ -359,34 +345,21 @@ body {
 }
 /* Floating window mode states */
 .floating-window.fw-display-mode {
-  pointer-events: none;
-}
-.floating-window.fw-display-mode .fw-content {
+  opacity: 0.6;
   pointer-events: none;
 }
 .floating-window.fw-display-mode .fw-top-bar {
   display: none;
-  pointer-events: none;
 }
 .floating-window.fw-display-mode .fw-resize {
   display: none;
-  pointer-events: none;
-}
-.floating-window.fw-display-mode canvas {
-  pointer-events: none;
-}
-.floating-window.fw-display-mode .fw-mode-btn {
-  pointer-events: auto;
 }
 .floating-window.fw-edit-mode {
+  opacity: 1;
   pointer-events: auto;
 }
 .floating-window.fw-edit-mode .fw-top-bar {
   box-shadow: 0 0 8px rgba(74,144,217,0.4);
-}
-.floating-window.fw-edit-mode .fw-content {
-  border: 2px dashed rgba(74,144,217,0.5);
-  box-sizing: border-box;
 }
 
 /* ====== Floating Mode Button (独立于悬浮窗，在左侧边缘) ====== */
@@ -403,7 +376,7 @@ body {
   padding: 8px 12px;
   font-size: 12px;
   font-weight: 700;
-  cursor: pointer;
+  cursor: grab;
   font-family: var(--font);
   box-shadow: 0 2px 8px rgba(255,140,66,0.4);
   transition: background 0.2s, box-shadow 0.2s;
@@ -415,12 +388,12 @@ body {
   box-shadow: 0 2px 12px rgba(255,140,66,0.6);
 }
 .fw-mode-btn.display-mode {
-  background: var(--cl-blue);
-  box-shadow: 0 2px 8px rgba(74,144,217,0.4);
+  background: var(--cl-green);
+  box-shadow: 0 2px 8px rgba(78,205,196,0.4);
 }
 .fw-mode-btn.display-mode:hover {
-  background: #3a7bc8;
-  box-shadow: 0 2px 12px rgba(74,144,217,0.6);
+  background: #3eb8ad;
+  box-shadow: 0 2px 12px rgba(78,205,196,0.6);
 }
 
 /* ====== Guide Wizard Modal ====== */
@@ -508,10 +481,6 @@ body {
 .btn-ghost { background: transparent; color: var(--cl-text-dim); border: 1px solid var(--cl-border); }
 .btn-ghost:hover { background: var(--cl-bg3); }
 .btn-sm { padding: 5px 12px; font-size: 11px; }
-.btn-xs { padding: 3px 8px; font-size: 10px; }
-.voice-preset-btn { background: var(--cl-bg2); color: var(--cl-text-dim); border: 1px solid var(--cl-border); border-radius: 4px; cursor: pointer; transition: all 0.15s; }
-.voice-preset-btn:hover { background: var(--cl-bg3); color: var(--cl-text); }
-.voice-preset-btn.selected { background: var(--cl-blue); color: #fff; border-color: var(--cl-blue); }
 .btn-close {
   position: absolute;
   top: 12px; right: 12px;
@@ -563,16 +532,6 @@ body {
   bottom: 2px; right: 2px;
   font-size: 7px;
   background: var(--cl-blue);
-  color: #fff;
-  padding: 0 3px;
-  border-radius: 2px;
-}
-.avatar-btn.exp-tag::after {
-  content: '实验';
-  position: absolute;
-  bottom: 2px; right: 2px;
-  font-size: 7px;
-  background: #946bde;
   color: #fff;
   padding: 0 3px;
   border-radius: 2px;
@@ -658,23 +617,6 @@ body {
 .transparent-toggle .check.on {
   border-color: var(--cl-green);
   color: var(--cl-green);
-}
-
-/* ====== Camera Video Hidden ======
-   摄像头视频只用于 MediaPipe 面捕计算，不作为 UI 可见画面显示。
-   保持 video 元素存在但移出屏幕，不占布局空间。 */
-#faceVideo,
-#faceVideoWrap,
-.camera-preview,
-video[data-cheaplive-camera] {
-  position: fixed !important;
-  width: 1px !important;
-  height: 1px !important;
-  left: -9999px !important;
-  top: -9999px !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-  visibility: hidden !important;
 }
 
 /* ====== Footer ====== */
@@ -796,89 +738,4 @@ video[data-cheaplive-camera] {
 }
 .panel-body.showcase-mode .avatar-watermark {
   color: var(--cl-text-muted);
-}
-
-/* ====== Toolbox Section ====== */
-.toolbox-section {
-  max-width: 1100px;
-  margin: 0 auto 8px;
-  padding: 24px 24px 8px;
-}
-.toolbox-header {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-.toolbox-header h2 {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--cl-primary);
-}
-.toolbox-subtitle {
-  font-size: 11px;
-  color: var(--cl-text-muted);
-}
-.toolbox-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-}
-@media (max-width: 720px) {
-  .toolbox-grid {
-    grid-template-columns: 1fr;
-  }
-}
-.toolbox-card {
-  background: var(--cl-surface);
-  border: 1px solid var(--cl-border);
-  border-radius: 10px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  transition: border-color 0.2s, background 0.2s;
-}
-.toolbox-card:hover {
-  border-color: var(--cl-text-dim);
-  background: var(--cl-surface2);
-}
-.toolbox-card-icon {
-  font-size: 24px;
-  line-height: 1;
-  margin-bottom: 4px;
-}
-.toolbox-card-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--cl-text);
-}
-.toolbox-card-desc {
-  font-size: 11px;
-  color: var(--cl-text-dim);
-  line-height: 1.5;
-  min-height: 32px;
-}
-.toolbox-card-tag {
-  display: inline-block;
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: rgba(78,205,196,0.12);
-  color: var(--cl-green);
-  font-weight: 600;
-  margin-top: 2px;
-  width: fit-content;
-}
-.toolbox-card-tag.planned-tag {
-  background: rgba(74,85,104,0.2);
-  color: var(--cl-text-dim);
-}
-.toolbox-card-btn {
-  margin-top: auto;
-  padding-top: 8px;
-  text-align: center;
-  width: 100%;
-  text-decoration: none;
 }

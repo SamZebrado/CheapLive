@@ -38,10 +38,8 @@
       const rendererUrl = new URL(
         '../face-tracking/procedural-mesh-renderer.js',
         base || window.location.href
-      );
-      const pageV = new URLSearchParams(window.location.search).get('v');
-      if (pageV) rendererUrl.searchParams.set('v', pageV);
-      import(rendererUrl.href)
+      ).href;
+      import(rendererUrl)
         .then((mod) => {
           if (!mod.ProceduralSpindleWhaleAvatar) {
             throw new Error('ProceduralSpindleWhaleAvatar not exported');
@@ -118,38 +116,7 @@
     inst.updateParams(params || {});
     diag.lastRenderTime = performance.now ? performance.now() : Date.now();
     _refreshCanvasDiag();
-    if (inst.irisDiag) {
-      if (!diag.perCanvasIrisDiag) diag.perCanvasIrisDiag = {};
-      diag.perCanvasIrisDiag[canvasId] = inst.irisDiag;
-    }
-    // 同步 mouthDiag / eyelidDiag 到全局 diag（以 main canvas avatarCanvas 为准）
-    if (canvasId === 'avatarCanvas') {
-      if (inst.mouthDiag) diag.mouthDiag = inst.mouthDiag;
-      if (inst.eyelidDiag) diag.eyelidDiag = inst.eyelidDiag;
-    }
     return true;
-  };
-
-  window.setContestFishAvatarTransparentMode = function setContestFishAvatarTransparentMode(canvasIdOrCanvas, enabled) {
-    const canvasId =
-      typeof canvasIdOrCanvas === 'string' ? canvasIdOrCanvas : canvasIdOrCanvas.id;
-    const inst = _instances.get(canvasId);
-    if (!inst) return false;
-    if (typeof inst.setTransparentMode === 'function') {
-      inst.setTransparentMode(enabled);
-    }
-    return true;
-  };
-
-  window.getContestFishAvatarTransparentMode = function getContestFishAvatarTransparentMode(canvasIdOrCanvas) {
-    const canvasId =
-      typeof canvasIdOrCanvas === 'string' ? canvasIdOrCanvas : canvasIdOrCanvas.id;
-    const inst = _instances.get(canvasId);
-    if (!inst) return null;
-    if (typeof inst.transparentMode !== 'undefined') {
-      return inst.transparentMode;
-    }
-    return null;
   };
 
   window.destroyContestFishAvatar = function destroyContestFishAvatar(canvasIdOrCanvas) {
@@ -160,18 +127,4 @@
 
   // 暴露一个 debug helper 供测试和发布后排查
   window.__cheapLiveContestAvatarRefreshCanvasDiag = _refreshCanvasDiag;
-
-  window.getContestFishAvatarIrisDiag = function getContestFishAvatarIrisDiag(canvasIdOrCanvas) {
-    const canvasId =
-      typeof canvasIdOrCanvas === 'string' ? canvasIdOrCanvas : canvasIdOrCanvas.id;
-    const inst = _instances.get(canvasId);
-    if (!inst || !inst.irisDiag) return null;
-    return JSON.parse(JSON.stringify(inst.irisDiag));
-  };
-
-  window.getContestFishAvatarInstance = function getContestFishAvatarInstance(canvasIdOrCanvas) {
-    const canvasId =
-      typeof canvasIdOrCanvas === 'string' ? canvasIdOrCanvas : canvasIdOrCanvas.id;
-    return _instances.get(canvasId) || null;
-  };
 })();

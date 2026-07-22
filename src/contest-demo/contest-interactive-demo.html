@@ -17,6 +17,12 @@
   </div>
 </div>
 
+<!-- ====== Contest Result Banner ====== -->
+<div class="contest-banner">
+  <span class="contest-badge">🏆</span>
+  <span>TRAE AI 创造力大赛初赛优秀奖 · 源码现已开源</span>
+</div>
+
 <!-- ====== Hero ====== -->
 <div class="hero">
   <h1>手机面捕 + 多动物 + 多设备 + <em>透明悬浮</em></h1>
@@ -93,19 +99,6 @@
           <div class="mini-toggle" id="voiceToggle" onclick="toggleVoice()"></div>
         </div>
         <div class="field"><span>当前预设</span><span class="val" id="voicePresetDisplay" style="color:var(--cl-text-muted)">原声</span></div>
-        <div style="font-size:10px;color:var(--cl-text-muted);padding-bottom:4px;">演示预设（变声端到端待接入）</div>
-        <div id="voicePresetBtns" style="display:flex;flex-wrap:wrap;gap:4px;padding-bottom:6px;">
-          <button class="btn btn-xs voice-preset-btn selected" data-preset="original" onclick="selectVoicePreset('original', this)">原声</button>
-          <button class="btn btn-xs voice-preset-btn" data-preset="cute" onclick="selectVoicePreset('cute', this)">可爱</button>
-          <button class="btn btn-xs voice-preset-btn" data-preset="robot" onclick="selectVoicePreset('robot', this)">机器人</button>
-          <button class="btn btn-xs voice-preset-btn" data-preset="deep" onclick="selectVoicePreset('deep', this)">低沉</button>
-          <button class="btn btn-xs voice-preset-btn" data-preset="radio" onclick="selectVoicePreset('radio', this)">电台</button>
-        </div>
-        <div class="toggle-row" style="margin-top:6px;">
-          <label>本地监听</label>
-          <button class="btn btn-ghost btn-sm" id="monitorBtn" onclick="toggleMicMonitor()">监听麦克风</button>
-        </div>
-        <div style="font-size:10px;color:var(--cl-text-muted);padding-top:2px;" id="monitorStatus">监听已关闭</div>
         <div style="font-size:9px;color:var(--cl-text-muted);padding-top:4px">
           麦克风/变声链路为后续适配能力，本 demo 主要展示面捕与悬浮叠加流程。
         </div>
@@ -127,15 +120,6 @@
         </div>
         <div class="avatar-watermark">CheapLive Receiver</div>
       </div>
-      <div id="avatar3DError" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.85);flex-direction:column;align-items:center;justify-content:center;z-index:10;padding:16px;text-align:center;">
-        <div style="color:#ff6b6b;font-size:14px;font-weight:700;margin-bottom:8px;">3D 渲染器加载失败</div>
-        <div id="avatar3DErrorMsg" style="color:var(--cl-text-muted);font-size:11px;margin-bottom:12px;word-break:break-word;"></div>
-        <button class="btn btn-sm" style="background:var(--cl-blue);color:#fff;border:none;margin-bottom:6px;" onclick="retry3DRenderer()">重试加载 3D</button>
-        <button class="btn btn-ghost btn-sm" style="font-size:10px;" onclick="manualFallback2D()">手动切换到 2D 鱼</button>
-      </div>
-      <div id="avatar3DLoading" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;z-index:9;">
-        <div style="color:var(--cl-text-muted);font-size:12px;">3D 渲染器加载中...</div>
-      </div>
     </div>
     <div class="ctrl-row">
       <!-- Avatar Selection -->
@@ -149,33 +133,21 @@
         <div class="avatar-btn" data-avatar="cat" onclick="selectAvatar('cat',this)" title="Cat">
           <span class="emoji">🐱</span><span class="name">猫</span>
         </div>
-        <div class="avatar-btn exp-tag" data-avatar="dog" onclick="selectAvatar('dog',this)" title="Dog (experimental)">
+        <div class="avatar-btn dev-tag" data-avatar="dog" onclick="selectAvatar('dog',this)" title="Dog">
           <span class="emoji">🐶</span><span class="name">狗</span>
         </div>
-        <div class="avatar-btn exp-tag" data-avatar="rabbit" onclick="selectAvatar('rabbit',this)" title="Rabbit (experimental)">
+        <div class="avatar-btn dev-tag" data-avatar="rabbit" onclick="selectAvatar('rabbit',this)" title="Rabbit">
           <span class="emoji">🐰</span><span class="name">兔子</span>
         </div>
-        <div class="avatar-btn exp-tag" data-avatar="fox" onclick="selectAvatar('fox',this)" title="Fox (experimental)">
+        <div class="avatar-btn dev-tag" data-avatar="fox" onclick="selectAvatar('fox',this)" title="Fox">
           <span class="emoji">🦊</span><span class="name">狐狸</span>
         </div>
-        <div class="avatar-btn exp-tag" data-avatar="bear" onclick="selectAvatar('bear',this)" title="Bear (experimental)">
+        <div class="avatar-btn dev-tag" data-avatar="bear" onclick="selectAvatar('bear',this)" title="Bear">
           <span class="emoji">🐻</span><span class="name">小熊</span>
-        </div>
-        <div class="avatar-btn" data-avatar="classic-sphere" onclick="selectAvatar('classic-sphere',this)" title="Classic Sphere">
-          <span class="emoji">⚪</span><span class="name">经典圆球</span>
         </div>
       </div>
       <button class="btn btn-ghost btn-sm" onclick="toggleShowcase()">应用模式（透明背景）</button>
       <button class="btn btn-ghost btn-sm" onclick="openGuide()">真实项目操作流程演示</button>
-      <div class="mocap-toggle-row" style="margin-top:8px;">
-        <label class="mini-toggle-label">
-          <input type="checkbox" id="mocapToggle" onchange="toggleMocap()" style="display:none;">
-          <div class="mini-toggle" id="mocapToggleVisual"></div>
-          <span class="mocap-label">动作捕捉</span>
-          <span class="mocap-status" id="mocapStatus" style="font-size:11px;color:#888;margin-left:4px;">off</span>
-        </label>
-        <div style="font-size:10px;color:#999;margin-top:2px;">实验功能，可关闭；优先使用本地 MediaPipe 资源</div>
-      </div>
       <div class="receiver-note">用透明悬浮浏览器打开，可设置背景透明</div>
     </div>
   </div>
@@ -186,9 +158,8 @@
       <span>直播端 · 游戏 / 手工手机画面</span>
       <span class="label">透明悬浮小窗叠加</span>
     </div>
-    <div class="panel-body" id="gamePanelBody" tabindex="0" role="application" aria-label="游戏区域，点击后可用方向键控制贪吃蛇">
+    <div class="panel-body" id="gamePanelBody">
       <canvas id="gameCanvas"></canvas>
-      <div class="game-focus-hint" id="gameFocusHint">点击此区域后，方向键控制贪吃蛇（不会滚动页面）</div>
 
       <!-- Floating Window (TransparentFloatingBrowser 模拟) -->
       <div class="floating-window" id="floatingWindow">
@@ -227,53 +198,11 @@
   </div>
 </div>
 
-<!-- ====== Toolbox Section ====== -->
-<div class="toolbox-section">
-  <div class="toolbox-header">
-    <h2>辅助工具箱</h2>
-    <span class="toolbox-subtitle">独立工具入口 · 适合学习、运动和陪伴型直播使用</span>
-  </div>
-  <div class="toolbox-grid">
-    <!-- Subtitle Card -->
-    <div class="toolbox-card">
-      <div class="toolbox-card-icon">📝</div>
-      <div class="toolbox-card-title">实时字幕</div>
-      <div class="toolbox-card-desc">浏览器本地语音识别字幕，支持大字体高对比度模式</div>
-      <div class="toolbox-card-tag">入口 · 独立页面</div>
-      <a class="btn btn-ghost btn-sm toolbox-card-btn" href="../face-tracking/subtitle.html" target="_blank">打开字幕</a>
-    </div>
-    <!-- Handwriting Card -->
-    <div class="toolbox-card">
-      <div class="toolbox-card-icon">✍️</div>
-      <div class="toolbox-card-title">手写留言板</div>
-      <div class="toolbox-card-desc">触控手写与实时字幕双栏展示，听力沟通辅助场景</div>
-      <div class="toolbox-card-tag">入口 · 独立页面</div>
-      <a class="btn btn-ghost btn-sm toolbox-card-btn" href="../accessibility-communication/index.html" target="_blank">打开手写板</a>
-    </div>
-    <!-- IslandSlonelyFall Card -->
-    <div class="toolbox-card">
-      <div class="toolbox-card-icon">🏝️</div>
-      <div class="toolbox-card-title">慢慢岛</div>
-      <div class="toolbox-card-desc">IslandSlonelyFall · 游戏化心态调节与时间管理工具。用游戏形态帮助放慢节奏、整理状态和管理时间，适合作为开播前后或学习/运动间隙的自我调节入口。</div>
-      <div class="toolbox-card-tag planned-tag">辅助工具 · 开源</div>
-      <a class="btn btn-ghost btn-sm toolbox-card-btn" href="https://github.com/SamZebrado/IslandSlonelyFall" target="_blank">查看项目</a>
-    </div>
-  </div>
-</div>
-
 <!-- ====== Footer ====== -->
 <div class="footer">
   <p>透明悬浮能力来自开源项目 <a href="https://github.com/SamZebrado/TransparentFloatingBrowser" target="_blank">TransparentFloatingBrowser</a>，由 TRAE Work 开发。</p>
   <p>CheapLive: <a href="https://github.com/SamZebrado/CheapLive" target="_blank">GitHub</a> · TransparentFloatingBrowser: <a href="https://github.com/SamZebrado/TransparentFloatingBrowser" target="_blank">GitHub</a></p>
   <p style="margin-top:6px">当前 demo 展示产品流程和核心交互；真实面捕、透明悬浮、多动物、多设备是主线，音频/AI 变声为后续增强。</p>
-  <p class="tech-credits" style="margin-top:8px;font-size:11px;color:var(--cl-text-muted)">
-    技术说明 / Tech credits：人脸关键点检测使用 <a href="https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker" target="_blank">MediaPipe Face Landmarker</a>（Apache-2.0）；
-    变声效果使用浏览器原生 Web Audio API 实现；头像渲染与参赛 Demo UI 由 CheapLive 实现。
-    <a href="https://github.com/SamZebrado/CheapLive/blob/main/docs/CONTEST_DEMO_ATTRIBUTION.md" target="_blank">查看完整声明</a>
-  </p>
-  <p class="evolution-link-wrap" style="margin-top:6px;font-size:11px;color:var(--cl-text-muted)">
-    <a href="../visual-history/index.html" target="_blank" rel="noopener" class="evolution-link" style="color:var(--cl-text-muted);text-decoration:underline">形象进化记录——捏脸实在太难了😂</a>
-  </p>
 </div>
 
 <script src="contest-avatar-adapter.js"></script>

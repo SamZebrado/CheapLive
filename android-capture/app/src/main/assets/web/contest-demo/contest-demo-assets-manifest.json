@@ -1,0 +1,120 @@
+{
+  "sourceSha": "05884fd",
+  "syncTime": "2026-07-14T01:58:26.240Z",
+  "files": [
+    {
+      "src": "contest-demo/contest-interactive-demo.html",
+      "dest": "contest-interactive-demo.html",
+      "hash": "1cdcf776fb6cd19de5df80d4d92b2d82",
+      "size": 16706
+    },
+    {
+      "src": "contest-demo/contest-interactive-demo.js",
+      "dest": "contest-interactive-demo.js",
+      "hash": "04a90dc33667329033e4c7cfc47d38fe",
+      "size": 179937
+    },
+    {
+      "src": "contest-demo/contest-interactive-demo.css",
+      "dest": "contest-interactive-demo.css",
+      "hash": "aa5a86dcd8ebe91b7bea329f856e9075",
+      "size": 22266
+    },
+    {
+      "src": "contest-demo/contest-avatar-adapter.js",
+      "dest": "contest-avatar-adapter.js",
+      "hash": "297dc7409e93d329d9b22d9a6499f689",
+      "size": 5830
+    },
+    {
+      "src": "contest-demo/contest-voice-adapter.js",
+      "dest": "contest-voice-adapter.js",
+      "hash": "39935213c2012cf7c3abe8a30a47e18f",
+      "size": 5993
+    },
+    {
+      "src": "contest-demo/contest-build.json",
+      "dest": "contest-build.json",
+      "hash": "c53efd76db9bac9ba26120bf7e902c58",
+      "size": 415
+    },
+    {
+      "src": "face-tracking/procedural-mesh-renderer.js",
+      "dest": "procedural-mesh-renderer.js",
+      "hash": "b97b52a9228e6650239fa406c1e911ca",
+      "size": 82551
+    },
+    {
+      "src": "face-tracking/mesh-spindle-whale.js",
+      "dest": "mesh-spindle-whale.js",
+      "hash": "901a377cea469b8bff4400982f8a1d77",
+      "size": 29462
+    },
+    {
+      "src": "face-tracking/mesh-sphere.js",
+      "dest": "mesh-sphere.js",
+      "hash": "4ddbcf9b54badf8e57af6838d72a6a3d",
+      "size": 7702
+    },
+    {
+      "src": "face-tracking/procedural-avatar-classic.js",
+      "dest": "procedural-avatar-classic.js",
+      "hash": "6e38d17f5ab861bf92d2538f0dfbb93f",
+      "size": 76044
+    },
+    {
+      "src": "face-tracking/voice-changer.js",
+      "dest": "voice-changer.js",
+      "hash": "c86dc9f7f531c65dad51a152647243eb",
+      "size": 20835
+    },
+    {
+      "src": "face-tracking/lib/soundtouch.min.js",
+      "dest": "lib/soundtouch.min.js",
+      "hash": "44509e71d37d75e808261f4eb977c4c5",
+      "size": 14610
+    },
+    {
+      "src": "face-tracking/mediapipe/vision_bundle.mjs",
+      "dest": "mediapipe/vision_bundle.mjs",
+      "hash": "a229ff5bd4b6cf330e87b3ce63b84610",
+      "size": 881037
+    },
+    {
+      "src": "face-tracking/mediapipe/LICENSE",
+      "dest": "mediapipe/LICENSE",
+      "hash": "c3840564f53c7cfd8f7ce2d8d42f0e3e",
+      "size": 11027
+    },
+    {
+      "src": "face-tracking/mediapipe/face_landmarker.task",
+      "dest": "mediapipe/face_landmarker.task",
+      "hash": "64184e229b263107bc2b804c6625db13",
+      "size": 3758596
+    },
+    {
+      "src": "face-tracking/mediapipe/wasm/vision_wasm_internal.js",
+      "dest": "mediapipe/wasm/vision_wasm_internal.js",
+      "hash": "6a73602a14484297690e69d716e68334",
+      "size": 205745
+    },
+    {
+      "src": "face-tracking/mediapipe/wasm/vision_wasm_internal.wasm",
+      "dest": "mediapipe/wasm/vision_wasm_internal.wasm",
+      "hash": "3431f70071f3980bf13e638551e9bb33",
+      "size": 8689767
+    },
+    {
+      "src": "face-tracking/mediapipe/wasm/vision_wasm_nosimd_internal.js",
+      "dest": "mediapipe/wasm/vision_wasm_nosimd_internal.js",
+      "hash": "ece9ac1f41b93340b08682514ca29143",
+      "size": 205752
+    },
+    {
+      "src": "face-tracking/mediapipe/wasm/vision_wasm_nosimd_internal.wasm",
+      "dest": "mediapipe/wasm/vision_wasm_nosimd_internal.wasm",
+      "hash": "4d54739714db6b3d0fbdd0608c2824c4",
+      "size": 8554370
+    }
+  ]
+}

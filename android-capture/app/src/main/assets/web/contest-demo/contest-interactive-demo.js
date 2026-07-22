@@ -1,0 +1,4911 @@
+/**
+ * CheapLive Contest Interactive Demo — Main JS
+ * 纯本地运行，无外部依赖
+ */
+
+// ====== STATE ======
+const state = {
+  currentAvatar: 'sacabambaspis-3d',
+  showcaseMode: true,
+  drawMode: false,
+  captureOn: true,
+  voiceOn: false,
+  voicePreset: 'original',
+  guideStep: 0,
+  floatingMode: 'edit', // 'edit' | 'display'
+  // Simulated face params
+  faceParams: {
+    mouthOpen: 0, blink: 0, blinkLeft: 0, blinkRight: 0, eyeLeft: 1, eyeRight: 1,
+    yaw: 0, pitch: 0, roll: 0, smile: 0,
+    // Head pan (headX/headY in 0-1, 0.5=center) — ported from open demo
+    headX: 0.5, headY: 0.5,
+    // Iris gaze tracking (per-eye normalized x/y in [-1, 1]) — ported from open demo
+    gazeLeftX: 0, gazeLeftY: 0, gazeRightX: 0, gazeRightY: 0,
+  },
+};
+
+// ====== FACE FRAME STATE ======
+let _faceFrameActive = false;
+let _faceFrameSource = null;
+let _lastAppliedFrame = null;
+let _lastAppliedSeq = 0;
+let _lastAppliedValues = null;
+let _idleActive = true;
+let _frameTimeoutId = null;
+const FRAME_IDLE_TIMEOUT_MS = 3000;
+
+// 真实 iris gaze 平滑状态
+// EMA(α=0.30) 让真实 gaze 平滑避免抖动；gain=1.8 让真实眼动肉眼可见；
+// deadzone=0.03 抑制微小漂移被识别成注视；clamp 到 [-1, 1]。
+const GAZE_EMA_ALPHA = 0.30;
+const GAZE_DEADZONE = 0.03;
+const GAZE_GAIN = 1.8;
+let _smoothGazeLeftX = 0, _smoothGazeLeftY = 0;
+let _smoothGazeRightX = 0, _smoothGazeRightY = 0;
+let _gazeSource = 'idle';
+
+let _rafInstanceCount = 0;
+let _idleFrameCount = 0;
+let _trackingFrameCount = 0;
+let _lastTransitionReason = 'initial';
+let _lastIdleFrameTime = 0;
+let _lastTrackingFrameTime = 0;
+
+let _lastCameraFrameAt = 0;
+let _cameraFrameErrorCount = 0;
+let _lastCameraError = null;
+let _lastCameraErrorAt = 0;
+let _realCameraFrameApplied = false;
+let _cameraErrorLogThrottle = 0;
+let _cameraStartedAt = 0;
+let _cameraIdleFallbackReason = null; // 'never-detected' | 'stale-frame' | 'error'
+let _cameraVideoDiag = null; // { currentTime, videoWidth, videoHeight, readyState, tracksLive }
+let _cameraLastDetectDiag = null; // { hasFaceLandmarks, hasFaceBlendshapes, faceBlendshapeCount, faceLandmarkCount }
+const CAMERA_IDLE_FALLBACK_MS = 5000;
+const CAMERA_ERROR_LOG_INTERVAL_MS = 2000;
+
+// MediaPipe preload state (aligned with open demo: load on page init, not on camera click)
+let _loadMediapipePromise = null;
+let _mediapipeInitDiag = {
+  phase: 'idle',
+  filesetUrl: null,
+  modelUrl: null,
+  delegateTried: null,
+  delegateActive: null,
+  initStartedAt: 0,
+  filesetResolvedAt: 0,
+  createStartedAt: 0,
+  createResolvedAt: 0,
+  initElapsedMs: 0,
+  errorName: null,
+  errorMessage: null,
+};
+
+const VOICE_PRESETS = [
+  { id: 'original', name: '原声' },
+  { id: 'cute', name: '可爱' },
+  { id: 'robot', name: '机器人' },
+  { id: 'deep', name: '低沉' },
+  { id: 'radio', name: '电台' },
+];
+
+const AVATAR_NAMES = {
+  sacabambaspis: '萨卡班 2D',
+  'sacabambaspis-3d': '3D 萨卡班',
+  cat: '猫 Cat',
+  dog: '狗 Dog',
+  rabbit: '兔子 Rabbit',
+  fox: '狐狸 Fox',
+  bear: '小熊 Bear',
+  'classic-sphere': '⚪ 经典圆球',
+};
+
+let _3dReady = false;
+let _3dFailed = false;
+let _3dLoadStarted = false;
+let _ensure3DPromise = null;
+
+// ====== GUIDE STEPS ======
+const GUIDE_STEPS = [
+  {
+    title: 'Step 1：发送端 · 面部 / 声音输入',
+    body: `<p>发送端负责采集面部参数和声音输入。</p>
+      <div class="info">左侧手机界面模拟发送端：开启摄像头/麦克风，采集 headYaw、mouthOpen、blink 等参数，通过局域网发送到 Receiver。</div>
+      <div class="note">当前 demo 使用模拟参数动画驱动；Android 发送端链路正在接入与调试中。</div>`
+  },
+  {
+    title: 'Step 2：Receiver · 虚拟主播',
+    body: `<p>Receiver 接收面部/声音输入，选择虚拟形象，设置背景透明。</p>
+      <div class="info">中间面板显示 Receiver：选择动物形象（萨卡班甲鱼 / 猫 / 更多开发中），点击"应用模式"将背景设为透明，准备作为网页小窗显示。</div>
+      <div class="note">用透明悬浮浏览器打开，可设置背景透明。</div>`
+  },
+  {
+    title: 'Step 3：透明悬浮浏览器打开 Receiver',
+    body: `<p>TransparentFloatingBrowser 加载 Receiver 页面，设置背景透明后叠加到直播端。</p>
+      <div class="info">右侧直播端中的悬浮小窗 → 打开的是中间 Receiver 的网页。蓝色顶部栏拖动位置，右下角蓝色方块调节大小。透明悬浮能力来自开源项目 TransparentFloatingBrowser。</div>`
+  },
+  {
+    title: 'Step 4：编辑模式',
+    body: `<p>左侧橙色按钮显示"编辑"时，小窗可交互。</p>
+      <div class="info">编辑模式下：小窗可拖动、可缩放、内容可点击。触摸落在小窗网页上，不穿透到底层直播端。</div>
+      <div class="note">橙色按钮可沿左侧上下拖动调整位置。</div>`
+  },
+  {
+    title: 'Step 5：显示模式',
+    body: `<p>点击橙色按钮切换到"显示"模式。</p>
+      <div class="info">显示模式下：小窗不可交互、不可拖动、不可缩放。触摸穿透小窗落到底层直播端。小窗半透明表示穿透状态。</div>
+      <div class="note">只有左侧橙色按钮仍可点击，用于切回编辑模式。</div>`
+  },
+  {
+    title: 'Step 6：直播端应用场景',
+    body: `<p>透明悬浮小窗可叠加在直播端画面上。</p>
+      <div class="info">右侧面板代表直播端——打游戏、绘图、做手工、展示内容的那台手机。虚拟主播小窗悬浮在上方，不影响底层触控。</div>
+      <div class="note">开启"涂鸦模式"可在直播端画面上手绘，直观体验显示模式下的触摸穿透效果。</div>`
+  },
+];
+
+// ====== INIT ======
+document.addEventListener('DOMContentLoaded', () => {
+  initAvatarCanvas();
+  initGameCanvas();
+  initFWAvatarCanvas();
+  initFloatingWindow();
+  startSimLoop();
+  initVersionStamp();
+  initAvatarSelectionDiag();
+  initLinksDiag();
+  init2DAvatarDiag();
+  initMocapDiag();
+  // 应用模式默认开启
+  if (state.showcaseMode) {
+    const body = document.getElementById('avatarPanelBody');
+    if (body) body.classList.add('showcase-mode');
+  }
+  if (state.currentAvatar === 'sacabambaspis-3d') {
+    ensure3DRenderers().catch(() => {});
+  }
+});
+
+function initAvatarSelectionDiag() {
+  if (window.__cheapLiveContestAvatarSelectionDiag) return;
+  window.__cheapLiveContestAvatarSelectionDiag = {
+    selectedAvatar: state.currentAvatar,
+    activeButtonAvatar: state.currentAvatar,
+    mainPanelAvatar: state.currentAvatar,
+    floatingPanelAvatar: state.currentAvatar,
+    mainRendererClass: state.currentAvatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + state.currentAvatar,
+    floatingRendererClass: state.currentAvatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + state.currentAvatar,
+    mainUses3D: state.currentAvatar === 'sacabambaspis-3d',
+    floatingUses3D: state.currentAvatar === 'sacabambaspis-3d',
+    panelsInSync: true,
+    mainCanvasWidth: 0,
+    mainCanvasHeight: 0,
+    clearRectWidth: 0,
+    clearRectHeight: 0,
+    lastAvatarSwitchAt: Date.now(),
+  };
+}
+
+function initLinksDiag() {
+  if (window.__cheapLiveContestLinksDiag) return;
+  const link = document.querySelector('.evolution-link');
+  const rect = link ? link.getBoundingClientRect() : null;
+  window.__cheapLiveContestLinksDiag = {
+    evolutionLinkPresent: !!link,
+    evolutionLinkHref: link ? link.getAttribute('href') : null,
+    evolutionLinkVisible: link ? (rect.width > 0 && rect.height > 0) : false,
+    evolutionLinkPlacement: link ? 'footer' : null,
+  };
+}
+
+function init2DAvatarDiag() {
+  if (window.__cheapLiveContest2DAvatarDiag) return;
+  window.__cheapLiveContest2DAvatarDiag = {
+    avatarType: state.currentAvatar,
+    mouthOpenApplied: false,
+    blinkApplied: false,
+    headOffsetApplied: false,
+    rollApplied: false,
+    leftEyeOpen: 1,
+    rightEyeOpen: 1,
+    headOffsetX: 0,
+    headOffsetY: 0,
+    mouthOpen: 0,
+    smile: 0,
+    mainAndFloatingParamsInSync: true,
+  };
+  // Fish eye bilateral diagnostics
+  window.__cheapLiveContestFishEyeDiag = {
+    avatarType: null,
+    headCenterX: 0,
+    leftEyeCenterX: 0,
+    rightEyeCenterX: 0,
+    leftEyeSide: null,
+    rightEyeSide: null,
+    eyeSeparation: 0,
+    eyeSeparationRatioToHead: 0,
+    bothEyesSameSide: true,
+    eyesBilateralPass: false,
+    mainFloatingConsistent: true,
+  };
+  // 2D gaze / iris diagnostics
+  window.__cheapLiveContest2DGazeDiag = {
+    avatarType: null,
+    gazeSource: null,
+    gazeX: 0,
+    gazeY: 0,
+    leftIrisCenterX: 0,
+    leftIrisCenterY: 0,
+    rightIrisCenterX: 0,
+    rightIrisCenterY: 0,
+    leftIrisOffsetX: 0,
+    leftIrisOffsetY: 0,
+    rightIrisOffsetX: 0,
+    rightIrisOffsetY: 0,
+    irisMovementApplied: false,
+    irisClampedInsideEye: false,
+    blinkOccludesIris: false,
+    mainFloatingConsistent: true,
+  };
+}
+
+// ====== VERSION STAMP ======
+// 静态加载 contest-build.json，把 git SHA + build time 显示在标题右侧。
+// 加载失败时显示 "version unknown"，不抛错。
+function initVersionStamp() {
+  const el = document.getElementById('versionStamp');
+  if (!el) return;
+
+  // 初始化 version diagnostics
+  if (!window.__cheapLiveContestVersionDiag) {
+    window.__cheapLiveContestVersionDiag = {
+      version: null,
+      versionSource: null,
+      buildTime: null,
+      stampGitShortSha: null,
+      queryV: null,
+      stampLoaded: false,
+    };
+  }
+  const diag = window.__cheapLiveContestVersionDiag;
+
+  // 优先读取 URL query 里的 ?v=<sha>
+  const params = new URLSearchParams(window.location.search);
+  const queryV = params.get('v');
+  diag.queryV = queryV;
+
+  function loadBuildStamp(callback) {
+    if (window.location.protocol === 'file:') {
+      const xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = () => {
+        if (xhr.readyState === 4) {
+          if (xhr.status === 0 || xhr.status === 200) {
+            try {
+              callback(null, JSON.parse(xhr.responseText));
+            } catch (e) {
+              callback(e);
+            }
+          } else {
+            callback(new Error('xhr status ' + xhr.status));
+          }
+        }
+      };
+      xhr.onerror = () => callback(new Error('xhr error'));
+      xhr.open('GET', 'contest-build.json', true);
+      xhr.send();
+    } else {
+      fetch('contest-build.json', { cache: 'no-cache' })
+        .then(r => { if (!r.ok) throw new Error('build stamp http ' + r.status); return r.json(); })
+        .then(stamp => callback(null, stamp))
+        .catch(err => callback(err));
+    }
+  }
+
+  if (queryV && queryV.trim()) {
+    const v = queryV.trim();
+    diag.version = v;
+    diag.versionSource = 'query';
+    el.textContent = `v${v}`;
+    loadBuildStamp((err, stamp) => {
+      if (!err && stamp) {
+        diag.stampLoaded = true;
+        diag.stampGitShortSha = stamp.gitShortSha || null;
+        const time = stamp.buildTimeLocal || '';
+        diag.buildTime = time;
+        if (time) {
+          el.textContent = `v${v} · updated ${time}`;
+        }
+      } else {
+        diag.stampLoaded = false;
+      }
+    });
+    return;
+  }
+
+  loadBuildStamp((err, stamp) => {
+    if (!err && stamp) {
+      const sha = (stamp && stamp.gitShortSha) ? stamp.gitShortSha : 'unknown';
+      const time = (stamp && stamp.buildTimeLocal) ? stamp.buildTimeLocal : '';
+      let text = `v${sha}`;
+      if (time) text += ` · updated ${time}`;
+      el.textContent = text;
+      diag.version = sha;
+      diag.versionSource = 'build-json';
+      diag.buildTime = time || null;
+      diag.stampGitShortSha = sha;
+      diag.stampLoaded = true;
+    } else {
+      el.textContent = 'version unknown';
+      diag.version = 'unknown';
+      diag.versionSource = 'fallback';
+      diag.stampLoaded = false;
+    }
+  });
+}
+
+// ====== AVATAR CANVAS (Middle Panel) ======
+let avatarCtx, avatarW, avatarH;
+
+function initAvatarCanvas() {
+  const c = document.getElementById('avatarCanvas');
+  avatarCtx = c.getContext('2d');
+  avatarW = c.width;
+  avatarH = c.height;
+}
+
+function drawAvatar(ctx, w, h, avatar, params, scale) {
+  if (avatar === 'sacabambaspis-3d') {
+    return;
+  }
+  scale = scale || 1;
+  ctx.clearRect(0, 0, w, h);
+  const cx = w / 2;
+  const cy = h / 2;
+
+  if (avatar === 'sacabambaspis') {
+    drawSacabambaspis(ctx, cx, cy, params, scale);
+  } else if (avatar === 'cat') {
+    drawCat(ctx, cx, cy, params, scale);
+  } else if (avatar === 'dog') {
+    drawDog(ctx, cx, cy, params, scale);
+  } else if (avatar === 'rabbit') {
+    drawRabbit(ctx, cx, cy, params, scale);
+  } else if (avatar === 'fox') {
+    drawFox(ctx, cx, cy, params, scale);
+  } else if (avatar === 'bear') {
+    drawBear(ctx, cx, cy, params, scale);
+  } else if (avatar === 'classic-sphere') {
+    drawClassicSphere(ctx, cx, cy, params, scale);
+  } else {
+    drawPlaceholder(ctx, cx, cy, avatar, scale);
+  }
+}
+
+function update3DRenderers(params) {
+  if (!_3dReady) return false;
+  if (typeof window.renderContestFishAvatar !== 'function') return false;
+  const okMain = window.renderContestFishAvatar('avatarCanvas', params);
+  const fwCanvas = document.getElementById('fwAvatarCanvas');
+  let okFw = true;
+  if (fwCanvas && fwCanvas.offsetParent !== null) {
+    okFw = window.renderContestFishAvatar('fwAvatarCanvas', params);
+  }
+  return okMain && okFw;
+}
+
+function faceParamsToRendererParams(fp) {
+  // Aligned with open demo mapping conventions (mirror mode):
+  // - yaw: state.yaw in [-1,1]; negated for selfie mirror, then mapped to 0..1 (0.5=center)
+  // - pitch: state.pitch in [-1,1]; NEGATED (Web-specific) so user look-down → fish look-down
+  //   and user look-up → fish look-up. (The underlying MediaPipe pitch sign in this build
+  //   produces the opposite visual direction; the sign fix lives ONLY at this Web adapter
+  //   layer. The Android receiver keeps its own mapping and must NOT inherit this negation.)
+  // - roll: state.roll in [-1,1]; negated to match intuitive direction (left tilt=left tilt)
+  // - eyeLeft/eyeRight: 0 = closed, 1 = fully open (derived from blink values)
+  // - headX/headY: 0..1, 0.5=center (nose position, mirrored for selfie)
+  // - gazeLeftX/Y, gazeRightX/Y: [-1,1] (iris position, mirrored for selfie)
+  const blinkLeft = fp.blinkLeft ?? fp.blink ?? 0;
+  const blinkRight = fp.blinkRight ?? fp.blink ?? 0;
+  const eyeLeft = fp.eyeLeft ?? (1 - blinkLeft);
+  const eyeRight = fp.eyeRight ?? (1 - blinkRight);
+
+  // Mirror yaw for selfie view (like open demo mirror mode): negate yaw
+  // Pitch: Web-only sign flip so the fish tilts the same way the user does.
+  //   - user looks down (fp.pitch < 0 in MediaPipe space) → visual head down → headPitch < 0
+  //   - user looks up   (fp.pitch > 0 in MediaPipe space) → visual head up   → headPitch > 0
+  // Roll is NOT negated — open demo's mirror mode does the negation+mirror twice, cancelling out.
+  //   (open demo: roll=-roll then headRollNorm=1-headRollNorm → net no negation in mirror mode)
+  const yawNorm = (-(fp.yaw ?? 0)) * 0.5 + 0.5;
+  const pitchNorm = (-(fp.pitch ?? 0)) * 0.5 + 0.5;
+  const rollNorm = (fp.roll ?? 0) * 0.5 + 0.5;
+
+  return {
+    mouthOpen: fp.mouthOpen ?? 0,
+    mouthSmile: fp.smile ?? 0,
+    eyeLeft: eyeLeft,
+    eyeRight: eyeRight,
+    headYaw: yawNorm,
+    headPitch: pitchNorm,
+    headRoll: rollNorm,
+    // Head pan (0.5 = center). Pass through directly; extraction already handles mirror.
+    headX: fp.headX ?? 0.5,
+    headY: fp.headY ?? 0.5,
+    // Iris gaze ([-1,1]). Pass through directly; extraction already handles mirror.
+    gazeLeftX: fp.gazeLeftX ?? 0,
+    gazeLeftY: fp.gazeLeftY ?? 0,
+    gazeRightX: fp.gazeRightX ?? 0,
+    gazeRightY: fp.gazeRightY ?? 0,
+    browLeft: 0,
+    browRight: 0,
+  };
+}
+
+function ensure3DRenderers() {
+  if (_3dReady) return Promise.resolve();
+  if (_3dFailed) return Promise.reject(new Error('3D renderer failed to load'));
+  if (_3dLoadStarted) return _ensure3DPromise;
+
+  _3dLoadStarted = true;
+
+  if (typeof window.createContestFishAvatar !== 'function') {
+    _3dFailed = true;
+    const diag = window.__cheapLiveContestAvatarDiag || {};
+    diag.fallbackActive = true;
+    diag.error = 'createContestFishAvatar not available (adapter not loaded)';
+    return Promise.reject(new Error('contest-avatar-adapter not loaded'));
+  }
+
+  _ensure3DPromise = Promise.all([
+    window.createContestFishAvatar('avatarCanvas'),
+    window.createContestFishAvatar('fwAvatarCanvas'),
+  ])
+    .then(() => {
+      _3dReady = true;
+      if (typeof window.setContestFishAvatarTransparentMode === 'function') {
+        window.setContestFishAvatarTransparentMode('fwAvatarCanvas', true);
+        // 应用模式默认开启：主 canvas 也设为透明
+        if (state.showcaseMode) {
+          window.setContestFishAvatarTransparentMode('avatarCanvas', true);
+        }
+      }
+    })
+    .catch((err) => {
+      _3dFailed = true;
+      const diag = window.__cheapLiveContestAvatarDiag || {};
+      diag.fallbackActive = true;
+      diag.error = String(err && err.message || err);
+      throw err;
+    });
+
+  return _ensure3DPromise;
+}
+
+function set3DRenderersVisible(visible) {
+  const mainCanvas = document.getElementById('avatarCanvas');
+  const fwCanvas = document.getElementById('fwAvatarCanvas');
+  if (visible) {
+    mainCanvas.style.display = '';
+    fwCanvas.style.display = '';
+  }
+}
+
+// ====== 3D ERROR / LOADING OVERLAYS ======
+function _hide3DOverlays() {
+  const errEl = document.getElementById('avatar3DError');
+  const loadEl = document.getElementById('avatar3DLoading');
+  if (errEl) errEl.style.display = 'none';
+  if (loadEl) loadEl.style.display = 'none';
+}
+
+function _show3DErrorOverlay() {
+  const errEl = document.getElementById('avatar3DError');
+  const loadEl = document.getElementById('avatar3DLoading');
+  if (loadEl) loadEl.style.display = 'none';
+  if (errEl) {
+    errEl.style.display = 'flex';
+    const msgEl = document.getElementById('avatar3DErrorMsg');
+    if (msgEl) {
+      const diag = window.__cheapLiveContestAvatarDiag || {};
+      msgEl.textContent = diag.error || '未知错误';
+    }
+  }
+}
+
+function _show3DLoadingOverlay() {
+  const errEl = document.getElementById('avatar3DError');
+  const loadEl = document.getElementById('avatar3DLoading');
+  if (errEl) errEl.style.display = 'none';
+  if (loadEl) loadEl.style.display = 'flex';
+}
+
+function retry3DRenderer() {
+  _3dReady = false;
+  _3dFailed = false;
+  _3dLoadStarted = false;
+  _ensure3DPromise = null;
+  const diag = window.__cheapLiveContestAvatarDiag || {};
+  diag.fallbackActive = false;
+  diag.error = null;
+  _hide3DOverlays();
+  _show3DLoadingOverlay();
+  ensure3DRenderers().catch(() => {});
+}
+
+function manualFallback2D() {
+  // User explicitly chose to switch to 2D
+  _hide3DOverlays();
+  selectAvatar('sacabambaspis', null);
+  const avatarBtns = document.querySelectorAll('.avatar-btn');
+  avatarBtns.forEach(btn => {
+    btn.classList.toggle('selected', btn.dataset.avatar === 'sacabambaspis');
+  });
+  const diag = window.__cheapLiveContestAvatarDiag || {};
+  diag.fallbackActive = true;
+  diag.fallbackReason = 'user_manual';
+}
+
+// ====== FACE FRAME INJECTION ======
+// Frame fields: source, seq, headYaw (deg), headPitch (deg), headRoll (deg),
+//               mouthOpen (0-1), mouthSmile (0-1),
+//               blinkLeft (0-1), blinkRight (0-1), eyeLeft (0-1), eyeRight (0-1),
+//               headX (0-1, 0.5=center), headY (0-1, 0.5=center),
+//               gazeLeftX/Y, gazeRightX/Y ([-1,1])
+// Degrees range: yaw ±60, pitch ±45, roll ±40
+function _degToNorm(deg, maxDeg) {
+  const clamped = Math.max(-maxDeg, Math.min(maxDeg, deg));
+  return (clamped / maxDeg) * 0.5 + 0.5;
+}
+
+function _applyFaceFrameInternal(frame) {
+  if (!frame || typeof frame !== 'object') return false;
+
+  _faceFrameActive = true;
+  _faceFrameSource = frame.source || 'unknown';
+  _lastAppliedSeq = frame.seq || 0;
+  _lastAppliedFrame = { ...frame };
+
+  // Map frame fields to faceParams (yaw/pitch/roll in degrees → normalized -1..1 for state)
+  if (typeof frame.headYaw === 'number') {
+    state.faceParams.yaw = Math.max(-1, Math.min(1, frame.headYaw / 60));
+  }
+  if (typeof frame.headPitch === 'number') {
+    state.faceParams.pitch = Math.max(-1, Math.min(1, frame.headPitch / 45));
+  }
+  if (typeof frame.headRoll === 'number') {
+    state.faceParams.roll = Math.max(-1, Math.min(1, frame.headRoll / 40));
+  }
+  if (typeof frame.mouthOpen === 'number') {
+    state.faceParams.mouthOpen = Math.max(0, Math.min(1, frame.mouthOpen));
+  }
+  if (typeof frame.mouthSmile === 'number') {
+    state.faceParams.smile = Math.max(0, Math.min(1, frame.mouthSmile));
+  }
+  // Eye/blink fields: support both blinkLeft/blinkRight and eyeLeft/eyeRight
+  if (typeof frame.blinkLeft === 'number') {
+    state.faceParams.blinkLeft = Math.max(0, Math.min(1, frame.blinkLeft));
+    state.faceParams.eyeLeft = 1 - state.faceParams.blinkLeft;
+  }
+  if (typeof frame.blinkRight === 'number') {
+    state.faceParams.blinkRight = Math.max(0, Math.min(1, frame.blinkRight));
+    state.faceParams.eyeRight = 1 - state.faceParams.blinkRight;
+  }
+  if (typeof frame.eyeLeft === 'number') {
+    state.faceParams.eyeLeft = Math.max(0, Math.min(1, frame.eyeLeft));
+    state.faceParams.blinkLeft = 1 - state.faceParams.eyeLeft;
+  }
+  if (typeof frame.eyeRight === 'number') {
+    state.faceParams.eyeRight = Math.max(0, Math.min(1, frame.eyeRight));
+    state.faceParams.blinkRight = 1 - state.faceParams.eyeRight;
+  }
+  // Update unified blink as max of both
+  state.faceParams.blink = Math.max(state.faceParams.blinkLeft, state.faceParams.blinkRight);
+
+  // Head pan (0..1, 0.5=center)
+  if (typeof frame.headX === 'number') {
+    state.faceParams.headX = Math.max(0, Math.min(1, frame.headX));
+  }
+  if (typeof frame.headY === 'number') {
+    state.faceParams.headY = Math.max(0, Math.min(1, frame.headY));
+  }
+  // Iris gaze ([-1,1] per eye per axis)
+  // Real-camera iris positions live in a much smaller range than the [-1, 1] renderer
+  // expects (the iris only moves a tiny fraction of the eye white in real life).
+  // Apply: deadzone → EMA smoothing → gain → clamp to [-1, 1] so the avatar's
+  // iris visibly compensates when the user turns their head while keeping gaze on screen.
+  function _processGaze(raw) {
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return 0;
+    let v = Math.abs(raw) < GAZE_DEADZONE ? 0 : (Math.abs(raw) - GAZE_DEADZONE) / (1 - GAZE_DEADZONE);
+    v = Math.sign(raw) * v * GAZE_GAIN;
+    return Math.max(-1, Math.min(1, v));
+  }
+  if (typeof frame.gazeLeftX === 'number') {
+    _smoothGazeLeftX = _smoothGazeLeftX + GAZE_EMA_ALPHA * (_processGaze(frame.gazeLeftX) - _smoothGazeLeftX);
+    state.faceParams.gazeLeftX = _smoothGazeLeftX;
+  }
+  if (typeof frame.gazeLeftY === 'number') {
+    _smoothGazeLeftY = _smoothGazeLeftY + GAZE_EMA_ALPHA * (_processGaze(frame.gazeLeftY) - _smoothGazeLeftY);
+    state.faceParams.gazeLeftY = _smoothGazeLeftY;
+  }
+  if (typeof frame.gazeRightX === 'number') {
+    _smoothGazeRightX = _smoothGazeRightX + GAZE_EMA_ALPHA * (_processGaze(frame.gazeRightX) - _smoothGazeRightX);
+    state.faceParams.gazeRightX = _smoothGazeRightX;
+  }
+  if (typeof frame.gazeRightY === 'number') {
+    _smoothGazeRightY = _smoothGazeRightY + GAZE_EMA_ALPHA * (_processGaze(frame.gazeRightY) - _smoothGazeRightY);
+    state.faceParams.gazeRightY = _smoothGazeRightY;
+  }
+  _gazeSource = (frame.source === 'real-camera' || frame.source === 'mediapipe' || frame.source === 'android-receiver')
+    ? 'iris-landmarks' : 'head-compensation-fallback';
+
+  _lastAppliedValues = {
+    yaw: state.faceParams.yaw,
+    pitch: state.faceParams.pitch,
+    roll: state.faceParams.roll,
+    mouthOpen: state.faceParams.mouthOpen,
+    smile: state.faceParams.smile,
+    blink: state.faceParams.blink,
+    blinkLeft: state.faceParams.blinkLeft,
+    blinkRight: state.faceParams.blinkRight,
+    eyeLeft: state.faceParams.eyeLeft,
+    eyeRight: state.faceParams.eyeRight,
+    headX: state.faceParams.headX,
+    headY: state.faceParams.headY,
+    gazeLeftX: state.faceParams.gazeLeftX,
+    gazeLeftY: state.faceParams.gazeLeftY,
+    gazeRightX: state.faceParams.gazeRightX,
+    gazeRightY: state.faceParams.gazeRightY,
+  };
+
+  // Reset idle timeout
+  if (_frameTimeoutId) clearTimeout(_frameTimeoutId);
+  _frameTimeoutId = setTimeout(() => {
+    _faceFrameActive = false;
+    _faceFrameSource = null;
+  }, FRAME_IDLE_TIMEOUT_MS);
+
+  return true;
+}
+
+window.__cheapLiveContestAvatarApplyFrame = function (frame) {
+  return _applyFaceFrameInternal(frame);
+};
+
+window.__cheapLiveContestAvatarResetFrame = function () {
+  _faceFrameActive = false;
+  _faceFrameSource = null;
+  if (_frameTimeoutId) {
+    clearTimeout(_frameTimeoutId);
+    _frameTimeoutId = null;
+  }
+};
+
+function drawSacabambaspis(ctx, cx, cy, p, s) {
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
+  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
+  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
+  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
+  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
+  const roll = (p.roll ?? 0) * 0.3;
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s;
+  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
+  const mouthH = mouth * 10 * s;
+  const eyeHL = eyeL * 7 * s;
+  const eyeHR = eyeR * 7 * s;
+
+  // Gaze / iris tracking: use gazeX/gazeY or yaw/pitch as proxy
+  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
+  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
+  const irisMaxOffset = 2.5 * s;
+  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
+  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
+
+  // === Unified FRONT-FACING view ===
+  // Sacabambaspis had a broad, flat cephalic shield — front view shows
+  // a wide head with bilateral eyes and a small mouth.
+  // Eye positions — front-facing, bilateral (left/right)
+  const leftEyeX = -16 * s;
+  const rightEyeX = 16 * s;
+  const eyeY = -12 * s;
+  const eyeW = 8 * s;
+  const irisR = 4.5 * s;
+
+  ctx.save();
+  ctx.translate(cx + headOffsetX, cy + headOffsetY);
+  ctx.rotate(roll);
+
+  // --- Tail (bottom, fan-shaped, front view) ---
+  ctx.fillStyle = '#b8b4a4';
+  ctx.beginPath();
+  ctx.moveTo(-12 * s, 38 * s);
+  ctx.lineTo(-22 * s, 58 * s);
+  ctx.lineTo(-8 * s, 50 * s);
+  ctx.lineTo(0, 56 * s);
+  ctx.lineTo(8 * s, 50 * s);
+  ctx.lineTo(22 * s, 58 * s);
+  ctx.lineTo(12 * s, 38 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // --- Body: wide horizontal ellipse (front view of a flat fish) ---
+  // Slightly tapering down, wider than tall
+  ctx.fillStyle = '#e4e1d3';
+  ctx.beginPath();
+  ctx.ellipse(0, 5 * s, 42 * s, 38 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Head shield: upper portion, slightly wider and lighter ---
+  ctx.fillStyle = '#ede9dc';
+  ctx.beginPath();
+  ctx.ellipse(0, -8 * s, 40 * s, 28 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Dorsal fin (top, small triangle, front view) ---
+  ctx.fillStyle = '#b8b4a4';
+  ctx.beginPath();
+  ctx.moveTo(-10 * s, -30 * s);
+  ctx.lineTo(0, -44 * s);
+  ctx.lineTo(10 * s, -30 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // --- Pectoral fins (sides, small, front view) ---
+  ctx.fillStyle = '#c8c4b4';
+  ctx.beginPath();
+  ctx.ellipse(-32 * s, 12 * s, 10 * s, 5 * s, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(32 * s, 12 * s, 10 * s, 5 * s, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Eye sockets (slight indent, darker ring) ---
+  ctx.strokeStyle = 'rgba(120,110,90,0.3)';
+  ctx.lineWidth = 1.5 * s;
+  ctx.beginPath();
+  ctx.ellipse(leftEyeX, eyeY, eyeW + 2 * s, Math.max(2, eyeHL + 2 * s), 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(rightEyeX, eyeY, eyeW + 2 * s, Math.max(2, eyeHR + 2 * s), 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // --- Left Eye (bilateral — left side) ---
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(leftEyeX, eyeY, eyeW, Math.max(1, eyeHL), 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (eyeHL > 2) {
+    // Iris with gaze tracking
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.arc(leftEyeX + irisOffsetX, eyeY + irisOffsetY, irisR, 0, Math.PI * 2);
+    ctx.fill();
+    // Pupil highlight
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(leftEyeX + irisOffsetX + 1 * s, eyeY + irisOffsetY - 1.5 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // --- Right Eye (bilateral — right side) ---
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(rightEyeX, eyeY, eyeW, Math.max(1, eyeHR), 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (eyeHR > 2) {
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.arc(rightEyeX + irisOffsetX, eyeY + irisOffsetY, irisR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(rightEyeX + irisOffsetX + 1 * s, eyeY + irisOffsetY - 1.5 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // --- Mouth (center, below eyes, front view) ---
+  if (mouthH > 0.5) {
+    ctx.fillStyle = '#8a7355';
+    ctx.beginPath();
+    ctx.ellipse(0, 14 * s, 7 * s, mouthH * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Mouth line (always visible)
+  ctx.strokeStyle = '#6a5535';
+  ctx.lineWidth = Math.max(1, 1.5 * s);
+  ctx.beginPath();
+  ctx.moveTo(-6 * s, 14 * s);
+  ctx.quadraticCurveTo(0, 14 * s + Math.max(2, mouthH), 6 * s, 14 * s);
+  ctx.stroke();
+
+  ctx.restore();
+
+  // 更新 2D avatar diagnostics
+  if (window.__cheapLiveContest2DAvatarDiag) {
+    const d = window.__cheapLiveContest2DAvatarDiag;
+    d.avatarType = 'sacabambaspis';
+    d.mouthOpenApplied = true;
+    d.blinkApplied = true;
+    d.headOffsetApplied = true;
+    d.rollApplied = true;
+    d.leftEyeOpen = eyeL;
+    d.rightEyeOpen = eyeR;
+    d.headOffsetX = headOffsetX;
+    d.headOffsetY = headOffsetY;
+    d.mouthOpen = mouth;
+    d.smile = p.smile ?? 0;
+  }
+
+  // 更新 fish eye bilateral diagnostics
+  if (window.__cheapLiveContestFishEyeDiag) {
+    const headCenterX = cx + headOffsetX;
+    const leftEyeCenterX = cx + headOffsetX + leftEyeX;
+    const rightEyeCenterX = cx + headOffsetX + rightEyeX;
+    const eyeSep = Math.abs(rightEyeX - leftEyeX);
+    window.__cheapLiveContestFishEyeDiag = {
+      avatarType: 'sacabambaspis',
+      headCenterX,
+      leftEyeCenterX,
+      rightEyeCenterX,
+      leftEyeSide: leftEyeCenterX < headCenterX ? 'left' : 'right',
+      rightEyeSide: rightEyeCenterX > headCenterX ? 'right' : 'left',
+      eyeSeparation: eyeSep,
+      eyeSeparationRatioToHead: eyeSep / (80 * s),
+      bothEyesSameSide: (leftEyeCenterX > headCenterX && rightEyeCenterX > headCenterX) ||
+                        (leftEyeCenterX < headCenterX && rightEyeCenterX < headCenterX),
+      eyesBilateralPass: leftEyeCenterX < headCenterX && rightEyeCenterX > headCenterX,
+      mainFloatingConsistent: true
+    };
+  }
+
+  // 更新 2D gaze diagnostics
+  if (window.__cheapLiveContest2DGazeDiag) {
+    window.__cheapLiveContest2DGazeDiag = {
+      avatarType: 'sacabambaspis',
+      gazeSource: (p.gazeLeftX !== undefined) ? 'gazeParams' : 'yawPitchProxy',
+      gazeX, gazeY,
+      leftIrisCenterX: cx + headOffsetX + leftEyeX + irisOffsetX,
+      leftIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
+      rightIrisCenterX: cx + headOffsetX + rightEyeX + irisOffsetX,
+      rightIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
+      leftIrisOffsetX: irisOffsetX,
+      leftIrisOffsetY: irisOffsetY,
+      rightIrisOffsetX: irisOffsetX,
+      rightIrisOffsetY: irisOffsetY,
+      irisMovementApplied: true,
+      irisClampedInsideEye: Math.abs(irisOffsetX) <= irisMaxOffset && Math.abs(irisOffsetY) <= irisMaxOffset,
+      blinkOccludesIris: eyeHL <= 2 || eyeHR <= 2,
+      mainFloatingConsistent: true
+    };
+  }
+}
+
+function drawCat(ctx, cx, cy, p, s) {
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
+  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
+  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
+  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
+  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
+  const roll = (p.roll ?? 0) * 0.3;
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s;
+  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
+  const eyeHL = eyeL * 6 * s;
+  const eyeHR = eyeR * 6 * s;
+  const mouthOpen = mouth * 5 * s;
+
+  // Gaze / iris tracking
+  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
+  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
+  const irisMaxOffset = 2.5 * s;
+  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
+  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
+
+  // Eye positions
+  const leftEyeX = -12 * s;
+  const rightEyeX = 12 * s;
+  const eyeY = -14 * s;
+
+  ctx.save();
+  ctx.translate(cx + headOffsetX, cy + headOffsetY);
+  ctx.rotate(roll);
+
+  // Head
+  ctx.fillStyle = '#ffb347';
+  ctx.beginPath();
+  ctx.arc(0, -10 * s, 40 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body
+  ctx.fillStyle = '#ffb347';
+  ctx.beginPath();
+  ctx.ellipse(0, 35 * s, 30 * s, 25 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Ears
+  ctx.fillStyle = '#e89530';
+  ctx.beginPath();
+  ctx.moveTo(-25 * s, -40 * s);
+  ctx.lineTo(-35 * s, -70 * s);
+  ctx.lineTo(-10 * s, -45 * s);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(25 * s, -40 * s);
+  ctx.lineTo(35 * s, -70 * s);
+  ctx.lineTo(10 * s, -45 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // Inner ears
+  ctx.fillStyle = '#f0c0a0';
+  ctx.beginPath();
+  ctx.moveTo(-22 * s, -42 * s);
+  ctx.lineTo(-30 * s, -62 * s);
+  ctx.lineTo(-14 * s, -44 * s);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(22 * s, -42 * s);
+  ctx.lineTo(30 * s, -62 * s);
+  ctx.lineTo(14 * s, -44 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // Left Eye (bilateral — left side, with iris gaze tracking)
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(leftEyeX, eyeY, 8 * s, Math.max(1, eyeHL), 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (eyeHL > 2) {
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.ellipse(leftEyeX + irisOffsetX, eyeY + irisOffsetY, 4 * s, 5 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(leftEyeX + irisOffsetX + 1 * s, eyeY + irisOffsetY - 2 * s, 2 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Right Eye (bilateral — right side, with iris gaze tracking)
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(rightEyeX, eyeY, 8 * s, Math.max(1, eyeHR), 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (eyeHR > 2) {
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.ellipse(rightEyeX + irisOffsetX, eyeY + irisOffsetY, 4 * s, 5 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(rightEyeX + irisOffsetX + 1 * s, eyeY + irisOffsetY - 2 * s, 2 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Nose
+  ctx.fillStyle = '#e89530';
+  ctx.beginPath();
+  ctx.moveTo(0, -2 * s);
+  ctx.lineTo(-4 * s, 2 * s);
+  ctx.lineTo(4 * s, 2 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // Mouth
+  ctx.strokeStyle = '#c07020';
+  ctx.lineWidth = 1.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(0, 2 * s);
+  ctx.lineTo(0, 2 * s + mouthOpen);
+  ctx.stroke();
+  if (mouthOpen > 2) {
+    ctx.fillStyle = '#c05030';
+    ctx.beginPath();
+    ctx.ellipse(0, 4 * s + mouthOpen, 5 * s, mouthOpen * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Whiskers
+  ctx.strokeStyle = '#e89530';
+  ctx.lineWidth = 1 * s;
+  [-1, 1].forEach(side => {
+    ctx.beginPath();
+    ctx.moveTo(side * 15 * s, 0);
+    ctx.lineTo(side * 40 * s, -5 * s);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(side * 15 * s, 3 * s);
+    ctx.lineTo(side * 40 * s, 5 * s);
+    ctx.stroke();
+  });
+
+  ctx.restore();
+
+  // 更新 2D avatar diagnostics
+  if (window.__cheapLiveContest2DAvatarDiag) {
+    const d = window.__cheapLiveContest2DAvatarDiag;
+    d.avatarType = 'cat';
+    d.mouthOpenApplied = true;
+    d.blinkApplied = true;
+    d.headOffsetApplied = true;
+    d.rollApplied = true;
+    d.leftEyeOpen = eyeL;
+    d.rightEyeOpen = eyeR;
+    d.headOffsetX = headOffsetX;
+    d.headOffsetY = headOffsetY;
+    d.mouthOpen = mouth;
+    d.smile = p.smile ?? 0;
+  }
+
+  // 更新 fish eye bilateral diagnostics (cat 也需要 bilateral 诊断)
+  if (window.__cheapLiveContestFishEyeDiag) {
+    const headCenterX = cx + headOffsetX;
+    const leftEyeCenterX = cx + headOffsetX + leftEyeX;
+    const rightEyeCenterX = cx + headOffsetX + rightEyeX;
+    const eyeSep = Math.abs(rightEyeX - leftEyeX);
+    window.__cheapLiveContestFishEyeDiag = {
+      avatarType: 'cat',
+      headCenterX,
+      leftEyeCenterX,
+      rightEyeCenterX,
+      leftEyeSide: leftEyeCenterX < headCenterX ? 'left' : 'right',
+      rightEyeSide: rightEyeCenterX > headCenterX ? 'right' : 'left',
+      eyeSeparation: eyeSep,
+      eyeSeparationRatioToHead: eyeSep / (80 * s),
+      bothEyesSameSide: (leftEyeCenterX > headCenterX && rightEyeCenterX > headCenterX) ||
+                        (leftEyeCenterX < headCenterX && rightEyeCenterX < headCenterX),
+      eyesBilateralPass: leftEyeCenterX < headCenterX && rightEyeCenterX > headCenterX,
+      mainFloatingConsistent: true
+    };
+  }
+
+  // 更新 2D gaze diagnostics
+  if (window.__cheapLiveContest2DGazeDiag) {
+    window.__cheapLiveContest2DGazeDiag = {
+      avatarType: 'cat',
+      gazeSource: (p.gazeLeftX !== undefined) ? 'gazeParams' : 'yawPitchProxy',
+      gazeX, gazeY,
+      leftIrisCenterX: cx + headOffsetX + leftEyeX + irisOffsetX,
+      leftIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
+      rightIrisCenterX: cx + headOffsetX + rightEyeX + irisOffsetX,
+      rightIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
+      leftIrisOffsetX: irisOffsetX,
+      leftIrisOffsetY: irisOffsetY,
+      rightIrisOffsetX: irisOffsetX,
+      rightIrisOffsetY: irisOffsetY,
+      irisMovementApplied: true,
+      irisClampedInsideEye: Math.abs(irisOffsetX) <= irisMaxOffset && Math.abs(irisOffsetY) <= irisMaxOffset,
+      blinkOccludesIris: eyeHL <= 2 || eyeHR <= 2,
+      mainFloatingConsistent: true
+    };
+  }
+}
+
+function _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeHL, eyeHR, irisOffsetX, irisOffsetY, irisColor) {
+  irisColor = irisColor || '#333';
+  const eyeH = 6;
+  ctx.fillStyle = '#fff';
+  if (eyeHL > 1) {
+    ctx.beginPath();
+    ctx.ellipse(leftEyeX, eyeY, eyeW, Math.max(1, eyeHL * eyeH), 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (eyeHR > 1) {
+    ctx.beginPath();
+    ctx.ellipse(rightEyeX, eyeY, eyeW, Math.max(1, eyeHR * eyeH), 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const irisW = eyeW * 0.5;
+  const irisH = eyeH * 0.55;
+  if (eyeHL > 2) {
+    ctx.fillStyle = irisColor;
+    ctx.beginPath();
+    ctx.ellipse(leftEyeX + irisOffsetX, eyeY + irisOffsetY, irisW, irisH, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(leftEyeX + irisOffsetX + irisW * 0.3, eyeY + irisOffsetY - irisH * 0.3, irisW * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (eyeHR > 2) {
+    ctx.fillStyle = irisColor;
+    ctx.beginPath();
+    ctx.ellipse(rightEyeX + irisOffsetX, eyeY + irisOffsetY, irisW, irisH, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(rightEyeX + irisOffsetX + irisW * 0.3, eyeY + irisOffsetY - irisH * 0.3, irisW * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function _update2DAnimalDiags(avatarType, cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth) {
+  if (window.__cheapLiveContest2DAvatarDiag) {
+    const d = window.__cheapLiveContest2DAvatarDiag;
+    d.avatarType = avatarType;
+    d.mouthOpenApplied = true;
+    d.blinkApplied = true;
+    d.headOffsetApplied = true;
+    d.rollApplied = true;
+    d.leftEyeOpen = eyeL;
+    d.rightEyeOpen = eyeR;
+    d.headOffsetX = headOffsetX;
+    d.headOffsetY = headOffsetY;
+    d.mouthOpen = mouth;
+    d.smile = p.smile ?? 0;
+    d.isExperimental = true;
+  }
+  if (window.__cheapLiveContestFishEyeDiag) {
+    const headCenterX = cx + headOffsetX;
+    const lx = cx + headOffsetX + leftEyeX;
+    const rx = cx + headOffsetX + rightEyeX;
+    const eyeSep = Math.abs(rightEyeX - leftEyeX);
+    window.__cheapLiveContestFishEyeDiag = {
+      avatarType,
+      headCenterX,
+      leftEyeCenterX: lx,
+      rightEyeCenterX: rx,
+      leftEyeSide: lx < headCenterX ? 'left' : 'right',
+      rightEyeSide: rx > headCenterX ? 'right' : 'left',
+      eyeSeparation: eyeSep,
+      eyeSeparationRatioToHead: eyeSep / (80 * s),
+      bothEyesSameSide: (lx > headCenterX && rx > headCenterX) || (lx < headCenterX && rx < headCenterX),
+      eyesBilateralPass: lx < headCenterX && rx > headCenterX,
+      mainFloatingConsistent: true,
+      isExperimental: true,
+    };
+  }
+  if (window.__cheapLiveContest2DGazeDiag) {
+    window.__cheapLiveContest2DGazeDiag = {
+      avatarType,
+      gazeSource: (p.gazeLeftX !== undefined) ? 'gazeParams' : 'yawPitchProxy',
+      gazeX: p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0),
+      gazeY: p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0),
+      leftIrisCenterX: cx + headOffsetX + leftEyeX + irisOffsetX,
+      leftIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
+      rightIrisCenterX: cx + headOffsetX + rightEyeX + irisOffsetX,
+      rightIrisCenterY: cy + headOffsetY + eyeY + irisOffsetY,
+      leftIrisOffsetX: irisOffsetX,
+      leftIrisOffsetY: irisOffsetY,
+      rightIrisOffsetX: irisOffsetX,
+      rightIrisOffsetY: irisOffsetY,
+      irisMovementApplied: true,
+      irisClampedInsideEye: Math.abs(irisOffsetX) <= irisMaxOffset && Math.abs(irisOffsetY) <= irisMaxOffset,
+      blinkOccludesIris: eyeL <= 0.4 || eyeR <= 0.4,
+      mainFloatingConsistent: true,
+      isExperimental: true,
+    };
+  }
+}
+
+function drawDog(ctx, cx, cy, p, s) {
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
+  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
+  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
+  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
+  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
+  const roll = (p.roll ?? 0) * 0.3;
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s;
+  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
+  const mouthOpen = mouth * 6 * s;
+
+  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
+  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
+  const irisMaxOffset = 2.5 * s;
+  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
+  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
+
+  const leftEyeX = -13 * s;
+  const rightEyeX = 13 * s;
+  const eyeY = -12 * s;
+  const eyeW = 6 * s;
+
+  ctx.save();
+  ctx.translate(cx + headOffsetX, cy + headOffsetY);
+  ctx.rotate(roll);
+
+  // Ears (floppy)
+  ctx.fillStyle = '#c8a070';
+  ctx.beginPath();
+  ctx.ellipse(-28 * s, -30 * s, 10 * s, 22 * s, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(28 * s, -30 * s, 10 * s, 22 * s, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#e8c890';
+  ctx.beginPath();
+  ctx.ellipse(0, -10 * s, 38 * s, 36 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Snout
+  ctx.fillStyle = '#f0d8a8';
+  ctx.beginPath();
+  ctx.ellipse(0, 8 * s, 20 * s, 16 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Nose
+  ctx.fillStyle = '#333';
+  ctx.beginPath();
+  ctx.ellipse(0, 2 * s, 5 * s, 4 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes
+  _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, '#5a3a1a');
+
+  // Mouth
+  ctx.strokeStyle = '#8b5a2b';
+  ctx.lineWidth = 1.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(0, 6 * s);
+  ctx.lineTo(0, 6 * s + mouthOpen);
+  ctx.stroke();
+  if (mouthOpen > 2) {
+    ctx.fillStyle = '#c05050';
+    ctx.beginPath();
+    ctx.ellipse(0, 10 * s + mouthOpen * 0.5, 6 * s, mouthOpen * 0.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Tongue
+  if (mouth > 0.4) {
+    ctx.fillStyle = '#e87080';
+    ctx.beginPath();
+    ctx.ellipse(0, 14 * s + mouthOpen * 0.3, 4 * s, mouth * 5 * s, 0, 0, Math.PI);
+    ctx.fill();
+  }
+
+  ctx.restore();
+  _update2DAnimalDiags('dog', cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth);
+}
+
+function drawRabbit(ctx, cx, cy, p, s) {
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
+  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
+  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
+  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
+  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
+  const roll = (p.roll ?? 0) * 0.2;
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 18 * s;
+  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 8 * s;
+  const mouthOpen = mouth * 4 * s;
+
+  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
+  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
+  const irisMaxOffset = 2 * s;
+  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
+  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
+
+  const leftEyeX = -11 * s;
+  const rightEyeX = 11 * s;
+  const eyeY = -14 * s;
+  const eyeW = 5 * s;
+
+  ctx.save();
+  ctx.translate(cx + headOffsetX, cy + headOffsetY);
+  ctx.rotate(roll);
+
+  // Long ears
+  ctx.fillStyle = '#f5f0e8';
+  ctx.beginPath();
+  ctx.ellipse(-10 * s, -70 * s, 8 * s, 35 * s, -0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(10 * s, -70 * s, 8 * s, 35 * s, 0.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Inner ears
+  ctx.fillStyle = '#f0c0c0';
+  ctx.beginPath();
+  ctx.ellipse(-10 * s, -70 * s, 4 * s, 28 * s, -0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(10 * s, -70 * s, 4 * s, 28 * s, 0.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#f5f0e8';
+  ctx.beginPath();
+  ctx.arc(0, -15 * s, 32 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes
+  _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, '#c05050');
+
+  // Nose
+  ctx.fillStyle = '#e88090';
+  ctx.beginPath();
+  ctx.moveTo(0, -2 * s);
+  ctx.lineTo(-3 * s, 1 * s);
+  ctx.lineTo(3 * s, 1 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // Mouth
+  ctx.strokeStyle = '#c0a080';
+  ctx.lineWidth = 1.2 * s;
+  ctx.beginPath();
+  ctx.moveTo(0, 2 * s);
+  ctx.lineTo(0, 2 * s + mouthOpen);
+  ctx.stroke();
+  if (mouth > 0.3) {
+    ctx.fillStyle = '#c05050';
+    ctx.beginPath();
+    ctx.ellipse(0, 5 * s + mouthOpen * 0.5, 4 * s, mouthOpen * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Cheek fluff
+  ctx.fillStyle = '#f5f0e8';
+  ctx.beginPath();
+  ctx.arc(-25 * s, -5 * s, 12 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(25 * s, -5 * s, 12 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+  _update2DAnimalDiags('rabbit', cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth);
+}
+
+function drawFox(ctx, cx, cy, p, s) {
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
+  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
+  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
+  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
+  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
+  const roll = (p.roll ?? 0) * 0.3;
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 20 * s;
+  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 10 * s;
+  const mouthOpen = mouth * 5 * s;
+
+  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
+  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
+  const irisMaxOffset = 2.5 * s;
+  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
+  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
+
+  const leftEyeX = -12 * s;
+  const rightEyeX = 12 * s;
+  const eyeY = -10 * s;
+  const eyeW = 6 * s;
+
+  ctx.save();
+  ctx.translate(cx + headOffsetX, cy + headOffsetY);
+  ctx.rotate(roll);
+
+  // Ears (pointed, triangular)
+  ctx.fillStyle = '#e07030';
+  ctx.beginPath();
+  ctx.moveTo(-26 * s, -35 * s);
+  ctx.lineTo(-34 * s, -70 * s);
+  ctx.lineTo(-8 * s, -40 * s);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(26 * s, -35 * s);
+  ctx.lineTo(34 * s, -70 * s);
+  ctx.lineTo(8 * s, -40 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // Inner ears
+  ctx.fillStyle = '#f0c090';
+  ctx.beginPath();
+  ctx.moveTo(-23 * s, -40 * s);
+  ctx.lineTo(-30 * s, -62 * s);
+  ctx.lineTo(-12 * s, -42 * s);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(23 * s, -40 * s);
+  ctx.lineTo(30 * s, -62 * s);
+  ctx.lineTo(12 * s, -42 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#e87830';
+  ctx.beginPath();
+  ctx.ellipse(0, -10 * s, 36 * s, 34 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // White muzzle
+  ctx.fillStyle = '#faf5ee';
+  ctx.beginPath();
+  ctx.ellipse(0, 10 * s, 18 * s, 14 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Nose
+  ctx.fillStyle = '#222';
+  ctx.beginPath();
+  ctx.ellipse(0, 4 * s, 4.5 * s, 3.5 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes (slightly angled, fox-like)
+  _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, '#c09030');
+
+  // Mouth
+  ctx.strokeStyle = '#8b4513';
+  ctx.lineWidth = 1.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(0, 8 * s);
+  ctx.lineTo(0, 8 * s + mouthOpen);
+  ctx.stroke();
+  if (mouthOpen > 2) {
+    ctx.fillStyle = '#a04040';
+    ctx.beginPath();
+    ctx.ellipse(0, 12 * s + mouthOpen * 0.5, 5 * s, mouthOpen * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Bushy tail hint
+  ctx.fillStyle = '#e87830';
+  ctx.beginPath();
+  ctx.ellipse(-40 * s, 30 * s, 15 * s, 10 * s, 0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(-48 * s, 28 * s, 6 * s, 5 * s, 0.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+  _update2DAnimalDiags('fox', cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth);
+}
+
+function drawBear(ctx, cx, cy, p, s) {
+  const mouth = Math.max(0, Math.min(1, p.mouthOpen));
+  const blinkL = Math.max(0, Math.min(1, p.blinkLeft ?? p.blink ?? 0));
+  const blinkR = Math.max(0, Math.min(1, p.blinkRight ?? p.blink ?? 0));
+  const eyeL = Math.max(0, Math.min(1, p.eyeLeft ?? (1 - blinkL)));
+  const eyeR = Math.max(0, Math.min(1, p.eyeRight ?? (1 - blinkR)));
+  const roll = (p.roll ?? 0) * 0.25;
+  const headOffsetX = ((p.headX ?? 0.5) - 0.5) * 16 * s;
+  const headOffsetY = ((p.headY ?? 0.5) - 0.5) * 8 * s;
+  const mouthOpen = mouth * 5 * s;
+
+  const gazeX = p.gazeLeftX ?? p.gazeX ?? (p.yaw ?? 0);
+  const gazeY = p.gazeLeftY ?? p.gazeY ?? (p.pitch ?? 0);
+  const irisMaxOffset = 2.5 * s;
+  const irisOffsetX = Math.max(-1, Math.min(1, gazeX)) * irisMaxOffset;
+  const irisOffsetY = Math.max(-1, Math.min(1, gazeY)) * irisMaxOffset;
+
+  const leftEyeX = -12 * s;
+  const rightEyeX = 12 * s;
+  const eyeY = -10 * s;
+  const eyeW = 6 * s;
+
+  ctx.save();
+  ctx.translate(cx + headOffsetX, cy + headOffsetY);
+  ctx.rotate(roll);
+
+  // Ears (round)
+  ctx.fillStyle = '#8b6914';
+  ctx.beginPath();
+  ctx.arc(-24 * s, -38 * s, 11 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(24 * s, -38 * s, 11 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Inner ears
+  ctx.fillStyle = '#d4a060';
+  ctx.beginPath();
+  ctx.arc(-24 * s, -38 * s, 6 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(24 * s, -38 * s, 6 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#b08030';
+  ctx.beginPath();
+  ctx.arc(0, -10 * s, 38 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Muzzle (lighter)
+  ctx.fillStyle = '#d4a860';
+  ctx.beginPath();
+  ctx.ellipse(0, 8 * s, 22 * s, 18 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Nose
+  ctx.fillStyle = '#222';
+  ctx.beginPath();
+  ctx.ellipse(0, 2 * s, 5 * s, 4 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes
+  _draw2DAnimalEyes(ctx, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, '#3a2a10');
+
+  // Mouth
+  ctx.strokeStyle = '#6b4914';
+  ctx.lineWidth = 1.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(0, 6 * s);
+  ctx.lineTo(0, 6 * s + mouthOpen);
+  ctx.stroke();
+  if (mouthOpen > 2) {
+    ctx.fillStyle = '#a04040';
+    ctx.beginPath();
+    ctx.ellipse(0, 10 * s + mouthOpen * 0.5, 5.5 * s, mouthOpen * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+  _update2DAnimalDiags('bear', cx, cy, p, s, headOffsetX, headOffsetY, leftEyeX, rightEyeX, eyeY, eyeW, eyeL, eyeR, irisOffsetX, irisOffsetY, irisMaxOffset, mouth);
+}
+
+function drawClassicSphere(ctx, cx, cy, p, s) {
+  const radius = Math.min(ctx.canvas.width, ctx.canvas.height) * 0.25;
+  const eyeY = cy + (p.headY - 0.5) * 80;
+  ctx.fillStyle = '#9ca3af';
+  ctx.beginPath();
+  ctx.arc(cx + (p.headX - 0.5) * 80, eyeY, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#2a2420';
+  ctx.beginPath(); ctx.arc(cx - 25 * s, eyeY - 5 * s, Math.max(2, 6 * p.eyeLeft * s), 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + 25 * s, eyeY - 5 * s, Math.max(2, 6 * p.eyeRight * s), 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#2a2420'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  if (p.mouthOpen > 0.1) {
+    ctx.ellipse(cx, cy + 20 * s, 8 * s, (4 + p.mouthOpen * 12) * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.moveTo(cx - 8 * s, cy + 20 * s); ctx.quadraticCurveTo(cx, cy + 20 * s + p.mouthSmile * 4 * s, cx + 8 * s, cy + 20 * s);
+    ctx.stroke();
+  }
+}
+
+function drawPlaceholder(ctx, cx, cy, avatar, s) {
+  ctx.fillStyle = 'rgba(74,144,217,0.15)';
+  ctx.fillRect(cx - 50 * s, cy - 50 * s, 100 * s, 100 * s);
+  ctx.strokeStyle = '#4a90d9';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(cx - 50 * s, cy - 50 * s, 100 * s, 100 * s);
+  ctx.fillStyle = '#4a90d9';
+  ctx.font = `${12 * s}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(AVATAR_NAMES[avatar] || avatar, cx, cy - 5 * s);
+  ctx.font = `${10 * s}px sans-serif`;
+  ctx.fillStyle = '#718096';
+  ctx.fillText('开发中', cx, cy + 12 * s);
+}
+
+// ====== GAME CANVAS (Snackabambaspis Snake) ======
+let gameCtx, gameW, gameH;
+const GRID = 18;
+let snake = [], food = {}, foodType = null, gameDir = { x: 1, y: 0 }, gameNextDir = { x: 1, y: 0 };
+let gameScore = 0, gameSpeed = 100, gameRunning = false, gameLoop = null;
+let drawing = false, drawPaths = [];
+const SNACK_TYPES = [
+  { name: 'chocolate-cake', color: '#5c3a1e', glow: '#7a4e2d' },
+  { name: 'strawberry-cake', color: '#e8788a', glow: '#e8788a' },
+  { name: 'cookie', color: '#c8944a', glow: '#c8944a' },
+  { name: 'pudding', color: '#e8c840', glow: '#d8b830' },
+];
+
+function initGameCanvas() {
+  const c = document.getElementById('gameCanvas');
+  const rect = c.parentElement.getBoundingClientRect();
+  c.width = Math.floor(rect.width);
+  c.height = Math.floor(rect.height);
+  gameCtx = c.getContext('2d');
+  gameW = c.width;
+  gameH = c.height;
+  resetGame();
+  drawGame();
+
+  c.addEventListener('mousedown', onDrawStart);
+  c.addEventListener('mousemove', onDrawMove);
+  c.addEventListener('mouseup', onDrawEnd);
+  c.addEventListener('touchstart', e => { e.preventDefault(); onDrawStart(e.touches[0]); }, { passive: false });
+  c.addEventListener('touchmove', e => { e.preventDefault(); onDrawMove(e.touches[0]); }, { passive: false });
+  c.addEventListener('touchend', onDrawEnd);
+
+  document.addEventListener('keydown', onGameKey);
+
+  // 游戏区域聚焦：点击 gamePanelBody 后自动 focus，方向键只作用于游戏
+  const gamePanelBody = document.getElementById('gamePanelBody');
+  if (gamePanelBody) {
+    gamePanelBody.addEventListener('mousedown', () => {
+      // mousedown 先于 focus，确保点击游戏区域时获得焦点
+      try { gamePanelBody.focus({ preventScroll: true }); } catch (e) {}
+    });
+    gamePanelBody.addEventListener('touchstart', () => {
+      try { gamePanelBody.focus({ preventScroll: true }); } catch (e) {}
+    }, { passive: true });
+  }
+  initGameKeyboardDiag();
+}
+
+function resetGame() {
+  const cols = Math.floor(gameW / GRID);
+  const rows = Math.floor(gameH / GRID);
+  const my = Math.floor(rows / 2);
+  snake = [{ x: 6, y: my }, { x: 5, y: my }, { x: 4, y: my }, { x: 3, y: my }];
+  gameDir = { x: 1, y: 0 };
+  gameNextDir = { x: 1, y: 0 };
+  gameScore = 0;
+  gameSpeed = 100;
+  placeFood();
+}
+
+function placeFood() {
+  const cols = Math.floor(gameW / GRID);
+  const rows = Math.floor(gameH / GRID);
+  do {
+    food = { x: (Math.random() * cols) | 0, y: (Math.random() * rows) | 0 };
+  } while (snake.some(s => s.x === food.x && s.y === food.y));
+  foodType = SNACK_TYPES[(Math.random() * SNACK_TYPES.length) | 0];
+}
+
+function drawGame() {
+  if (!gameCtx) return;
+  gameCtx.fillStyle = '#0d1420';
+  gameCtx.fillRect(0, 0, gameW, gameH);
+
+  // Grid
+  gameCtx.strokeStyle = '#111927';
+  gameCtx.lineWidth = 0.5;
+  for (let x = 0; x <= gameW; x += GRID) {
+    gameCtx.beginPath(); gameCtx.moveTo(x, 0); gameCtx.lineTo(x, gameH); gameCtx.stroke();
+  }
+  for (let y = 0; y <= gameH; y += GRID) {
+    gameCtx.beginPath(); gameCtx.moveTo(0, y); gameCtx.lineTo(gameW, y); gameCtx.stroke();
+  }
+
+  // Food
+  if (foodType) {
+    const fx = food.x * GRID + GRID / 2;
+    const fy = food.y * GRID + GRID / 2;
+    gameCtx.fillStyle = foodType.color;
+    gameCtx.shadowColor = foodType.glow;
+    gameCtx.shadowBlur = 10;
+    gameCtx.beginPath();
+    gameCtx.arc(fx, fy, GRID / 2 - 2, 0, Math.PI * 2);
+    gameCtx.fill();
+    gameCtx.shadowBlur = 0;
+  }
+
+  // Snake (Sacabambaspis colored)
+  for (let i = snake.length - 1; i >= 1; i--) {
+    const seg = snake[i];
+    const alpha = Math.max(0.4, 1 - i * 0.06);
+    const size = Math.max(3, GRID / 2 - 1 - i * 0.3);
+    gameCtx.fillStyle = '#e4e1d3';
+    gameCtx.globalAlpha = alpha;
+    gameCtx.beginPath();
+    gameCtx.ellipse(seg.x * GRID + GRID / 2, seg.y * GRID + GRID / 2, size, size * 0.7, 0, 0, Math.PI * 2);
+    gameCtx.fill();
+  }
+  gameCtx.globalAlpha = 1;
+
+  if (snake.length > 0) {
+    const head = snake[0];
+    const hx = head.x * GRID + GRID / 2;
+    const hy = head.y * GRID + GRID / 2;
+    gameCtx.fillStyle = '#e4e1d3';
+    gameCtx.shadowColor = '#e4e1d3';
+    gameCtx.shadowBlur = 8;
+    gameCtx.beginPath();
+    gameCtx.ellipse(hx, hy, GRID / 2, GRID / 2 * 0.75, Math.atan2(gameDir.y, gameDir.x), 0, Math.PI * 2);
+    gameCtx.fill();
+    gameCtx.shadowBlur = 0;
+    // Eye
+    const perpX = -gameDir.y;
+    const perpY = gameDir.x;
+    gameCtx.fillStyle = '#fff';
+    gameCtx.beginPath();
+    gameCtx.arc(hx + gameDir.x * 3 + perpX * 3, hy + gameDir.y * 3 + perpY * 3, 2.5, 0, Math.PI * 2);
+    gameCtx.fill();
+    gameCtx.fillStyle = '#1a1a2e';
+    gameCtx.beginPath();
+    gameCtx.arc(hx + gameDir.x * 3.5 + perpX * 3, hy + gameDir.y * 3.5 + perpY * 3, 1.3, 0, Math.PI * 2);
+    gameCtx.fill();
+  }
+
+  // Draw paths
+  if (drawPaths.length > 0) {
+    gameCtx.strokeStyle = 'rgba(255,140,66,0.6)';
+    gameCtx.lineWidth = 3;
+    gameCtx.lineCap = 'round';
+    gameCtx.lineJoin = 'round';
+    for (const path of drawPaths) {
+      if (path.length < 2) continue;
+      gameCtx.beginPath();
+      gameCtx.moveTo(path[0].x, path[0].y);
+      for (let i = 1; i < path.length; i++) {
+        gameCtx.lineTo(path[i].x, path[i].y);
+      }
+      gameCtx.stroke();
+    }
+  }
+
+  // Score
+  gameCtx.fillStyle = '#718096';
+  gameCtx.font = '12px sans-serif';
+  gameCtx.textAlign = 'left';
+  gameCtx.fillText('Snacks: ' + gameScore, 8, 16);
+}
+
+function updateGame() {
+  gameDir = { ...gameNextDir };
+  const cols = Math.floor(gameW / GRID);
+  const rows = Math.floor(gameH / GRID);
+  const head = { x: snake[0].x + gameDir.x, y: snake[0].y + gameDir.y };
+  if (head.x < 0) head.x = cols - 1;
+  if (head.x >= cols) head.x = 0;
+  if (head.y < 0) head.y = rows - 1;
+  if (head.y >= rows) head.y = 0;
+  if (snake.some(s => s.x === head.x && s.y === head.y)) {
+    gameRunning = false;
+    clearTimeout(gameLoop);
+    resetGame();
+    return;
+  }
+  snake.unshift(head);
+  if (head.x === food.x && head.y === food.y) {
+    gameScore += 10;
+    gameSpeed = Math.max(50, gameSpeed - 2);
+    placeFood();
+  } else {
+    snake.pop();
+  }
+}
+
+function gameTick() {
+  if (!gameRunning) return;
+  updateGame();
+  drawGame();
+  gameLoop = setTimeout(gameTick, gameSpeed);
+}
+
+function startGame() { resetGame(); gameRunning = true; gameTick(); }
+
+function onGameKey(e) {
+  const gamePanelBody = document.getElementById('gamePanelBody');
+  const activeEl = document.activeElement;
+  const isFormControl = activeEl && (
+    activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' ||
+    activeEl.tagName === 'SELECT' || activeEl.tagName === 'BUTTON' ||
+    activeEl.isContentEditable
+  );
+  // 只在 gamePanelBody 获得焦点时处理方向键，且不与表单控件冲突
+  const gameFocused = !!gamePanelBody && activeEl === gamePanelBody && !isFormControl;
+  const arrowKeys = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+  const wasdKeys = ['w','a','s','d','W','A','S','D'];
+  const allGameKeys = arrowKeys.concat(wasdKeys);
+
+  if (gameFocused && arrowKeys.includes(e.key)) {
+    // 阻止页面滚动
+    e.preventDefault();
+    if (window.__cheapLiveContestGameDiag) {
+      window.__cheapLiveContestGameDiag.preventedPageScroll = true;
+      window.__cheapLiveContestGameDiag.lastKey = e.key;
+      window.__cheapLiveContestGameDiag.arrowKeysScopedToGame = true;
+    }
+  }
+
+  if (!gameFocused) {
+    // 焦点不在游戏区域时不抢方向键，允许页面默认滚动
+    if (window.__cheapLiveContestGameDiag && arrowKeys.includes(e.key)) {
+      window.__cheapLiveContestGameDiag.arrowKeysScopedToGame = false;
+    }
+    return;
+  }
+
+  let dirChanged = false;
+  if (['ArrowUp','w','W'].includes(e.key) && gameDir.y === 0) { gameNextDir = { x: 0, y: -1 }; dirChanged = true; }
+  if (['ArrowDown','s','S'].includes(e.key) && gameDir.y === 0) { gameNextDir = { x: 0, y: 1 }; dirChanged = true; }
+  if (['ArrowLeft','a','A'].includes(e.key) && gameDir.x === 0) { gameNextDir = { x: -1, y: 0 }; dirChanged = true; }
+  if (['ArrowRight','d','D'].includes(e.key) && gameDir.x === 0) { gameNextDir = { x: 1, y: 0 }; dirChanged = true; }
+  if (!gameRunning && allGameKeys.includes(e.key)) {
+    startGame();
+  }
+  if (window.__cheapLiveContestGameDiag && dirChanged) {
+    window.__cheapLiveContestGameDiag.lastDirection = { ...gameNextDir };
+  }
+}
+
+function initGameKeyboardDiag() {
+  if (window.__cheapLiveContestGameDiag) return;
+  window.__cheapLiveContestGameDiag = {
+    gameFocused: false,
+    lastKey: null,
+    lastDirection: null,
+    preventedPageScroll: false,
+    pageScrollBeforeKey: null,
+    pageScrollAfterKey: null,
+    focusTarget: null,
+    arrowKeysScopedToGame: false,
+  };
+  const gamePanelBody = document.getElementById('gamePanelBody');
+  if (gamePanelBody) {
+    gamePanelBody.addEventListener('focus', () => {
+      if (window.__cheapLiveContestGameDiag) {
+        window.__cheapLiveContestGameDiag.gameFocused = true;
+        window.__cheapLiveContestGameDiag.focusTarget = 'gamePanelBody';
+      }
+    });
+    gamePanelBody.addEventListener('blur', () => {
+      if (window.__cheapLiveContestGameDiag) {
+        window.__cheapLiveContestGameDiag.gameFocused = false;
+      }
+    });
+  }
+}
+
+// ====== DRAWING ======
+function onDrawStart(e) {
+  if (!state.drawMode) return;
+  drawing = true;
+  const c = document.getElementById('gameCanvas');
+  const rect = c.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (c.width / rect.width);
+  const y = (e.clientY - rect.top) * (c.height / rect.height);
+  drawPaths.push([{ x, y }]);
+}
+function onDrawMove(e) {
+  if (!drawing || !state.drawMode) return;
+  const c = document.getElementById('gameCanvas');
+  const rect = c.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (c.width / rect.width);
+  const y = (e.clientY - rect.top) * (c.height / rect.height);
+  drawPaths[drawPaths.length - 1].push({ x, y });
+  drawGame();
+}
+function onDrawEnd() { drawing = false; }
+
+// ====== FW AVATAR CANVAS ======
+let fwCtx;
+function initFWAvatarCanvas() {
+  const c = document.getElementById('fwAvatarCanvas');
+  fwCtx = c.getContext('2d');
+}
+
+// ====== FLOATING WINDOW ======
+let fwDragging = false, fwResizing = false, fwOffX = 0, fwOffY = 0, fwStartW = 0, fwStartH = 0;
+window.__cheapLiveContestFloatingDiag = {
+  mode: 'edit',
+  modeButtonText: '',
+  modeButtonClickable: true,
+  modeButtonClass: '',
+  lastModeToggleAt: 0,
+  lastModeToggleSource: '',
+  transparentModeActive: false,
+  fwWindowBackground: '',
+  fwContentBackground: '',
+  fwAvatarPanelBackground: '',
+  fwCanvasBackground: '',
+  keyBackgroundColor: 'rgba(0,0,0,0)',
+  usesGlobalOpacity: false,
+  rendererTransparentMode: false,
+  windowOpacity: 1,
+  avatarOpacity: 1,
+  editControlsVisible: true,
+  backgroundAlphaCorrect: false,
+  fwCanvasTransparent: false,
+  pointerEvents: 'auto',
+  width: 200,
+  height: 200,
+  left: 0,
+  top: 0,
+  resizeActive: false,
+  dragActive: false,
+  lastResizeAt: 0,
+  lastDragAt: 0,
+};
+
+function _updateFloatingDiag() {
+  const diag = window.__cheapLiveContestFloatingDiag;
+  const fw = document.getElementById('floatingWindow');
+  const fwContent = document.querySelector('.floating-window .fw-content');
+  const fwAvatarPanel = document.querySelector('.floating-window .fw-avatar-panel');
+  const fwCanvas = document.getElementById('fwAvatarCanvas');
+  const btn = document.getElementById('fwModeBtn');
+
+  diag.mode = state.floatingMode;
+
+  if (btn) {
+    diag.modeButtonText = btn.textContent;
+    diag.modeButtonClass = btn.className;
+    const btnCs = getComputedStyle(btn);
+    const pe = btnCs.pointerEvents;
+    diag.modeButtonClickable = pe !== 'none' && !btn.disabled;
+  }
+
+  if (fw) {
+    const cs = getComputedStyle(fw);
+    diag.fwWindowBackground = cs.backgroundColor;
+    diag.windowOpacity = parseFloat(cs.opacity) || 1;
+    diag.usesGlobalOpacity = (parseFloat(cs.opacity) || 1) < 0.99;
+    diag.width = fw.offsetWidth;
+    diag.height = fw.offsetHeight;
+    diag.left = fw.offsetLeft;
+    diag.top = fw.offsetTop;
+  }
+  if (fwContent) {
+    const cs = getComputedStyle(fwContent);
+    diag.fwContentBackground = cs.backgroundColor;
+  }
+  if (fwAvatarPanel) {
+    const cs = getComputedStyle(fwAvatarPanel);
+    diag.fwAvatarPanelBackground = cs.backgroundColor;
+  }
+  if (fwCanvas) {
+    const cs = getComputedStyle(fwCanvas);
+    diag.fwCanvasBackground = cs.backgroundColor;
+    diag.fwCanvasTransparent = cs.backgroundColor === 'rgba(0, 0, 0, 0)' ||
+      cs.backgroundColor === 'transparent';
+  }
+
+  if (typeof window.getContestFishAvatarTransparentMode === 'function') {
+    diag.rendererTransparentMode = !!window.getContestFishAvatarTransparentMode('fwAvatarCanvas');
+  }
+
+  diag.transparentModeActive = diag.rendererTransparentMode || diag.fwCanvasTransparent;
+  diag.avatarOpacity = 1;
+  diag.editControlsVisible = state.floatingMode === 'edit';
+  diag.pointerEvents = state.floatingMode === 'display' ? 'fw-content: none, button: auto' : 'auto';
+  diag.backgroundAlphaCorrect = diag.transparentModeActive && !diag.usesGlobalOpacity;
+  diag.resizeActive = fwResizing;
+  diag.dragActive = fwDragging;
+}
+
+function initFloatingWindow() {
+  const fw = document.getElementById('floatingWindow');
+  const bar = document.getElementById('fwTopBar');
+  const resize = document.getElementById('fwResize');
+
+  // Start in edit mode
+  fw.classList.add('fw-edit-mode');
+
+  bar.addEventListener('mousedown', e => {
+    if (state.floatingMode !== 'edit') return; // 显示模式下不允许拖动
+    fwDragging = true;
+    fwOffX = e.clientX - fw.offsetLeft;
+    fwOffY = e.clientY - fw.offsetTop;
+    e.preventDefault();
+  });
+  bar.addEventListener('touchstart', e => {
+    if (state.floatingMode !== 'edit') return; // 显示模式下不允许拖动
+    fwDragging = true;
+    const t = e.touches[0];
+    fwOffX = t.clientX - fw.offsetLeft;
+    fwOffY = t.clientY - fw.offsetTop;
+    e.preventDefault();
+  }, { passive: false });
+
+  resize.addEventListener('mousedown', e => {
+    if (state.floatingMode !== 'edit') return;
+    fwResizing = true;
+    fwStartW = fw.offsetWidth;
+    fwStartH = fw.offsetHeight;
+    fwOffX = e.clientX;
+    fwOffY = e.clientY;
+    e.preventDefault();
+  });
+  resize.addEventListener('touchstart', e => {
+    if (state.floatingMode !== 'edit') return;
+    fwResizing = true;
+    fwStartW = fw.offsetWidth;
+    fwStartH = fw.offsetHeight;
+    const t = e.touches[0];
+    fwOffX = t.clientX;
+    fwOffY = t.clientY;
+    e.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener('mousemove', onFWMove);
+  document.addEventListener('touchmove', onFWMoveTouch, { passive: false });
+  document.addEventListener('mouseup', onFWEnd);
+  document.addEventListener('touchend', onFWEnd);
+
+  // Mode button vertical drag (snaps to left edge)
+  initModeButtonDrag();
+}
+
+// ====== MODE BUTTON DRAG (vertical, snaps left edge) ======
+let modeBtnDragging = false, modeBtnStartY = 0, modeBtnStartTop = 0, modeBtnMoved = false;
+
+function initModeButtonDrag() {
+  const btn = document.getElementById('fwModeBtn');
+  if (!btn) return;
+
+  btn.addEventListener('mousedown', e => {
+    modeBtnDragging = true;
+    modeBtnMoved = false;
+    modeBtnStartY = e.clientY;
+    modeBtnStartTop = btn.offsetTop;
+    btn.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+  btn.addEventListener('touchstart', e => {
+    modeBtnDragging = true;
+    modeBtnMoved = false;
+    modeBtnStartY = e.touches[0].clientY;
+    modeBtnStartTop = btn.offsetTop;
+    e.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener('mousemove', onModeBtnMove);
+  document.addEventListener('touchmove', onModeBtnMoveTouch, { passive: false });
+}
+
+function onModeBtnMove(e) {
+  if (!modeBtnDragging) return;
+  const delta = Math.abs(e.clientY - modeBtnStartY);
+  if (delta > 3) modeBtnMoved = true;
+  if (!modeBtnMoved) return;
+  const btn = document.getElementById('fwModeBtn');
+  const panel = btn.parentElement;
+  const panelRect = panel.getBoundingClientRect();
+  const maxTop = panelRect.height - btn.offsetHeight - 8;
+  const newTop = Math.max(8, Math.min(maxTop, modeBtnStartTop + e.clientY - modeBtnStartY));
+  btn.style.top = newTop + 'px';
+  btn.style.bottom = 'auto';
+}
+
+function onModeBtnMoveTouch(e) {
+  if (!modeBtnDragging) return;
+  const delta = Math.abs(e.touches[0].clientY - modeBtnStartY);
+  if (delta > 3) modeBtnMoved = true;
+  if (!modeBtnMoved) return;
+  e.preventDefault();
+  const btn = document.getElementById('fwModeBtn');
+  const panel = btn.parentElement;
+  const panelRect = panel.getBoundingClientRect();
+  const maxTop = panelRect.height - btn.offsetHeight - 8;
+  const newTop = Math.max(8, Math.min(maxTop, modeBtnStartTop + e.touches[0].clientY - modeBtnStartY));
+  btn.style.top = newTop + 'px';
+  btn.style.bottom = 'auto';
+}
+
+function onFWMove(e) {
+  const fw = document.getElementById('floatingWindow');
+  if (fwDragging) {
+    fw.style.left = (e.clientX - fwOffX) + 'px';
+    fw.style.top = (e.clientY - fwOffY) + 'px';
+    fw.style.right = 'auto';
+    fw.style.bottom = 'auto';
+    window.__cheapLiveContestFloatingDiag.lastDragAt = performance.now();
+  }
+  if (fwResizing) {
+    const w = Math.max(100, fwStartW + e.clientX - fwOffX);
+    const h = Math.max(100, fwStartH + e.clientY - fwOffY);
+    fw.style.width = w + 'px';
+    fw.style.height = h + 'px';
+    const c = document.getElementById('fwAvatarCanvas');
+    c.width = w; c.height = h - 22;
+    window.__cheapLiveContestFloatingDiag.lastResizeAt = performance.now();
+  }
+  _updateFloatingDiag();
+}
+
+function onFWMoveTouch(e) {
+  if (!fwDragging && !fwResizing) return;
+  e.preventDefault();
+  const t = e.touches[0];
+  const fw = document.getElementById('floatingWindow');
+  if (fwDragging) {
+    fw.style.left = (t.clientX - fwOffX) + 'px';
+    fw.style.top = (t.clientY - fwOffY) + 'px';
+    fw.style.right = 'auto';
+    fw.style.bottom = 'auto';
+  }
+  if (fwResizing) {
+    const w = Math.max(100, fwStartW + t.clientX - fwOffX);
+    const h = Math.max(100, fwStartH + t.clientY - fwOffY);
+    fw.style.width = w + 'px';
+    fw.style.height = h + 'px';
+    const c = document.getElementById('fwAvatarCanvas');
+    c.width = w; c.height = h - 22;
+    _updateFloatingDiag();
+  }
+}
+
+function onFWEnd() {
+  fwDragging = false;
+  fwResizing = false;
+  modeBtnDragging = false;
+  const btn = document.getElementById('fwModeBtn');
+  if (btn) btn.style.cursor = 'grab';
+  window.__cheapLiveContestFloatingDiag.dragActive = false;
+  window.__cheapLiveContestFloatingDiag.resizeActive = false;
+}
+
+// ====== SIM LOOP ======
+let simTime = 0;
+let _rafId = null;
+function startSimLoop() {
+  if (!gameRunning) startGame();
+  if (_rafId != null) return; // 不要重复创建 RAF
+  _rafInstanceCount = 1;
+  _rafId = requestAnimationFrame(simLoop);
+}
+
+function simLoop(ts) {
+  simTime = ts * 0.001;
+  _rafId = null; // 上一帧结束，准备本帧
+  _rafId = requestAnimationFrame(simLoop);
+
+  // Simulate face params (only when real face tracking is NOT running
+  // AND no mock/real face frame is active)
+  // If camera was opened but no real frame in CAMERA_IDLE_FALLBACK_MS, fall back to idle
+  const _now = ts;
+  let _cameraIdleFallback = false;
+  if (_faceLandmarker && !_faceFrameActive) {
+    const elapsed = _cameraStartedAt > 0 ? (_now - _cameraStartedAt) : 0;
+    const staleElapsed = _lastCameraFrameAt > 0 ? (_now - _lastCameraFrameAt) : 0;
+    if (_cameraFrameErrorCount > 0 && _lastCameraError && elapsed > CAMERA_IDLE_FALLBACK_MS) {
+      // Case 3: detectForVideo repeatedly errors (use elapsed since camera start)
+      _cameraIdleFallback = true;
+      _cameraIdleFallbackReason = 'error';
+    } else if (_lastCameraFrameAt > 0 && staleElapsed > CAMERA_IDLE_FALLBACK_MS) {
+      // Case 2: previously detected face, but now stale
+      _cameraIdleFallback = true;
+      _cameraIdleFallbackReason = 'stale-frame';
+    } else if (_lastCameraFrameAt === 0 && elapsed > CAMERA_IDLE_FALLBACK_MS) {
+      // Case 1: camera opened but never detected any face
+      _cameraIdleFallback = true;
+      _cameraIdleFallbackReason = 'never-detected';
+    }
+  }
+  if ((!_faceLandmarker && !_faceFrameActive) || _cameraIdleFallback) {
+    if (!_idleActive) _lastTransitionReason = 'idle-resume';
+    _idleActive = true;
+    _gazeSource = 'idle';
+    // 缓慢衰减 gaze 平滑值（避免从 tracking 切到 idle 时虹膜突然跳回中心）
+    _smoothGazeLeftX *= 0.95;
+    _smoothGazeLeftY *= 0.95;
+    _smoothGazeRightX *= 0.95;
+    _smoothGazeRightY *= 0.95;
+    state.faceParams.gazeLeftX = _smoothGazeLeftX;
+    state.faceParams.gazeLeftY = _smoothGazeLeftY;
+    state.faceParams.gazeRightX = _smoothGazeRightX;
+    state.faceParams.gazeRightY = _smoothGazeRightY;
+    state.faceParams.mouthOpen = 0.5 + 0.5 * Math.sin(simTime * 1.2);
+    state.faceParams.blink = Math.max(0, Math.sin(simTime * 3) > 0.95 ? 1 : 0);
+    state.faceParams.yaw = Math.sin(simTime * 0.5);
+    state.faceParams.pitch = Math.sin(simTime * 0.4) * 0.3;
+    state.faceParams.roll = Math.sin(simTime * 0.3) * 0.2;
+    state.faceParams.smile = 0.3 + 0.3 * Math.sin(simTime * 0.8);
+  } else {
+    if (_idleActive) _lastTransitionReason = 'tracking-engage';
+    _idleActive = false;
+  }
+
+  if (_idleActive) {
+    _idleFrameCount++;
+    _lastIdleFrameTime = ts;
+  } else {
+    _trackingFrameCount++;
+    _lastTrackingFrameTime = ts;
+  }
+
+  // 同步诊断
+  const diag = window.__cheapLiveContestAvatarDiag;
+  if (diag) {
+    diag.idleActive = _idleActive;
+    diag.faceFrameActive = _faceFrameActive;
+    diag.frameSource = _faceFrameSource;
+    diag.lastAppliedSeq = _lastAppliedSeq;
+    diag.lastAppliedFrame = _lastAppliedFrame;
+    diag.lastAppliedValues = _lastAppliedValues;
+    diag.cameraStartedAt = _cameraStartedAt;
+    diag.lastCameraFrameAt = _lastCameraFrameAt;
+    diag.cameraFrameErrorCount = _cameraFrameErrorCount;
+    diag.lastCameraError = _lastCameraError;
+    diag.lastCameraErrorAt = _lastCameraErrorAt;
+    diag.realCameraFrameApplied = _realCameraFrameApplied;
+    diag.cameraIdleFallback = _cameraIdleFallback;
+    diag.cameraIdleFallbackReason = _cameraIdleFallbackReason;
+    diag.cameraIdleFallbackMs = CAMERA_IDLE_FALLBACK_MS;
+    diag.cameraVideoDiag = _cameraVideoDiag;
+    diag.cameraLastDetectDiag = _cameraLastDetectDiag;
+    diag.mediapipeInitDiag = _mediapipeInitDiag;
+    const statusEl = document.getElementById('faceCamStatus');
+    diag.faceCamStatus = statusEl ? statusEl.textContent : null;
+
+    // Web pose diagnostics — pitch 方向修正独立记录
+    const mapped = faceParamsToRendererParams(state.faceParams);
+    diag.webPoseDiag = {
+      rawPitch: state.faceParams.pitch,
+      rawYaw: state.faceParams.yaw,
+      rawRoll: state.faceParams.roll,
+      mirrorEnabled: true,
+      mappedNormalizedPitch: mapped.headPitch,
+      mappedNormalizedYaw: mapped.headYaw,
+      mappedNormalizedRoll: mapped.headRoll,
+      rendererPitchDegrees: (mapped.headPitch - 0.5) * 90,
+      visualDirection: (state.faceParams.pitch < 0) ? 'visual-down' : (state.faceParams.pitch > 0) ? 'visual-up' : 'neutral',
+    };
+    window.__cheapLiveWebPoseDiag = diag.webPoseDiag;
+
+    // Idle 状态机诊断
+    diag.idleDiag = {
+      rendererReady: _3dReady,
+      cameraRunning: !!_faceLandmarker,
+      faceDetected: _faceFrameActive,
+      faceFrameActive: _faceFrameActive,
+      idleActive: _idleActive,
+      rafRunning: _rafInstanceCount > 0,
+      rafInstanceCount: _rafInstanceCount,
+      lastFaceFrameTime: _lastTrackingFrameTime,
+      lastIdleFrameTime: _lastIdleFrameTime,
+      idleFrameCount: _idleFrameCount,
+      trackingFrameCount: _trackingFrameCount,
+      transitionReason: _lastTransitionReason,
+    };
+    window.__cheapLiveIdleDiag = diag.idleDiag;
+
+    // Gaze 流动诊断
+    diag.gazeFlowDiag = {
+      gazeSource: _gazeSource,
+      rawGazeLeftX: state.faceParams.gazeLeftX,
+      rawGazeLeftY: state.faceParams.gazeLeftY,
+      rawGazeRightX: state.faceParams.gazeRightX,
+      rawGazeRightY: state.faceParams.gazeRightY,
+      smoothedGazeLeftX: _smoothGazeLeftX,
+      smoothedGazeLeftY: _smoothGazeLeftY,
+      smoothedGazeRightX: _smoothGazeRightX,
+      smoothedGazeRightY: _smoothGazeRightY,
+      rendererGazeLeftX: mapped.gazeLeftX,
+      rendererGazeLeftY: mapped.gazeLeftY,
+      rendererGazeRightX: mapped.gazeRightX,
+      rendererGazeRightY: mapped.gazeRightY,
+    };
+    window.__cheapLiveGazeFlowDiag = diag.gazeFlowDiag;
+
+    // Raw pose from face params (before mapping to renderer)
+    diag.rawPoseDiag = {
+      yaw: state.faceParams.yaw,
+      pitch: state.faceParams.pitch,
+      roll: state.faceParams.roll,
+      mouthOpen: state.faceParams.mouthOpen,
+      smile: state.faceParams.smile,
+      blink: state.faceParams.blink,
+      blinkLeft: state.faceParams.blinkLeft,
+      blinkRight: state.faceParams.blinkRight,
+      eyeLeft: state.faceParams.eyeLeft,
+      eyeRight: state.faceParams.eyeRight,
+      headX: state.faceParams.headX,
+      headY: state.faceParams.headY,
+      gazeLeftX: state.faceParams.gazeLeftX,
+      gazeLeftY: state.faceParams.gazeLeftY,
+      gazeRightX: state.faceParams.gazeRightX,
+      gazeRightY: state.faceParams.gazeRightY,
+    };
+
+    // Mapped renderer values (what actually gets sent to the renderer)
+    const mapped = faceParamsToRendererParams(state.faceParams);
+    diag.mappedPoseDiag = {
+      headYaw: mapped.headYaw,
+      headPitch: mapped.headPitch,
+      headRoll: mapped.headRoll,
+      eyeLeft: mapped.eyeLeft,
+      eyeRight: mapped.eyeRight,
+      mouthOpen: mapped.mouthOpen,
+      mouthSmile: mapped.mouthSmile,
+      headX: mapped.headX,
+      headY: mapped.headY,
+      gazeLeftX: mapped.gazeLeftX,
+      gazeLeftY: mapped.gazeLeftY,
+      gazeRightX: mapped.gazeRightX,
+      gazeRightY: mapped.gazeRightY,
+    };
+
+    // Eye orientation diagnostics (for eyelid rotation verification)
+    const headRollDeg = (mapped.headRoll - 0.5) * 80;
+    diag.eyeOrientationDiag = {
+      headRoll: headRollDeg,
+      eyeLocalAngleLeft: 0,
+      eyeLocalAngleRight: 0,
+      eyelidBoundaryAngleLeft: headRollDeg,
+      eyelidBoundaryAngleRight: headRollDeg,
+    };
+
+    // Iris panel consistency diagnostics
+    const mainCanvas = document.getElementById('avatarCanvas');
+    const fwCanvas = document.getElementById('fwAvatarCanvas');
+    const getIrisInfo = (canvasId) => {
+      if (typeof window.getContestFishAvatarIrisDiag !== 'function') return null;
+      const id = window.getContestFishAvatarIrisDiag(canvasId);
+      if (!id) return null;
+      const inst = typeof window.getContestFishAvatarInstance === 'function'
+        ? window.getContestFishAvatarInstance(canvasId)
+        : null;
+      const canvas = document.getElementById(canvasId);
+      const cw = canvas ? canvas.width : 0;
+      const ch = canvas ? canvas.height : 0;
+      const minSide = Math.min(cw, ch);
+      const leftR = id.left ? id.left.radius : 0;
+      const rightR = id.right ? id.right.radius : 0;
+      const irisR = (leftR + rightR) / 2;
+      const leftEyeRx = id.left ? id.left.eyeRx : 0;
+      const rightEyeRx = id.right ? id.right.eyeRx : 0;
+      const eyeRx = (leftEyeRx + rightEyeRx) / 2;
+      const leftEyeRy = id.left ? id.left.eyeRy : 0;
+      const rightEyeRy = id.right ? id.right.eyeRy : 0;
+      const eyeRy = (leftEyeRy + rightEyeRy) / 2;
+      let projectedHeadRadius = 0;
+      if (inst && typeof inst.spindleMesh === 'object' && inst.spindleMesh) {
+        projectedHeadRadius = (inst.spindleMesh.headX || 70) * (inst._lastScale || 1);
+      } else if (inst && typeof inst.mesh === 'object' && inst.mesh) {
+        projectedHeadRadius = (inst.mesh.headX || 70) * (inst._lastScale || 1);
+      } else {
+        projectedHeadRadius = minSide * 0.30;
+      }
+      const pupilR = irisR * 0.55;
+      return {
+        rendererClass: diag.rendererClass,
+        fallbackActive: !!diag.fallbackActive,
+        canvasWidth: cw,
+        canvasHeight: ch,
+        projectedHeadRadius,
+        eyeRx,
+        eyeRy,
+        irisRadius: irisR,
+        pupilRadius: pupilR,
+        irisRatioToHead: projectedHeadRadius > 0 ? irisR / projectedHeadRadius : 0,
+        irisRatioToEye: eyeRx > 0 ? irisR / eyeRx : 0,
+        pupilRatioToIris: irisR > 0 ? pupilR / irisR : 0,
+      };
+    };
+
+    const mainInfo = getIrisInfo('avatarCanvas');
+    const fwInfo = getIrisInfo('fwAvatarCanvas');
+
+    let baselineNeutralIrisRadius = 0;
+    if (mainInfo && mainInfo.canvasWidth > 0) {
+      const minSide = Math.min(mainInfo.canvasWidth, mainInfo.canvasHeight);
+      baselineNeutralIrisRadius = minSide * 0.64 / 140 * (70 * 0.25) * 0.50;
+    }
+    const fixedNeutralIrisRadius = mainInfo ? mainInfo.irisRadius : 0;
+    const fixedToBaselineRatio = baselineNeutralIrisRadius > 0
+      ? fixedNeutralIrisRadius / baselineNeutralIrisRadius
+      : 0;
+
+    let panelConsistencyPass = false;
+    let defaultSizePass = false;
+    let radiusStabilityPass = false;
+    let movementNotSizePass = false;
+
+    if (mainInfo && fwInfo && mainInfo.irisRatioToHead > 0 && fwInfo.irisRatioToHead > 0) {
+      const ratioDiff = Math.abs(mainInfo.irisRatioToHead - fwInfo.irisRatioToHead);
+      const ratioAvg = (mainInfo.irisRatioToHead + fwInfo.irisRatioToHead) / 2;
+      panelConsistencyPass = ratioAvg > 0 ? (ratioDiff / ratioAvg) < 0.1 : false;
+    }
+
+    if (fixedToBaselineRatio >= 0.90 && fixedToBaselineRatio <= 1.10) {
+      defaultSizePass = true;
+    }
+
+    if (mainInfo) {
+      const mainIrisDiag = typeof window.getContestFishAvatarIrisDiag === 'function'
+        ? window.getContestFishAvatarIrisDiag('avatarCanvas')
+        : null;
+      if (mainIrisDiag) {
+        radiusStabilityPass = !!mainIrisDiag.radiusStabilityPass;
+        movementNotSizePass = !!mainIrisDiag.movementNotSizePass;
+      }
+    }
+
+    diag.irisDiag = {
+      mainPanel: mainInfo,
+      floatingPanel: fwInfo,
+      baselineNeutralIrisRadius,
+      fixedNeutralIrisRadius,
+      fixedToBaselineRatio,
+      panelConsistencyPass,
+      defaultSizePass,
+      radiusStabilityPass,
+      movementNotSizePass,
+    };
+  }
+
+  // Draw avatar on main canvas
+  const bg = state.showcaseMode ? 'transparent' : '#0d1420';
+  const panelBody = document.getElementById('avatarPanelBody');
+  if (state.showcaseMode) {
+    panelBody.style.background = 'transparent';
+  } else {
+    panelBody.style.background = '';
+  }
+
+  if (state.currentAvatar === 'sacabambaspis-3d') {
+    if (!_3dLoadStarted && !_3dFailed) {
+      ensure3DRenderers().catch(() => {});
+    }
+    if (_3dReady) {
+      _hide3DOverlays();
+      const rendererParams = faceParamsToRendererParams(state.faceParams);
+      update3DRenderers(rendererParams);
+    } else if (_3dFailed) {
+      // Do NOT auto-fallback to 2D. Show error overlay with retry/manual-2D buttons.
+      _show3DErrorOverlay();
+    } else {
+      // Loading in progress
+      _show3DLoadingOverlay();
+    }
+  } else {
+    // 2D avatar path: 必须用实时 canvas 尺寸，不能用 init 常量 avatarW/avatarH
+    // 否则 3D renderer 改大 canvas 后 clearRect 只清左上角，残留 3D 鱼
+    const mc = document.getElementById('avatarCanvas');
+    const mcW = mc.width;
+    const mcH = mc.height;
+    drawAvatar(avatarCtx, mcW, mcH, state.currentAvatar, state.faceParams, mcW / 360);
+    const fc = document.getElementById('fwAvatarCanvas');
+    drawAvatar(fwCtx, fc.width, fc.height, state.currentAvatar, state.faceParams, fc.width / 360);
+    // 更新 avatar selection diagnostics
+    if (window.__cheapLiveContestAvatarSelectionDiag) {
+      const sel = window.__cheapLiveContestAvatarSelectionDiag;
+      sel.selectedAvatar = state.currentAvatar;
+      sel.mainPanelAvatar = state.currentAvatar;
+      sel.floatingPanelAvatar = state.currentAvatar;
+      sel.mainUses3D = false;
+      sel.floatingUses3D = false;
+      sel.panelsInSync = true;
+      sel.mainCanvasWidth = mcW;
+      sel.mainCanvasHeight = mcH;
+      sel.clearRectWidth = mcW;
+      sel.clearRectHeight = mcH;
+      sel.lastAvatarSwitchAt = sel.lastAvatarSwitchAt || Date.now();
+    }
+  }
+
+  // Update guide params if open
+  const gm = document.getElementById('guideMouth');
+  if (gm) gm.textContent = state.faceParams.mouthOpen.toFixed(2);
+  const gb = document.getElementById('guideBlink');
+  if (gb) gb.textContent = state.faceParams.blink.toFixed(2);
+  const gy = document.getElementById('guideYaw');
+  if (gy) gy.textContent = state.faceParams.yaw.toFixed(2);
+
+  // Update sender panel params
+  const hd = document.getElementById('headYawVal');
+  if (hd) hd.textContent = state.faceParams.yaw.toFixed(2);
+  const mo = document.getElementById('mouthOpenVal');
+  if (mo) mo.textContent = state.faceParams.mouthOpen.toFixed(2);
+  const bl = document.getElementById('blinkVal');
+  if (bl) bl.textContent = state.faceParams.blink.toFixed(2);
+
+  // (requestAnimationFrame is dispatched at the top of simLoop to keep RAF count = 1)
+}
+
+// ====== UI HANDLERS ======
+function toggleCapture() {
+  state.captureOn = !state.captureOn;
+  const el = document.getElementById('captureToggle');
+  el.classList.toggle('on', state.captureOn);
+  document.getElementById('cameraPerm').textContent = state.captureOn ? '已授权' : '未授权';
+  document.getElementById('cameraPerm').style.color = state.captureOn ? 'var(--cl-green)' : 'var(--cl-text-muted)';
+}
+
+function toggleVoice() {
+  state.voiceOn = !state.voiceOn;
+  document.getElementById('voiceToggle').classList.toggle('on', state.voiceOn);
+  document.getElementById('voicePresetDisplay').textContent = state.voiceOn ? VOICE_PRESETS.find(v => v.id === state.voicePreset).name : '原声';
+}
+
+function selectVoicePreset(presetId, el) {
+  if (!VOICE_PRESETS.find(v => v.id === presetId)) return;
+  state.voicePreset = presetId;
+  document.getElementById('voicePresetDisplay').textContent = state.voiceOn ? VOICE_PRESETS.find(v => v.id === presetId).name : '原声';
+  document.querySelectorAll('.voice-preset-btn').forEach(b => b.classList.remove('selected'));
+  if (el) el.classList.add('selected');
+  document.querySelectorAll('.voice-preset-btn').forEach(b => {
+    b.classList.toggle('selected', b.dataset.preset === presetId);
+  });
+  if (typeof _voiceAdapter !== 'undefined' && _voiceAdapter && _voiceAdapter.setPreset) {
+    try { _voiceAdapter.setPreset(presetId); } catch (_) {}
+  }
+}
+
+function selectAvatar(avatar, el) {
+  state.currentAvatar = avatar;
+  document.querySelectorAll('#avatarGrid .avatar-btn').forEach(b => b.classList.remove('selected'));
+  if (el) el.classList.add('selected');
+  document.getElementById('avatarLabel').textContent = AVATAR_NAMES[avatar] || avatar;
+
+  // 更新 avatar selection diagnostics
+  if (!window.__cheapLiveContestAvatarSelectionDiag) {
+    window.__cheapLiveContestAvatarSelectionDiag = {
+      selectedAvatar: avatar,
+      activeButtonAvatar: avatar,
+      mainPanelAvatar: avatar,
+      floatingPanelAvatar: avatar,
+      mainRendererClass: avatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + avatar,
+      floatingRendererClass: avatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + avatar,
+      mainUses3D: avatar === 'sacabambaspis-3d',
+      floatingUses3D: avatar === 'sacabambaspis-3d',
+      panelsInSync: true,
+      mainCanvasWidth: 0,
+      mainCanvasHeight: 0,
+      clearRectWidth: 0,
+      clearRectHeight: 0,
+      lastAvatarSwitchAt: Date.now(),
+    };
+  }
+  const sel = window.__cheapLiveContestAvatarSelectionDiag;
+  sel.selectedAvatar = avatar;
+  sel.activeButtonAvatar = avatar;
+  sel.mainPanelAvatar = avatar;
+  sel.floatingPanelAvatar = avatar;
+  sel.mainUses3D = avatar === 'sacabambaspis-3d';
+  sel.floatingUses3D = avatar === 'sacabambaspis-3d';
+  sel.mainRendererClass = avatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + avatar;
+  sel.floatingRendererClass = avatar === 'sacabambaspis-3d' ? 'ProceduralSpindleWhaleAvatar' : '2D-' + avatar;
+  sel.panelsInSync = true;
+  sel.lastAvatarSwitchAt = Date.now();
+
+  if (avatar === 'sacabambaspis-3d') {
+    ensure3DRenderers()
+      .then(() => {
+        const rendererParams = faceParamsToRendererParams(state.faceParams);
+        update3DRenderers(rendererParams);
+      })
+      .catch(() => {});
+  }
+}
+
+// ====== MOCAP TOGGLE (experimental shell) ======
+// 检查本地是否有 PoseLandmarker / HandLandmarker 资源
+function checkMocapAssets() {
+  // 检查 mediapipe 目录下是否有 pose / hand 相关模型
+  // 当前仓库只有 face_landmarker.task，没有 pose/hand 模型
+  return {
+    hasPoseLandmarker: false,
+    hasHandLandmarker: false,
+    modelAssetsPresent: false,
+    noCdn: true, // 不使用 CDN
+    fallbackReason: 'Pose/Hand landmarker models not installed locally'
+  };
+}
+
+function initMocapDiag() {
+  if (window.__cheapLiveContestMocapDiag) return;
+  const assets = checkMocapAssets();
+  window.__cheapLiveContestMocapDiag = {
+    enabled: false,
+    status: 'off', // off | loading | active | unavailable | error
+    source: 'local-mediapipe',
+    hasPoseLandmarker: assets.hasPoseLandmarker,
+    hasHandLandmarker: assets.hasHandLandmarker,
+    modelAssetsPresent: assets.modelAssetsPresent,
+    noCdn: assets.noCdn,
+    lastFrameAt: null,
+    poseLandmarkCount: 0,
+    handLandmarkCount: 0,
+    averageLatencyMs: 0,
+    error: null,
+    fallbackReason: assets.fallbackReason
+  };
+}
+
+function toggleMocap() {
+  initMocapDiag();
+  const diag = window.__cheapLiveContestMocapDiag;
+  const checkbox = document.getElementById('mocapToggle');
+  const visual = document.getElementById('mocapToggleVisual');
+  const statusEl = document.getElementById('mocapStatus');
+
+  if (diag.enabled) {
+    // 关闭
+    diag.enabled = false;
+    diag.status = 'off';
+    diag.lastFrameAt = null;
+    diag.poseLandmarkCount = 0;
+    diag.handLandmarkCount = 0;
+    checkbox.checked = false;
+    visual.classList.remove('active');
+    statusEl.textContent = 'off';
+    statusEl.style.color = '#888';
+    return;
+  }
+
+  // 尝试开启
+  const assets = checkMocapAssets();
+  diag.hasPoseLandmarker = assets.hasPoseLandmarker;
+  diag.hasHandLandmarker = assets.hasHandLandmarker;
+  diag.modelAssetsPresent = assets.modelAssetsPresent;
+
+  if (!assets.modelAssetsPresent) {
+    // 资源缺失 — 显示 unavailable，不崩溃
+    diag.enabled = false;
+    diag.status = 'unavailable';
+    diag.error = null;
+    diag.fallbackReason = assets.fallbackReason;
+    checkbox.checked = false;
+    visual.classList.remove('active');
+    statusEl.textContent = 'unavailable';
+    statusEl.style.color = '#e67e22';
+    return;
+  }
+
+  // 如果有资源（当前不会走到这里，因为 modelAssetsPresent=false）
+  diag.enabled = true;
+  diag.status = 'loading';
+  checkbox.checked = true;
+  visual.classList.add('active');
+  statusEl.textContent = 'loading';
+  statusEl.style.color = '#3498db';
+}
+
+function toggleShowcase() {
+  state.showcaseMode = !state.showcaseMode;
+  const body = document.getElementById('avatarPanelBody');
+  body.classList.toggle('showcase-mode', state.showcaseMode);
+  // 应用模式下让 canvas 内部跳过背景绘制，实现真正透明
+  if (typeof window.setContestFishAvatarTransparentMode === 'function') {
+    window.setContestFishAvatarTransparentMode('avatarCanvas', state.showcaseMode);
+    const fw = document.getElementById('fwAvatarCanvas');
+    if (fw) window.setContestFishAvatarTransparentMode('fwAvatarCanvas', state.showcaseMode);
+  }
+}
+
+function toggleDrawMode() {
+  state.drawMode = !state.drawMode;
+  const c = document.getElementById('gameCanvas');
+  const btn = document.getElementById('drawModeBtn');
+  c.classList.toggle('draw-mode', state.drawMode);
+  btn.textContent = state.drawMode ? '涂鸦模式：开启中（点击画线）' : '涂鸦模式（触控穿透演示）';
+  if (!state.drawMode) drawPaths = [];
+}
+
+function toggleFloatingMode() {
+  if (modeBtnMoved) { modeBtnMoved = false; return; }
+
+  const isEdit = state.floatingMode === 'edit';
+  state.floatingMode = isEdit ? 'display' : 'edit';
+
+  const fw = document.getElementById('floatingWindow');
+  const btn = document.getElementById('fwModeBtn');
+  const status = document.getElementById('fwStatusText');
+
+  fwDragging = false;
+  fwResizing = false;
+
+  fw.classList.toggle('fw-edit-mode', state.floatingMode === 'edit');
+  fw.classList.toggle('fw-display-mode', state.floatingMode === 'display');
+  btn.classList.toggle('display-mode', state.floatingMode === 'display');
+
+  if (state.floatingMode === 'edit') {
+    btn.textContent = '编辑';
+    status.textContent = '悬浮窗：编辑模式 · 可拖动/缩放/交互';
+    if (typeof window.setContestFishAvatarTransparentMode === 'function') {
+      window.setContestFishAvatarTransparentMode('fwAvatarCanvas', true);
+    }
+  } else {
+    btn.textContent = '显示';
+    status.textContent = '悬浮窗：显示模式 · 触摸穿透 · 底层可触控';
+    if (typeof window.setContestFishAvatarTransparentMode === 'function') {
+      window.setContestFishAvatarTransparentMode('fwAvatarCanvas', true);
+    }
+  }
+  window.__cheapLiveContestFloatingDiag.lastModeToggleAt = performance.now();
+  _updateFloatingDiag();
+}
+
+// ====== GUIDE ======
+function openGuide() {
+  state.guideStep = 0;
+  renderGuide();
+  document.getElementById('guideOverlay').classList.add('open');
+  updateGuideHighlights();
+}
+
+function closeGuide() {
+  document.getElementById('guideOverlay').classList.remove('open');
+  clearGuideHighlights();
+}
+
+function guideNav(dir) {
+  state.guideStep = Math.max(0, Math.min(GUIDE_STEPS.length - 1, state.guideStep + dir));
+  renderGuide();
+  if (state.guideStep === GUIDE_STEPS.length - 1) {
+    document.getElementById('guideNext').textContent = '完成';
+  } else {
+    document.getElementById('guideNext').textContent = '下一步';
+  }
+  updateGuideHighlights();
+}
+
+function renderGuide() {
+  const step = GUIDE_STEPS[state.guideStep];
+  document.getElementById('guideTitle').textContent = step.title;
+  document.getElementById('guideStepIndicator').innerHTML = `Step <b>${state.guideStep + 1}</b> / ${GUIDE_STEPS.length}`;
+  document.getElementById('guideBody').innerHTML = step.body;
+
+  // Dots
+  const dots = document.getElementById('guideDots');
+  dots.innerHTML = '';
+  for (let i = 0; i < GUIDE_STEPS.length; i++) {
+    const d = document.createElement('div');
+    d.className = 'step-dot' + (i === state.guideStep ? ' active' : '') + (i < state.guideStep ? ' done' : '');
+    dots.appendChild(d);
+  }
+
+  document.getElementById('guidePrev').style.visibility = state.guideStep === 0 ? 'hidden' : 'visible';
+}
+
+// ====== GUIDE HIGHLIGHTS ======
+const GUIDE_TARGETS = [
+  { el: '#phoneFrame', bubble: '发送端采集', pos: 'right' },
+  { el: '#receiverPanel', bubble: 'Receiver 选择形象', pos: 'left' },
+  { el: '#floatingWindow', from: '#receiverPanel', bubble: '悬浮窗叠加', pos: 'top' },
+  { el: '#fwModeBtn', bubble: '编辑模式：可拖动', pos: 'right' },
+  { el: '#floatingWindow', bubble: '显示模式：穿透', pos: 'top' },
+  { el: '#gamePanel', bubble: '直播端应用场景', pos: 'left' },
+];
+
+function updateGuideHighlights() {
+  clearGuideHighlights();
+  const cfg = GUIDE_TARGETS[state.guideStep];
+  if (!cfg) return;
+
+  const target = document.querySelector(cfg.el);
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+
+  // Create highlight box
+  const box = document.createElement('div');
+  box.className = 'guide-highlight-box';
+  box.style.left = (rect.left - 4) + 'px';
+  box.style.top = (rect.top - 4) + 'px';
+  box.style.width = (rect.width + 8) + 'px';
+  box.style.height = (rect.height + 8) + 'px';
+  document.body.appendChild(box);
+
+  // Create bubble
+  const bubble = document.createElement('div');
+  bubble.className = 'guide-bubble bubble-' + cfg.pos;
+  bubble.textContent = cfg.bubble;
+  document.body.appendChild(bubble);
+
+  // Position bubble
+  const bRect = bubble.getBoundingClientRect();
+  let bLeft, bTop;
+  switch (cfg.pos) {
+    case 'right':
+      bLeft = rect.right + 12;
+      bTop = rect.top + rect.height / 2 - bRect.height / 2;
+      break;
+    case 'left':
+      bLeft = rect.left - bRect.width - 12;
+      bTop = rect.top + rect.height / 2 - bRect.height / 2;
+      break;
+    case 'top':
+      bLeft = rect.left + rect.width / 2 - bRect.width / 2;
+      bTop = rect.top - bRect.height - 12;
+      break;
+    case 'bottom':
+      bLeft = rect.left + rect.width / 2 - bRect.width / 2;
+      bTop = rect.bottom + 12;
+      break;
+  }
+  bubble.style.left = Math.max(8, bLeft) + 'px';
+  bubble.style.top = Math.max(8, bTop) + 'px';
+
+  // Arrow from receiver to floating window (Step 3)
+  if (cfg.from) {
+    const fromEl = document.querySelector(cfg.from);
+    if (fromEl) {
+      const fromRect = fromEl.getBoundingClientRect();
+      createArrow(fromRect, rect);
+    }
+  }
+}
+
+function createArrow(fromRect, toRect) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.style.position = 'fixed';
+  svg.style.top = '0';
+  svg.style.left = '0';
+  svg.style.width = '100%';
+  svg.style.height = '100%';
+  svg.style.pointerEvents = 'none';
+  svg.style.zIndex = '151';
+
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+  marker.setAttribute('id', 'guideArrowHead');
+  marker.setAttribute('markerWidth', '10');
+  marker.setAttribute('markerHeight', '7');
+  marker.setAttribute('refX', '9');
+  marker.setAttribute('refY', '3.5');
+  marker.setAttribute('orient', 'auto');
+  const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  polygon.setAttribute('points', '0 0, 10 3.5, 0 7');
+  polygon.setAttribute('fill', '#ff6b4a');
+  marker.appendChild(polygon);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  const x1 = fromRect.right;
+  const y1 = fromRect.top + fromRect.height / 2;
+  const x2 = toRect.left;
+  const y2 = toRect.top + toRect.height / 2;
+  const midX = (x1 + x2) / 2;
+  const d = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
+  path.setAttribute('d', d);
+  path.setAttribute('stroke', '#ff6b4a');
+  path.setAttribute('stroke-width', '2.5');
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke-dasharray', '8 4');
+  path.setAttribute('marker-end', 'url(#guideArrowHead)');
+  svg.appendChild(path);
+  document.body.appendChild(svg);
+}
+
+function clearGuideHighlights() {
+  document.querySelectorAll('.guide-highlight-box, .guide-bubble').forEach(el => el.remove());
+  document.querySelectorAll('svg').forEach(el => {
+    if (el.style.zIndex === '151') el.remove();
+  });
+}
+
+// ====== FACE TRACKING (MediaPipe) ======
+let _faceLandmarker = null;
+let _faceVideoStream = null;
+let _faceDetectRAF = null;
+
+// Aligned with open demo: preload model on page init, not on camera click.
+// No CDN fallback — must be same-origin local.
+async function preloadMediapipeModel() {
+  if (_loadMediapipePromise) return _loadMediapipePromise;
+  _loadMediapipePromise = (async () => {
+    _mediapipeInitDiag.phase = 'loading';
+    _mediapipeInitDiag.initStartedAt = performance.now();
+
+    const localBase = '../face-tracking/mediapipe';
+    const localBundleUrl = `${localBase}/vision_bundle.mjs`;
+    const localWasmUrl = `${localBase}/wasm`;
+    const localModelUrl = `${localBase}/face_landmarker.task`;
+
+    _mediapipeInitDiag.filesetUrl = localWasmUrl;
+    _mediapipeInitDiag.modelUrl = localModelUrl;
+    _mediapipeInitDiag.delegateTried = 'GPU';
+
+    const resolveMod = (mod) => {
+      const m = mod || {};
+      return {
+        FaceLandmarker: m.FaceLandmarker || (m.default && m.default.FaceLandmarker),
+        FilesetResolver: m.FilesetResolver || (m.default && m.default.FilesetResolver),
+      };
+    };
+
+    let FaceLandmarker = null;
+    let FilesetResolver = null;
+
+    try {
+      const mod = resolveMod(await import(localBundleUrl));
+      FaceLandmarker = mod.FaceLandmarker;
+      FilesetResolver = mod.FilesetResolver;
+      if (!FaceLandmarker || !FilesetResolver) {
+        throw new Error(`本地模块 ${localBundleUrl} 缺少预期导出 (FaceLandmarker/FilesetResolver)`);
+      }
+    } catch (loadErr) {
+      _mediapipeInitDiag.phase = 'error';
+      _mediapipeInitDiag.errorName = loadErr.name || 'LoadError';
+      _mediapipeInitDiag.errorMessage = loadErr.message || String(loadErr);
+      _mediapipeInitDiag.initElapsedMs = performance.now() - _mediapipeInitDiag.initStartedAt;
+      throw new Error(`本地 MediaPipe 加载失败: ${localBundleUrl} — ${loadErr.message || loadErr}`);
+    }
+
+    _mediapipeInitDiag.createStartedAt = performance.now();
+    const filesetResolver = await FilesetResolver.forVisionTasks(localWasmUrl);
+    _mediapipeInitDiag.filesetResolvedAt = performance.now();
+
+    _faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+      baseOptions: {
+        modelAssetPath: localModelUrl,
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+      numFaces: 1,
+      outputFaceBlendshapes: true,
+      outputFacialTransformationMatrixes: true,
+      refineLandmarks: true,
+    });
+
+    _mediapipeInitDiag.delegateActive = 'GPU';
+    _mediapipeInitDiag.createResolvedAt = performance.now();
+    _mediapipeInitDiag.initElapsedMs = _mediapipeInitDiag.createResolvedAt - _mediapipeInitDiag.initStartedAt;
+    _mediapipeInitDiag.phase = 'ready';
+    return _faceLandmarker;
+  })();
+  return _loadMediapipePromise;
+}
+
+// Start preloading after a short delay so initial page render isn't blocked
+if (typeof window !== 'undefined' && window.requestIdleCallback) {
+  window.requestIdleCallback(() => preloadMediapipeModel().catch(() => {}));
+} else {
+  setTimeout(() => preloadMediapipeModel().catch(() => {}), 1000);
+}
+
+async function startFaceTracking() {
+  const btn = document.getElementById('faceCamBtn');
+  const status = document.getElementById('faceCamStatus');
+  const videoWrap = document.getElementById('faceVideoWrap');
+
+  // Toggle: if video stream is active, stop; otherwise start.
+  // Note: _faceLandmarker may exist from preload — don't use it as the running flag.
+  if (_faceVideoStream || _faceDetectRAF) {
+    stopFaceTracking();
+    return;
+  }
+
+  btn.disabled = true;
+  status.style.display = 'block';
+  status.textContent = '请求摄像头权限...';
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+    });
+    _faceVideoStream = stream;
+    const video = document.getElementById('faceVideo');
+    video.srcObject = stream;
+
+    // Align with open demo: wait for loadeddata before play
+    if (video.readyState < 2) {
+      await new Promise((resolve, reject) => {
+        video.onloadeddata = () => resolve();
+        video.onerror = () => reject(new Error('视频加载失败'));
+        setTimeout(() => reject(new Error('视频加载超时')), 5000);
+      });
+    }
+    await video.play();
+
+    // Ensure model is ready (preload may still be in progress on slow connections)
+    if (!_faceLandmarker) {
+      status.textContent = 'MediaPipe 模型加载中...';
+      await preloadMediapipeModel();
+    }
+
+    status.textContent = '面捕运行中';
+    videoWrap.style.display = 'block';
+    btn.textContent = '停止面捕';
+    btn.disabled = false;
+
+    _cameraStartedAt = performance.now();
+    _cameraIdleFallbackReason = null;
+    _realCameraFrameApplied = false;
+    _lastCameraFrameAt = 0;
+
+    startFaceDetectionLoop(video);
+
+  } catch (err) {
+    console.error('Face tracking error:', err);
+    status.textContent = '错误: ' + (err.message || '无法启动摄像头或加载模型');
+    btn.disabled = false;
+    if (_faceVideoStream) {
+      _faceVideoStream.getTracks().forEach(t => t.stop());
+      _faceVideoStream = null;
+    }
+  }
+}
+
+function startFaceDetectionLoop(video) {
+  let lastTime = -1;
+  let lastCameraFrameStatus = 'waiting';
+  let _diagLogThrottle = 0;
+  let _detectCallCount = 0;
+
+  function loop() {
+    if (!_faceLandmarker || !_faceVideoStream) return;
+
+    const videoDiag = {
+      currentTime: video.currentTime,
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      readyState: video.readyState,
+      networkState: video.networkState,
+      paused: video.paused,
+      ended: video.ended,
+      tracksLive: _faceVideoStream ? _faceVideoStream.getVideoTracks().map(t => t.readyState) : [],
+      tracksEnabled: _faceVideoStream ? _faceVideoStream.getVideoTracks().map(t => t.enabled) : [],
+    };
+    _cameraVideoDiag = videoDiag;
+
+    if (video.currentTime !== lastTime) {
+      lastTime = video.currentTime;
+      _detectCallCount++;
+      let detectResults = null;
+      let detectError = null;
+      try {
+        detectResults = _faceLandmarker.detectForVideo(video, performance.now());
+      } catch (e) {
+        detectError = e;
+      }
+
+      if (detectResults) {
+        const hasLandmarks = !!(detectResults.faceLandmarks && detectResults.faceLandmarks.length > 0);
+        const hasBlendshapes = !!(detectResults.faceBlendshapes && detectResults.faceBlendshapes.length > 0);
+        const firstFace = hasLandmarks ? detectResults.faceLandmarks[0] : null;
+        const firstBlendshapes = hasBlendshapes ? detectResults.faceBlendshapes[0] : null;
+        _cameraLastDetectDiag = {
+          detectLoopRunning: true,
+          detectCallCount: _detectCallCount,
+          hasFaceLandmarks: hasLandmarks,
+          faceCount: detectResults.faceLandmarks ? detectResults.faceLandmarks.length : 0,
+          landmarkCountForFirstFace: firstFace ? firstFace.length : 0,
+          hasFaceBlendshapes: hasBlendshapes,
+          blendshapeSetCount: detectResults.faceBlendshapes ? detectResults.faceBlendshapes.length : 0,
+          blendshapeCategoryCount: firstBlendshapes ? (firstBlendshapes.categories ? firstBlendshapes.categories.length : 0) : 0,
+          hasTransformationMatrices: !!(detectResults.facialTransformationMatrixes && detectResults.facialTransformationMatrixes.length > 0),
+        };
+      } else {
+        _cameraLastDetectDiag = {
+          detectLoopRunning: true,
+          detectCallCount: _detectCallCount,
+          hasFaceLandmarks: false,
+          faceCount: 0,
+          landmarkCountForFirstFace: 0,
+          hasFaceBlendshapes: false,
+          blendshapeSetCount: 0,
+          blendshapeCategoryCount: 0,
+          hasTransformationMatrices: false,
+          detectError: detectError ? (detectError.message || String(detectError)) : null,
+        };
+      }
+
+      if (detectError) {
+        const now = performance.now();
+        _cameraFrameErrorCount++;
+        _lastCameraError = (detectError && detectError.message) ? detectError.message : String(detectError);
+        _lastCameraErrorAt = now;
+        if (now - _cameraErrorLogThrottle > CAMERA_ERROR_LOG_INTERVAL_MS) {
+          _cameraErrorLogThrottle = now;
+          console.warn('[CheapLiveFaceTracking] detectForVideo error (x' + _cameraFrameErrorCount + '):', _lastCameraError);
+        }
+        lastCameraFrameStatus = 'error';
+      } else if (detectResults.faceBlendshapes && detectResults.faceBlendshapes.length > 0) {
+        const landmarksForUpdate = (detectResults.faceLandmarks && detectResults.faceLandmarks.length > 0)
+          ? detectResults.faceLandmarks[0]
+          : null;
+        updateFaceParamsFromBlendshapes(detectResults.faceBlendshapes[0], detectResults.facialTransformationMatrixes, landmarksForUpdate);
+        _lastCameraFrameAt = performance.now();
+        _realCameraFrameApplied = true;
+        _cameraFrameErrorCount = 0;
+        _cameraIdleFallbackReason = null;
+        lastCameraFrameStatus = 'ok';
+      } else {
+        lastCameraFrameStatus = 'no-face';
+      }
+
+      // Update status text with honest, specific messaging
+      const statusEl = document.getElementById('faceCamStatus');
+      if (statusEl) {
+        if (lastCameraFrameStatus === 'ok') {
+          statusEl.textContent = '面捕运行中 · 已检测到人脸';
+        } else if (lastCameraFrameStatus === 'no-face') {
+          // Check if video actually has frames
+          const hasVideo = videoDiag.videoWidth > 0 && videoDiag.videoHeight > 0 && videoDiag.currentTime > 0;
+          if (!hasVideo) {
+            statusEl.textContent = '摄像头已打开 · 等待视频画面（videoWidth=' + videoDiag.videoWidth + '）';
+          } else if (!videoDiag.tracksLive.includes('live')) {
+            statusEl.textContent = '摄像头 track 未 live（' + JSON.stringify(videoDiag.tracksLive) + '）';
+          } else {
+            statusEl.textContent = '面捕运行中 · 未检测到人脸（视频正常，请对准人脸）';
+          }
+        } else if (lastCameraFrameStatus === 'error') {
+          statusEl.textContent = '面捕帧错误（x' + _cameraFrameErrorCount + '）：' + (_lastCameraError || '').slice(0, 60);
+        }
+      }
+
+      // Log full diagnostics every 3s
+      const now = performance.now();
+      if (now - _diagLogThrottle > 3000) {
+        _diagLogThrottle = now;
+        console.log('[CheapLiveFaceTracking diag]', {
+          video: videoDiag,
+          detect: _cameraLastDetectDiag,
+          realCameraFrameApplied: _realCameraFrameApplied,
+          lastCameraFrameAt: _lastCameraFrameAt,
+          cameraStartedAt: _cameraStartedAt,
+          cameraFrameErrorCount: _cameraFrameErrorCount,
+        });
+      }
+    }
+    _faceDetectRAF = requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+// Smoothing helpers for gaze (ported from open demo face-tracker.js)
+const _gazeSmootherState = {};
+function _smoothGaze(key, value, alpha) {
+  const a = (typeof alpha === 'number' && alpha > 0 && alpha < 1) ? alpha : 0.35;
+  const prev = _gazeSmootherState[key];
+  const next = (prev === undefined) ? value : prev * (1 - a) + value * a;
+  _gazeSmootherState[key] = next;
+  return next;
+}
+
+// Compute per-eye gaze (iris position relative to eye corners) from MediaPipe 478 landmarks.
+// Returns { x, y } in [-1, 1] per eye, or null if landmarks insufficient.
+function _computeGazeFromIris(landmarks, irisIdx, eyeLeftIdx, eyeRightIdx, eyeTopIdx, eyeBottomIdx) {
+  if (!landmarks || landmarks.length < 478) return null;
+  const iris = landmarks[irisIdx];
+  const eyeLeft = landmarks[eyeLeftIdx];
+  const eyeRight = landmarks[eyeRightIdx];
+  const eyeTop = landmarks[eyeTopIdx];
+  const eyeBottom = landmarks[eyeBottomIdx];
+  if (!iris || !eyeLeft || !eyeRight || !eyeTop || !eyeBottom) return null;
+  const eyeW = eyeRight.x - eyeLeft.x;
+  const eyeH = eyeBottom.y - eyeTop.y;
+  if (Math.abs(eyeW) < 0.001 || Math.abs(eyeH) < 0.001) return { x: 0, y: 0 };
+  const nx = (iris.x - eyeLeft.x) / eyeW;
+  const ny = (iris.y - eyeTop.y) / eyeH;
+  return {
+    x: Math.max(-1, Math.min(1, (nx - 0.5) * 2)),
+    y: Math.max(-1, Math.min(1, (ny - 0.5) * 2)),
+  };
+}
+
+function updateFaceParamsFromBlendshapes(blendshapes, matrices, landmarks) {
+  const categories = blendshapes.categories || [];
+  const getVal = (name) => {
+    const cat = categories.find(c => c.categoryName === name);
+    return cat ? cat.score : 0;
+  };
+
+  const mouthOpen = getVal('jawOpen');
+  const blinkLeft = getVal('eyeBlinkLeft');
+  const blinkRight = getVal('eyeBlinkRight');
+  const smileLeft = getVal('mouthSmileLeft');
+  const smileRight = getVal('mouthSmileRight');
+
+  state.faceParams.mouthOpen = mouthOpen;
+  state.faceParams.blink = Math.max(blinkLeft, blinkRight);
+  state.faceParams.blinkLeft = blinkLeft;
+  state.faceParams.blinkRight = blinkRight;
+  state.faceParams.eyeLeft = 1 - blinkLeft;
+  state.faceParams.eyeRight = 1 - blinkRight;
+  state.faceParams.smile = (smileLeft + smileRight) / 2;
+  state.faceParams.faceDetected = true;
+
+  // Head pose: extract yaw/pitch/roll from facialTransformationMatrixes.
+  // Aligned with open demo formulas (column-major 4x4 matrix):
+  //   yaw   = atan2(m[8],  m[10])
+  //   pitch = atan2(-m[9], sqrt(m[1]^2 + m[5]^2))
+  //   roll  = atan2(m[1],  m[0])    ← previous contest demo used atan2(m[2], m[10]) which is wrong
+  let yawDeg = 0, pitchDeg = 0, rollDeg = 0;
+  if (matrices && matrices.length > 0) {
+    const m = matrices[0].data;
+    yawDeg = Math.atan2(m[8], m[10]) * 180 / Math.PI;
+    pitchDeg = Math.atan2(-m[9], Math.sqrt(m[1] * m[1] + m[5] * m[5])) * 180 / Math.PI;
+    rollDeg = Math.atan2(m[1], m[0]) * 180 / Math.PI;
+  }
+
+  state.faceParams.yaw = Math.max(-1, Math.min(1, yawDeg / 60));
+  state.faceParams.pitch = Math.max(-1, Math.min(1, pitchDeg / 45));
+  state.faceParams.roll = Math.max(-1, Math.min(1, rollDeg / 40));
+
+  // Head pan (headX/headY): use nose tip landmark (index 1) position, mirrored for selfie.
+  // Aligned with open demo: headX = 1 - nose.x (mirror), headY = nose.y.
+  if (landmarks && landmarks.length > 1) {
+    const nose = landmarks[1];
+    if (nose && typeof nose.x === 'number' && typeof nose.y === 'number') {
+      state.faceParams.headX = Math.max(0, Math.min(1, 1 - nose.x));
+      state.faceParams.headY = Math.max(0, Math.min(1, nose.y));
+    }
+  }
+
+  // Iris / gaze tracking: requires refineLandmarks:true (478 landmarks).
+  // MediaPipe iris indices:
+  //   left eye:  iris 468, corners 33/133, lids 159/145
+  //   right eye: iris 473, corners 362/263, lids 386/374
+  // Mirror convention (selfie): swap left/right gaze to match user's view.
+  const leftGaze = _computeGazeFromIris(landmarks, 468, 33, 133, 159, 145);
+  const rightGaze = _computeGazeFromIris(landmarks, 473, 362, 263, 386, 374);
+  if (leftGaze && rightGaze) {
+    const sLX = _smoothGaze('gazeLeftX', leftGaze.x);
+    const sLY = _smoothGaze('gazeLeftY', leftGaze.y);
+    const sRX = _smoothGaze('gazeRightX', rightGaze.x);
+    const sRY = _smoothGaze('gazeRightY', rightGaze.y);
+    // Mirror swap: what MediaPipe sees as "left eye" is the user's right eye in mirror view.
+    state.faceParams.gazeLeftX = sRX;
+    state.faceParams.gazeLeftY = sRY;
+    state.faceParams.gazeRightX = sLX;
+    state.faceParams.gazeRightY = sLY;
+  } else if (leftGaze) {
+    state.faceParams.gazeLeftX = _smoothGaze('gazeLeftX', leftGaze.x);
+    state.faceParams.gazeLeftY = _smoothGaze('gazeLeftY', leftGaze.y);
+    state.faceParams.gazeRightX = state.faceParams.gazeLeftX;
+    state.faceParams.gazeRightY = state.faceParams.gazeLeftY;
+  } else if (rightGaze) {
+    state.faceParams.gazeRightX = _smoothGaze('gazeRightX', rightGaze.x);
+    state.faceParams.gazeRightY = _smoothGaze('gazeRightY', rightGaze.y);
+    state.faceParams.gazeLeftX = state.faceParams.gazeRightX;
+    state.faceParams.gazeLeftY = state.faceParams.gazeRightY;
+  }
+
+  _faceFrameActive = true;
+  _faceFrameSource = 'camera';
+  _lastAppliedSeq++;
+  _lastAppliedValues = {
+    yaw: state.faceParams.yaw,
+    pitch: state.faceParams.pitch,
+    roll: state.faceParams.roll,
+    mouthOpen: state.faceParams.mouthOpen,
+    smile: state.faceParams.smile,
+    blink: state.faceParams.blink,
+    blinkLeft: state.faceParams.blinkLeft,
+    blinkRight: state.faceParams.blinkRight,
+    eyeLeft: state.faceParams.eyeLeft,
+    eyeRight: state.faceParams.eyeRight,
+    headX: state.faceParams.headX,
+    headY: state.faceParams.headY,
+    gazeLeftX: state.faceParams.gazeLeftX,
+    gazeLeftY: state.faceParams.gazeLeftY,
+    gazeRightX: state.faceParams.gazeRightX,
+    gazeRightY: state.faceParams.gazeRightY,
+  };
+
+  const diag = window.__cheapLiveContestAvatarDiag;
+  if (diag) {
+    diag.faceFrameActive = true;
+    diag.frameSource = 'camera';
+    diag.lastAppliedSeq = _lastAppliedSeq;
+    diag.lastCameraFrame = {
+      timestamp: performance.now(),
+      hasFace: true,
+      appliedToAvatar: true,
+      source: 'camera',
+      headYaw: yawDeg,
+      headPitch: pitchDeg,
+      headRoll: rollDeg,
+      mouthOpen: mouthOpen,
+      mouthSmile: state.faceParams.smile,
+      eyeLeft: 1 - blinkLeft,
+      eyeRight: 1 - blinkRight,
+      headX: state.faceParams.headX,
+      headY: state.faceParams.headY,
+      gazeLeftX: state.faceParams.gazeLeftX,
+      gazeLeftY: state.faceParams.gazeLeftY,
+      gazeRightX: state.faceParams.gazeRightX,
+      gazeRightY: state.faceParams.gazeRightY,
+    };
+  }
+
+  if (_frameTimeoutId) clearTimeout(_frameTimeoutId);
+  _frameTimeoutId = setTimeout(() => {
+    _faceFrameActive = false;
+    _faceFrameSource = null;
+    state.faceParams.faceDetected = false;
+    const d = window.__cheapLiveContestAvatarDiag;
+    if (d) {
+      d.faceFrameActive = false;
+      d.frameSource = null;
+    }
+    document.getElementById('faceDetectedVal').textContent = 'false';
+  }, FRAME_IDLE_TIMEOUT_MS);
+
+  document.getElementById('faceDetectedVal').textContent = 'true';
+  document.getElementById('mouthOpenVal').textContent = mouthOpen.toFixed(2);
+  document.getElementById('blinkVal').textContent = Math.max(blinkLeft, blinkRight).toFixed(2);
+  document.getElementById('smileVal').textContent = state.faceParams.smile.toFixed(2);
+  const yv = document.getElementById('headYawVal');
+  if (yv) yv.textContent = state.faceParams.yaw.toFixed(2);
+}
+
+function stopFaceTracking() {
+  if (_faceDetectRAF) {
+    cancelAnimationFrame(_faceDetectRAF);
+    _faceDetectRAF = null;
+  }
+  if (_faceVideoStream) {
+    _faceVideoStream.getTracks().forEach(t => t.stop());
+    _faceVideoStream = null;
+  }
+  // Aligned with open demo: keep FaceLandmarker instance for reuse on next start.
+  // Model loading is expensive; only stop video stream and detect loop.
+  _cameraStartedAt = 0;
+  _lastCameraFrameAt = 0;
+  _cameraFrameErrorCount = 0;
+  _lastCameraError = null;
+  _lastCameraErrorAt = 0;
+  _realCameraFrameApplied = false;
+  _cameraIdleFallbackReason = null;
+  _cameraVideoDiag = null;
+  _cameraLastDetectDiag = null;
+  const btn = document.getElementById('faceCamBtn');
+  const status = document.getElementById('faceCamStatus');
+  const videoWrap = document.getElementById('faceVideoWrap');
+  btn.textContent = '开启摄像头';
+  status.style.display = 'none';
+  videoWrap.style.display = 'none';
+  document.getElementById('faceDetectedVal').textContent = 'false';
+}
+
+// ====== MIC LEVEL (Web Audio API) ======
+let _micAudioContext = null;
+let _micAnalyser = null;
+let _micStream = null;
+let _micInterval = null;
+
+async function startMicLevel() {
+  const btn = document.getElementById('micBtn');
+  const status = document.getElementById('micStatus');
+  const valEl = document.getElementById('micLevelVal');
+
+  if (_micAudioContext) {
+    stopMicLevel();
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    _micStream = stream;
+    _micAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = _micAudioContext.createMediaStreamSource(stream);
+    _micAnalyser = _micAudioContext.createAnalyser();
+    _micAnalyser.fftSize = 256;
+    source.connect(_micAnalyser);
+
+    const dataArray = new Uint8Array(_micAnalyser.frequencyBinCount);
+
+    _micInterval = setInterval(() => {
+      _micAnalyser.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+      const avg = sum / dataArray.length;
+      const normalized = Math.min(1, avg / 128);
+      valEl.textContent = normalized.toFixed(2);
+      valEl.style.color = normalized > 0.05 ? 'var(--cl-green)' : 'var(--cl-text-muted)';
+    }, 100);
+
+    btn.textContent = '停止麦克风';
+    status.textContent = '麦克风运行中';
+
+  } catch (err) {
+    status.textContent = '错误: ' + (err.message || '无法访问麦克风');
+    console.error('Mic error:', err);
+  }
+}
+
+function stopMicLevel() {
+  if (_micInterval) {
+    clearInterval(_micInterval);
+    _micInterval = null;
+  }
+  if (_micAudioContext) {
+    _micAudioContext.close();
+    _micAudioContext = null;
+  }
+  if (_micStream) {
+    _micStream.getTracks().forEach(t => t.stop());
+    _micStream = null;
+  }
+  const btn = document.getElementById('micBtn');
+  const status = document.getElementById('micStatus');
+  const valEl = document.getElementById('micLevelVal');
+  btn.textContent = '开启麦克风';
+  status.textContent = '点击开启麦克风';
+  valEl.textContent = '—';
+  valEl.style.color = 'var(--cl-text-muted)';
+}
+
+// ====== MIC MONITOR (音频监听) ======
+let _monitorAudioContext = null;
+let _monitorStream = null;
+let _monitorSource = null;
+
+function toggleMicMonitor() {
+  const btn = document.getElementById('monitorBtn');
+  const status = document.getElementById('monitorStatus');
+
+  if (_voiceAdapter.monitorActive) {
+    _voiceAdapter.setMonitorActive(false);
+    _voiceAdapter.stop();
+    btn.textContent = '监听麦克风';
+    status.textContent = '监听已关闭';
+    status.style.color = 'var(--cl-text-muted)';
+    return;
+  }
+
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(stream => {
+      _voiceAdapter.start(stream);
+      _voiceAdapter.setMonitorActive(true);
+      btn.textContent = '停止监听';
+      status.textContent = '监听中...';
+      status.style.color = 'var(--cl-green)';
+    })
+    .catch(err => {
+      status.textContent = '监听失败: ' + (err.message || '无法访问麦克风');
+      status.style.color = '#ff6b6b';
+    });
+}
+
+// ============================================================
+// 3D 萨卡班甲鱼渲染器（来自开源 face-tracking 模块）
+// ============================================================
+
+// ---------- 工具函数 ----------
+function _clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+function _lerp(a, b, t) { return a + (b - a) * t; }
+
+function _parseHex(hex) {
+  const h = hex.replace('#', '');
+  if (h.length === 3) {
+    return { r: parseInt(h[0] + h[0], 16), g: parseInt(h[1] + h[1], 16), b: parseInt(h[2] + h[2], 16) };
+  }
+  return { r: parseInt(h.substring(0, 2), 16), g: parseInt(h.substring(2, 4), 16), b: parseInt(h.substring(4, 6), 16) };
+}
+
+function _parseRGB(c) {
+  if (!c) return { r: 0, g: 0, b: 0 };
+  if (c.startsWith('#')) return _parseHex(c);
+  const m = c.match(/rgb\(\s*(\d+),\s*(\d+),\s*(\d+)\s*\)/);
+  if (m) return { r: parseInt(m[1], 10), g: parseInt(m[2], 10), b: parseInt(m[3], 10) };
+  return { r: 0, g: 0, b: 0 };
+}
+
+function _lerpColor(c1, c2, t) {
+  const p1 = _parseHex(c1);
+  const p2 = _parseHex(c2);
+  const r = Math.round(_lerp(p1.r, p2.r, t));
+  const g = Math.round(_lerp(p1.g, p2.g, t));
+  const b = Math.round(_lerp(p1.b, p2.b, t));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function _applyLight(faceCenterNormal, lightDir, baseColor, ambient) {
+  const dot = (faceCenterNormal.x || 0) * lightDir.x + (faceCenterNormal.y || 0) * lightDir.y + (faceCenterNormal.z || 0) * lightDir.z;
+  const a = Number.isFinite(ambient) && ambient >= 0 && ambient <= 1 ? ambient : 0.55;
+  const factor = a + (1 - a) * _clamp(dot, -0.2, 1.0);
+  const rgb = _parseRGB(baseColor);
+  const r = Math.round(_clamp(rgb.r * factor, 0, 255));
+  const g = Math.round(_clamp(rgb.g * factor, 0, 255));
+  const b = Math.round(_clamp(rgb.b * factor, 0, 255));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+const _BASIS_EPSILON = 1e-10;
+
+function _normVec3(v, fallback) {
+  const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  if (!Number.isFinite(len) || len < _BASIS_EPSILON) {
+    return { x: fallback.x, y: fallback.y, z: fallback.z };
+  }
+  return { x: v.x / len, y: v.y / len, z: v.z / len };
+}
+
+function _dotVec3(a, b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+
+function _crossVec3(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+function _buildFaceBasis(local) {
+  const rawN = { x: local.nx, y: local.ny, z: local.nz };
+  const n = _normVec3((rawN.x !== undefined && rawN.y !== undefined && rawN.z !== undefined) ? rawN : { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: 1 });
+
+  let rawT = { x: local.tx, y: local.ty, z: local.tz };
+  if (rawT.x === undefined || rawT.y === undefined || rawT.z === undefined) {
+    rawT = { x: 1 - n.x * n.x, y: -n.x * n.y, z: -n.x * n.z };
+    if (Math.sqrt(rawT.x * rawT.x + rawT.y * rawT.y + rawT.z * rawT.z) < _BASIS_EPSILON) {
+      rawT = { x: -n.y * n.x, y: 1 - n.y * n.y, z: -n.y * n.z };
+    }
+  }
+
+  const tDotN = _dotVec3(rawT, n);
+  let t = { x: rawT.x - tDotN * n.x, y: rawT.y - tDotN * n.y, z: rawT.z - tDotN * n.z };
+  const tLen = Math.sqrt(t.x * t.x + t.y * t.y + t.z * t.z);
+  if (tLen < _BASIS_EPSILON) {
+    let ref;
+    if (Math.abs(n.x) <= Math.abs(n.y) && Math.abs(n.x) <= Math.abs(n.z)) {
+      ref = { x: 1, y: 0, z: 0 };
+    } else if (Math.abs(n.y) <= Math.abs(n.z)) {
+      ref = { x: 0, y: 1, z: 0 };
+    } else {
+      ref = { x: 0, y: 0, z: 1 };
+    }
+    const refDotN = _dotVec3(ref, n);
+    t = { x: ref.x - refDotN * n.x, y: ref.y - refDotN * n.y, z: ref.z - refDotN * n.z };
+  }
+
+  t = _normVec3(t, { x: 1, y: 0, z: 0 });
+  let b = _normVec3(_crossVec3(n, t), { x: 0, y: 1, z: 0 });
+  t = _normVec3(_crossVec3(b, n), { x: 1, y: 0, z: 0 });
+  b = _normVec3(_crossVec3(n, t), { x: 0, y: 1, z: 0 });
+
+  return { n, t, b };
+}
+
+function _computeProjectedEllipse(rx, ry, bx, by, halfWidth, halfHeight) {
+  const ax = rx * halfWidth;
+  const ay = ry * halfWidth;
+  const bxx = bx * halfHeight;
+  const byy = by * halfHeight;
+  const cxx = ax * ax + bxx * bxx;
+  const cxy = ax * ay + bxx * byy;
+  const cyy = ay * ay + byy * byy;
+  const trace = cxx + cyy;
+  const delta = Math.sqrt((cxx - cyy) * (cxx - cyy) + 4 * cxy * cxy);
+  const lambdaMajor = Math.max(0, (trace + delta) * 0.5);
+  const lambdaMinor = Math.max(0, (trace - delta) * 0.5);
+  let angle;
+  if (delta < 1e-10) { angle = Math.atan2(ry, rx); }
+  else { angle = 0.5 * Math.atan2(2 * cxy, cxx - cyy); }
+  return { radiusX: Math.sqrt(lambdaMajor), radiusY: Math.sqrt(lambdaMinor), angle };
+}
+
+function _mapFaceLocalPoint(anchor, u, v) {
+  return {
+    x: anchor.screenX + anchor.rightVec.x * u + anchor.downVec.x * v,
+    y: anchor.screenY + anchor.rightVec.y * u + anchor.downVec.y * v,
+  };
+}
+
+// ---------- 形状曲线 ----------
+const _SPHERE_END = 0.26;
+
+function _smoothstep01(t) {
+  t = Math.max(0, Math.min(1, t));
+  return t * t * (3 - 2 * t);
+}
+
+function _radiusScale(s) {
+  if (s <= _SPHERE_END) {
+    const rel = _SPHERE_END - s;
+    const r2 = _SPHERE_END * _SPHERE_END - rel * rel;
+    return Math.sqrt(Math.max(0, r2)) / _SPHERE_END;
+  }
+  const TAIL_RATIO = 0.035;
+  const t = (s - _SPHERE_END) / (1 - _SPHERE_END) * (Math.PI / 2);
+  return TAIL_RATIO + (1 - TAIL_RATIO) * Math.cos(t);
+}
+
+function _radiusScaleDeriv(s) {
+  const h = 0.002;
+  if (s <= h) return (_radiusScale(s + h) - _radiusScale(s)) / h;
+  if (s >= 1 - h) return (_radiusScale(s) - _radiusScale(s - h)) / h;
+  return (_radiusScale(s + h) - _radiusScale(s - h)) / (2 * h);
+}
+
+const _TAIL_BEND_START = 0.72;
+function _spineYOffset(s, headY) {
+  if (s < _TAIL_BEND_START) return 0;
+  const u = (s - _TAIL_BEND_START) / (1 - _TAIL_BEND_START);
+  const eased = _smoothstep01(u);
+  return -headY * 0.40 * eased * eased;
+}
+function _spineYOffsetDeriv(s, headY) {
+  if (s < _TAIL_BEND_START - 0.01) return 0;
+  const h = 0.003;
+  const s0 = Math.max(0, s - h);
+  const s1 = Math.min(1, s + h);
+  return (_spineYOffset(s1, headY) - _spineYOffset(s0, headY)) / (s1 - s0);
+}
+
+function _getSection(s, headX, headY, headZ, bodyLength) {
+  const sc = _radiusScale(s);
+  const scDeriv = _radiusScaleDeriv(s);
+  const spineZ = headZ - s * (headZ + bodyLength);
+  const spineZDeriv = -(headZ + bodyLength);
+  const rx = headX * sc;
+  const ry = headY * sc * (0.88 + 0.12 * sc);
+  const rxDeriv = headX * scDeriv;
+  const ryDeriv = headY * (scDeriv * (0.88 + 0.12 * sc) + sc * (0.12 * scDeriv));
+  const spineY = _spineYOffset(s, headY);
+  const spineYDeriv = _spineYOffsetDeriv(s, headY);
+  return {
+    xPos: 0, yPos: spineY, zPos: spineZ,
+    rx, ry, rxDeriv, ryDeriv,
+    spineZDeriv, spineYDeriv,
+    isHead: s <= _SPHERE_END + 0.02,
+  };
+}
+
+function _getFaceWeight(s, angle) {
+  if (s > _SPHERE_END + 0.04) return 0;
+  const u = s / _SPHERE_END;
+  const distFromFront = u;
+  const lat = Math.max(0, Math.cos(angle));
+  const falloff = Math.exp(-distFromFront * distFromFront * 2.5) * (0.4 + 0.6 * lat);
+  return falloff;
+}
+
+// ---------- 主网格生成 ----------
+function _createSpindleMesh(options = {}) {
+  const {
+    headX = 52, headY = 46, headZ = 50, bodyLength = 180,
+    columns = 34, rows = 24, flukeEnabled = true, flukeSize = 1.2,
+    topColor = '#bdb8aa', bottomColor = '#f2f1ea',
+    faceTopColor = '#c8c2b4', faceBottomColor = '#fff8ee',
+  } = options;
+
+  const vertices = [];
+  const faces = [];
+
+  vertices.push({
+    x: 0, y: 0, z: headZ, nx: 0, ny: 0, nz: 1,
+    t: 0, angle: 0, col: 0, row: 0,
+    isTop: false, isBottom: false, faceWeight: 1.0, isHead: true,
+  });
+  const APEX_IDX = 0;
+
+  for (let col = 1; col <= columns; col++) {
+    const s = col / columns;
+    const sec = _getSection(s, headX, headY, headZ, bodyLength);
+    const rx = sec.rx, ry = sec.ry;
+    const rxDeriv = sec.rxDeriv, ryDeriv = sec.ryDeriv;
+    const zDeriv = sec.spineZDeriv, yBendDeriv = sec.spineYDeriv;
+
+    for (let row = 0; row <= rows; row++) {
+      const angle = -Math.PI + (row / rows) * 2 * Math.PI;
+      const cosA = Math.cos(angle), sinA = Math.sin(angle);
+      const x = sec.xPos + rx * cosA;
+      const y = sec.yPos + ry * sinA;
+      const z = sec.zPos;
+
+      const tthX = -rx * sinA, tthY = ry * cosA, tthZ = 0;
+      const tsX = rxDeriv * cosA, tsY = yBendDeriv + ryDeriv * sinA, tsZ = zDeriv;
+
+      let nx = tsY * tthZ - tsZ * tthY;
+      let ny = tsZ * tthX - tsX * tthZ;
+      let nz = tsX * tthY - tsY * tthX;
+
+      if (s < 0.02) { nx = 0; ny = 0; nz = 1; }
+
+      const nLenRaw = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (nLenRaw > 1e-6) { nx /= nLenRaw; ny /= nLenRaw; nz /= nLenRaw; }
+      else { nx = 0; ny = 0; nz = 1; }
+
+      const fw = _getFaceWeight(s, angle);
+      const isTop = sinA < 0;
+
+      vertices.push({
+        x, y, z, nx, ny, nz, t: s, angle, col, row,
+        isTop, isBottom: !isTop, faceWeight: fw, isHead: sec.isHead,
+      });
+    }
+  }
+
+  for (let col = 1; col < columns; col++) {
+    const colA = 1 + (col - 1) * (rows + 1);
+    const colB = colA + (rows + 1);
+    for (let row = 0; row < rows; row++) {
+      const a = colA + row, b = a + 1, c = colB + row, d = c + 1;
+      const va = vertices[a], vb = vertices[b], vc = vertices[c], vd = vertices[d];
+      const avgSin = (Math.sin(va.angle) + Math.sin(vb.angle) + Math.sin(vc.angle) + Math.sin(vd.angle)) * 0.25;
+      faces.push({
+        indices: [a, b, d, c],
+        vertices: [va, vb, vd, vc],
+        isTop: avgSin < 0, isBottom: avgSin >= 0,
+        column: col, row,
+      });
+    }
+  }
+
+  {
+    const ringStart = 1;
+    for (let row = 0; row < rows; row++) {
+      const a = ringStart + row, b = ringStart + row + 1;
+      const va = vertices[a], vb = vertices[b], vApex = vertices[APEX_IDX];
+      const avgSin = (Math.sin(va.angle) + Math.sin(vb.angle)) * 0.5;
+      faces.push({
+        indices: [APEX_IDX, a, b],
+        vertices: [vApex, va, vb],
+        isTop: avgSin < 0, isBottom: avgSin >= 0,
+        column: 0, row,
+      });
+    }
+  }
+
+  if (flukeEnabled) {
+    const flukeStartIdx = vertices.length;
+    const flukeHalfHeight = headY * 0.35 * flukeSize;
+    const flukeThickness = headX * 0.08 * flukeSize;
+    const tailExtensionZ = 40;
+    const flukeTipBackZ = -bodyLength - headZ * 0.2 - tailExtensionZ;
+
+    const lastRingStart = 1 + (columns - 1) * (rows + 1);
+    let bodyEndCenterX = 0, bodyEndCenterY = 0, bodyEndCenterZ = 0;
+    for (let row = 0; row < rows; row++) {
+      bodyEndCenterX += vertices[lastRingStart + row].x;
+      bodyEndCenterY += vertices[lastRingStart + row].y;
+      bodyEndCenterZ += vertices[lastRingStart + row].z;
+    }
+    bodyEndCenterX /= rows; bodyEndCenterY /= rows; bodyEndCenterZ /= rows;
+    const flukeBaseZ = bodyEndCenterZ - 3;
+
+    const vBase = { x: bodyEndCenterX, y: bodyEndCenterY, z: flukeBaseZ, nx: 0, ny: 0, nz: -1, t: 1.02, angle: 0, col: columns + 1, row: 0, isTop: false, isBottom: false, faceWeight: 0, isHead: false };
+    const vTop = { x: bodyEndCenterX, y: bodyEndCenterY - flukeHalfHeight, z: flukeBaseZ - 15, nx: 0, ny: -1, nz: 0, t: 1.05, angle: -Math.PI / 2, col: columns + 1, row: 0, isTop: true, isBottom: false, faceWeight: 0, isHead: false };
+    const vBottom = { x: bodyEndCenterX, y: bodyEndCenterY + flukeHalfHeight, z: flukeBaseZ - 15, nx: 0, ny: 1, nz: 0, t: 1.05, angle: Math.PI / 2, col: columns + 1, row: 0, isTop: false, isBottom: true, faceWeight: 0, isHead: false };
+    const vTip = { x: bodyEndCenterX, y: bodyEndCenterY - headY * 0.05, z: flukeTipBackZ, nx: 0, ny: 0, nz: -1, t: 1.1, angle: 0, col: columns + 2, row: 0, isTop: true, isBottom: false, faceWeight: 0, isHead: false };
+    const vBaseThick = { x: bodyEndCenterX + flukeThickness, y: bodyEndCenterY, z: flukeBaseZ, nx: 1, ny: 0, nz: 0, t: 1.02, angle: 0, col: columns + 1, row: 0, isTop: false, isBottom: false, faceWeight: 0, isHead: false };
+    const vTopThick = { x: bodyEndCenterX + flukeThickness * 0.5, y: bodyEndCenterY - flukeHalfHeight, z: flukeBaseZ - 15, nx: 1, ny: 0, nz: 0, t: 1.05, angle: 0, col: columns + 1, row: 0, isTop: true, isBottom: false, faceWeight: 0, isHead: false };
+    const vBottomThick = { x: bodyEndCenterX + flukeThickness * 0.5, y: bodyEndCenterY + flukeHalfHeight, z: flukeBaseZ - 15, nx: 1, ny: 0, nz: 0, t: 1.05, angle: 0, col: columns + 1, row: 0, isTop: false, isBottom: true, faceWeight: 0, isHead: false };
+    const vTipThick = { x: bodyEndCenterX + flukeThickness * 0.3, y: bodyEndCenterY - headY * 0.05, z: flukeTipBackZ, nx: 1, ny: 0, nz: 0, t: 1.1, angle: 0, col: columns + 2, row: 0, isTop: true, isBottom: false, faceWeight: 0, isHead: false };
+
+    vertices.push(vBase, vTop, vBottom, vTip, vBaseThick, vTopThick, vBottomThick, vTipThick);
+    const iBase = flukeStartIdx + 0, iTop = flukeStartIdx + 1, iBottom = flukeStartIdx + 2, iTip = flukeStartIdx + 3;
+    const iBaseT = flukeStartIdx + 4, iTopT = flukeStartIdx + 5, iBottomT = flukeStartIdx + 6, iTipT = flukeStartIdx + 7;
+
+    faces.push({ indices: [iBase, iTop, iTip], vertices: [vBase, vTop, vTip], isTop: true, isBottom: false, column: columns + 1, row: 0, doubleSided: true });
+    faces.push({ indices: [iBaseT, iTipT, iTopT], vertices: [vBaseThick, vTipThick, vTopThick], isTop: true, isBottom: false, column: columns + 1, row: 0, doubleSided: true });
+    faces.push({ indices: [iBase, iTip, iBottom], vertices: [vBase, vTip, vBottom], isTop: false, isBottom: true, column: columns + 1, row: 0, doubleSided: true });
+    faces.push({ indices: [iBaseT, iBottomT, iTipT], vertices: [vBaseThick, vBottomThick, vTipThick], isTop: false, isBottom: true, column: columns + 1, row: 0, doubleSided: true });
+
+    let topIdx = lastRingStart, bottomIdx = lastRingStart;
+    let topDiff = Infinity, bottomDiff = Infinity;
+    for (let row = 0; row < rows; row++) {
+      const v = vertices[lastRingStart + row];
+      const d1 = Math.abs(v.angle - (-Math.PI / 2));
+      const d2 = Math.abs(v.angle - Math.PI / 2);
+      if (d1 < topDiff) { topDiff = d1; topIdx = lastRingStart + row; }
+      if (d2 < bottomDiff) { bottomDiff = d2; bottomIdx = lastRingStart + row; }
+    }
+    faces.push({ indices: [topIdx, iBase, iTop], vertices: [vertices[topIdx], vBase, vTop], isTop: true, isBottom: false, column: columns, row: 0 });
+    faces.push({ indices: [bottomIdx, iBottom, iBase], vertices: [vertices[bottomIdx], vBottom, vBase], isTop: false, isBottom: true, column: columns, row: 0 });
+  }
+
+  return {
+    vertices, faces, headX, headY, headZ, headR: headX, bodyLength,
+    columns, rows, topColor, bottomColor, faceTopColor, faceBottomColor,
+    type: 'spindle',
+  };
+}
+
+// ---------- 面部锚点 ----------
+function _normalizeVec3XYZ(x, y, z, fallback) {
+  const len = Math.sqrt(x * x + y * y + z * z);
+  if (!Number.isFinite(len) || len < _BASIS_EPSILON) {
+    return { x: fallback.x, y: fallback.y, z: fallback.z };
+  }
+  return { x: x / len, y: y / len, z: z / len };
+}
+
+function _crossVec3XYZ(ax, ay, az, bx, by, bz) {
+  return { x: ay * bz - az * by, y: az * bx - ax * bz, z: ax * by - ay * bx };
+}
+
+function _computeFaceAnchorXYZ(mesh, _, horizOffset, vertOffset, depthOffset = 0.5) {
+  const hx = mesh.headX, hy = mesh.headY, hz = mesh.headZ;
+  const x = horizOffset, y = vertOffset;
+  const invHx2 = 1 / (hx * hx), invHy2 = 1 / (hy * hy), invHz2 = 1 / (hz * hz);
+  const inside = 1 - x * x * invHx2 - y * y * invHy2;
+  const zSurface = hz * Math.sqrt(Math.max(0.02, inside));
+  const z = zSurface + depthOffset;
+
+  const n = _normalizeVec3XYZ(x * invHx2, y * invHy2, zSurface * invHz2, { x: 0, y: 0, z: 1 });
+  let t = _normalizeVec3XYZ(zSurface * invHz2, 0, -x * invHx2, { x: 1, y: 0, z: 0 });
+  const rawB = _crossVec3XYZ(n.x, n.y, n.z, t.x, t.y, t.z);
+  let b = _normalizeVec3XYZ(rawB.x, rawB.y, rawB.z, { x: 0, y: 1, z: 0 });
+  const rawT2 = _crossVec3XYZ(b.x, b.y, b.z, n.x, n.y, n.z);
+  t = _normalizeVec3XYZ(rawT2.x, rawT2.y, rawT2.z, { x: 1, y: 0, z: 0 });
+  const rawB2 = _crossVec3XYZ(n.x, n.y, n.z, t.x, t.y, t.z);
+  b = _normalizeVec3XYZ(rawB2.x, rawB2.y, rawB2.z, { x: 0, y: 1, z: 0 });
+
+  return { x, y, z, nx: n.x, ny: n.y, nz: n.z, tx: t.x, ty: t.y, tz: t.z, bx: b.x, by: b.y, bz: b.z, faceWeight: 1.0 };
+}
+
+function _computeNostrilSize(headX) {
+  return Math.max(2.0, headX * 0.045);
+}
+
+// ---------- 变形与旋转 ----------
+const _BEND_COEF_YAW = 0.80;
+const _BEND_COEF_PITCH = 0.60;
+
+function _bendProfile(s) {
+  const t = Math.max(0, Math.min(1, s));
+  const faceEnd = 0.08, headEnd = 0.28, tailStart = 0.80;
+  if (t <= faceEnd) return 0;
+  if (t <= headEnd) {
+    const u = (t - faceEnd) / (headEnd - faceEnd);
+    return 0.30 * u * u * (3 - 2 * u);
+  }
+  if (t <= tailStart) {
+    const u = (t - headEnd) / (tailStart - headEnd);
+    return 0.30 + 0.70 * u * u * (3 - 2 * u);
+  }
+  return 1;
+}
+
+function _applySoftRotation(x, y, z, nx, ny, nz, s, params) {
+  const { angleY = 0, angleX = 0, angleZ = 0, tailSway = 0 } = params;
+  const bend = _bendProfile(s);
+  const effectiveYaw = angleY * (1 - _BEND_COEF_YAW * bend);
+  const effectivePitch = angleX * (1 - _BEND_COEF_PITCH * bend);
+  const effectiveRoll = angleZ * (1 - 0.6 * bend);
+
+  const radY = effectiveYaw * Math.PI / 180;
+  const radX = effectivePitch * Math.PI / 180;
+  const radZ = effectiveRoll * Math.PI / 180;
+  const cosY = Math.cos(radY), sinY = Math.sin(radY);
+  const cosX = Math.cos(radX), sinX = Math.sin(radX);
+  const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
+
+  let x1 = x * cosZ - y * sinZ;
+  let y1 = x * sinZ + y * cosZ;
+  let z1 = z;
+  let nx1 = nx * cosZ - ny * sinZ;
+  let ny1 = nx * sinZ + ny * cosZ;
+  let nz1 = nz;
+
+  let y2 = y1 * cosX - z1 * sinX;
+  let z2 = y1 * sinX + z1 * cosX;
+  let x2 = x1;
+  let ny2 = ny1 * cosX - nz1 * sinX;
+  let nz2 = ny1 * sinX + nz1 * cosX;
+  let nx2 = nx1;
+
+  let x3 = x2 * cosY + z2 * sinY;
+  let z3 = -x2 * sinY + z2 * cosY;
+  let y3 = y2;
+  let nx3 = nx2 * cosY + nz2 * sinY;
+  let nz3 = -nx2 * sinY + nz2 * cosY;
+  let ny3 = ny2;
+
+  if (tailSway !== 0) {
+    const swayStart = 0.45;
+    const t = s < swayStart ? 0 : Math.max(0, Math.min(1, (s - swayStart) / (1.0 - swayStart)));
+    const swayWeight = t * t * (3 - 2 * t);
+    const x4 = x3 + tailSway * swayWeight;
+    return { x: x4, y: y3, z: z3, nx: nx3, ny: ny3, nz: nz3 };
+  }
+  return { x: x3, y: y3, z: z3, nx: nx3, ny: ny3, nz: nz3 };
+}
+
+function _deformSpindle(mesh, params = {}) {
+  const transformed = mesh.vertices.map((v) => {
+    const s = v.t !== undefined ? v.t : 0;
+    const r = _applySoftRotation(v.x, v.y, v.z, v.nx, v.ny, v.nz, s, params);
+    const newIsTop = r.y < 0;
+    const newIsBottom = r.y >= 0;
+    return { ...v, tx: r.x, ty: r.y, tz: r.z, nx: r.nx, ny: r.ny, nz: r.nz, isTop: newIsTop, isBottom: newIsBottom };
+  });
+
+  const rows = mesh.rows;
+  const ringStart = 1;
+  let ringCenterX = 0, ringCenterY = 0, ringCenterZ = 0;
+  for (let row = 0; row <= rows; row++) {
+    ringCenterX += transformed[ringStart + row].tx;
+    ringCenterY += transformed[ringStart + row].ty;
+    ringCenterZ += transformed[ringStart + row].tz;
+  }
+  ringCenterX /= (rows + 1); ringCenterY /= (rows + 1); ringCenterZ /= (rows + 1);
+  const BLEND = 0.15;
+  transformed[0].tx = transformed[0].tx * (1 - BLEND) + ringCenterX * BLEND;
+  transformed[0].ty = transformed[0].ty * (1 - BLEND) + ringCenterY * BLEND;
+  transformed[0].tz = transformed[0].tz * (1 - BLEND) + ringCenterZ * BLEND;
+
+  const transformedFaces = mesh.faces.map((f) => ({
+    ...f,
+    vertices: f.indices.map((idx) => transformed[idx]),
+  }));
+  return { ...mesh, vertices: transformed, faces: transformedFaces };
+}
+
+// ---------- 参数归一化 ----------
+function _normalizeParams(p) {
+  return {
+    eyeLeft: _clamp(p.eyeLeft ?? 1, 0, 1),
+    eyeRight: _clamp(p.eyeRight ?? 1, 0, 1),
+    eyeWideLeft: _clamp(p.eyeWideLeft ?? 0, 0, 1),
+    eyeWideRight: _clamp(p.eyeWideRight ?? 0, 0, 1),
+    eyeSquintLeft: _clamp(p.eyeSquintLeft ?? 0, 0, 1),
+    eyeSquintRight: _clamp(p.eyeSquintRight ?? 0, 0, 1),
+    mouthOpen: _clamp(p.mouthOpen ?? 0, 0, 1),
+    mouthSmile: _clamp(p.mouthSmile ?? 0, 0, 1),
+    mouthFunnel: _clamp(p.mouthFunnel ?? 0, 0, 1),
+    mouthPress: _clamp(p.mouthPress ?? 0, 0, 1),
+    browLeft: _clamp(p.browLeft ?? 0, 0, 1),
+    browRight: _clamp(p.browRight ?? 0, 0, 1),
+    headYaw: (_clamp(p.headYaw ?? 0.5, 0, 1) - 0.5) * 120,
+    headPitch: (_clamp(p.headPitch ?? 0.5, 0, 1) - 0.5) * 90,
+    headRoll: (_clamp(p.headRoll ?? 0.5, 0, 1) - 0.5) * 80,
+    headX: _clamp(p.headX ?? 0.5, 0, 1),
+    headY: _clamp(p.headY ?? 0.5, 0, 1),
+    gazeLeftX: _clamp(p.gazeLeftX ?? 0, -1, 1),
+    gazeLeftY: _clamp(p.gazeLeftY ?? 0, -1, 1),
+    gazeRightX: _clamp(p.gazeRightX ?? 0, -1, 1),
+    gazeRightY: _clamp(p.gazeRightY ?? 0, -1, 1),
+    lightDir: p.lightDir,
+    ambient: p.ambient,
+  };
+}
+
+// ---------- 3D 渲染器基类 ----------
+class _ProceduralMeshRenderer {
+  constructor(canvasId) {
+    this.canvas = document.getElementById(canvasId);
+    if (!this.canvas) throw new Error(`Canvas "${canvasId}" not found`);
+    this.ctx = this.canvas.getContext('2d');
+    this.params = {
+      eyeLeft: 1, eyeRight: 1, mouthOpen: 0, mouthSmile: 0,
+      browLeft: 0, browRight: 0, headYaw: 0.5, headPitch: 0.5, headRoll: 0.5,
+      headX: 0.5, headY: 0.5,
+    };
+    this.mirror = true;
+    this.appMode = false;
+    this.transparentMode = false;
+    this.debugMesh = false;
+    this._resizeHandler = () => this.resize();
+    window.addEventListener('resize', this._resizeHandler);
+  }
+
+  updateParams(newParams) {
+    Object.assign(this.params, newParams);
+    this.draw();
+  }
+
+  setAppMode(enabled) {
+    this.appMode = !!enabled;
+    this.draw();
+  }
+
+  resize() {
+    if (!this.canvas || !this.canvas.parentElement) return;
+    const parent = this.canvas.parentElement;
+    const cssW = Math.max(100, parent.clientWidth);
+    const cssH = Math.max(100, parent.clientHeight);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const newW = Math.round(cssW * dpr);
+    const newH = Math.round(cssH * dpr);
+    if (this.canvas.width !== newW || this.canvas.height !== newH) {
+      this.canvas.width = newW;
+      this.canvas.height = newH;
+    }
+  }
+
+  draw() {
+    this.resize();
+    const ctx = this.ctx;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    if (!this.appMode && !this.transparentMode) {
+      ctx.fillStyle = '#0d1420';
+      ctx.fillRect(0, 0, w, h);
+    } else if (this.appMode && !this.transparentMode) {
+      ctx.fillStyle = '#F7F5EE';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#888888';
+      ctx.font = '14px monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('#F7F5EE', 10, 20);
+    }
+
+    this._render(ctx, w, h);
+  }
+
+  setTransparentMode(enabled) {
+    this.transparentMode = !!enabled;
+    this.draw();
+  }
+
+  _render(ctx, w, h) { /* noop */ }
+
+  _drawMesh(ctx, mesh, options) {
+    const { w, h, scale, originX, originY, baseColorTop, baseColorBottom, faceTopColor, faceBottomColor, lightDir, ambient } = options;
+    const vertices = mesh.vertices;
+    const faces = mesh.faces;
+    if (!vertices || !faces || faces.length === 0) return;
+
+    const cullThreshold = options.cullThreshold !== undefined ? options.cullThreshold : -0.05;
+
+    const projected = new Array(vertices.length);
+    for (let i = 0; i < vertices.length; i++) {
+      const v = vertices[i];
+      const tx = (v.tx !== undefined ? v.tx : v.x);
+      const ty = (v.ty !== undefined ? v.ty : v.y);
+      const tz = (v.tz !== undefined ? v.tz : v.z);
+      projected[i] = { sx: originX + tx * scale, sy: originY + ty * scale, sz: tz, nx: v.nx ?? 0, ny: v.ny ?? 0, nz: v.nz ?? 0, v };
+    }
+
+    const drawList = [];
+    for (let i = 0; i < faces.length; i++) {
+      const f = faces[i];
+      const idxs = f.indices;
+      const nPoints = idxs.length;
+      let avgSz = 0, avgNx = 0, avgNy = 0, avgNz = 0;
+      for (let k = 0; k < nPoints; k++) {
+        const p = projected[idxs[k]];
+        avgSz += p.sz; avgNx += p.nx; avgNy += p.ny; avgNz += p.nz;
+      }
+      avgSz /= nPoints; avgNx /= nPoints; avgNy /= nPoints; avgNz /= nPoints;
+      const nLen = Math.sqrt(avgNx * avgNx + avgNy * avgNy + avgNz * avgNz) || 1;
+
+      if (!f.doubleSided) {
+        const facing = avgNz / nLen;
+        if (facing < cullThreshold) continue;
+      }
+
+      let isTop = false;
+      if (f.isTop !== undefined) { isTop = f.isTop; }
+      else {
+        let origYSum = 0;
+        for (let k = 0; k < nPoints; k++) origYSum += f.vertices[k].y;
+        isTop = (origYSum / nPoints) < 0;
+      }
+
+      let faceWeight = 0;
+      for (let k = 0; k < nPoints; k++) {
+        const vv = f.vertices[k];
+        if (vv && typeof vv.faceWeight === 'number') faceWeight += vv.faceWeight;
+      }
+      faceWeight /= nPoints;
+
+      let base = (isTop ? baseColorTop : baseColorBottom);
+      if (faceWeight > 0.01 && faceTopColor && faceBottomColor) {
+        const faceBase = isTop ? faceTopColor : faceBottomColor;
+        base = _lerpColor(base, faceBase, faceWeight);
+      }
+
+      const lit = _applyLight({ x: avgNx / nLen, y: avgNy / nLen, z: avgNz / nLen }, lightDir, base, ambient);
+
+      const polyPoints = new Array(nPoints);
+      for (let k = 0; k < nPoints; k++) {
+        const p = projected[idxs[k]];
+        polyPoints[k] = [p.sx, p.sy];
+      }
+
+      drawList.push({
+        points: polyPoints, avgZ: avgSz, fill: lit,
+        stroke: this.debugMesh ? 'rgba(255,255,255,0.4)' : null,
+      });
+    }
+
+    drawList.sort((a, b) => a.avgZ - b.avgZ);
+
+    for (let i = 0; i < drawList.length; i++) {
+      const d = drawList[i];
+      ctx.beginPath();
+      const points = d.points;
+      ctx.moveTo(points[0][0], points[0][1]);
+      for (let k = 1; k < points.length; k++) ctx.lineTo(points[k][0], points[k][1]);
+      ctx.closePath();
+      ctx.fillStyle = d.fill;
+      ctx.fill();
+      if (d.stroke) {
+        ctx.strokeStyle = d.stroke;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+    return { projected };
+  }
+
+  _transformVec(x, y, z, rotParams) {
+    const radY = rotParams.angleY * Math.PI / 180;
+    const radX = rotParams.angleX * Math.PI / 180;
+    const radZ = rotParams.angleZ * Math.PI / 180;
+    const cosY = Math.cos(radY), sinY = Math.sin(radY);
+    const cosX = Math.cos(radX), sinX = Math.sin(radX);
+    const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
+
+    let x1 = x * cosZ - y * sinZ;
+    let y1 = x * sinZ + y * cosZ;
+    let z1 = z;
+    let y2 = y1 * cosX - z1 * sinX;
+    let z2 = y1 * sinX + z1 * cosX;
+    let x2 = x1;
+    let x3 = x2 * cosY + z2 * sinY;
+    let z3 = -x2 * sinY + z2 * cosY;
+    let y3 = y2;
+    return { x: x3, y: y3, z: z3 };
+  }
+
+  _transformAnchor(local, rotParams, originX, originY, scale) {
+    const p = this._transformVec(local.x, local.y, local.z, rotParams);
+    const basis = _buildFaceBasis(local);
+    const n = this._transformVec(basis.n.x, basis.n.y, basis.n.z, rotParams);
+    const t = this._transformVec(basis.t.x, basis.t.y, basis.t.z, rotParams);
+    const b = this._transformVec(basis.b.x, basis.b.y, basis.b.z, rotParams);
+    return {
+      worldX: p.x, worldY: p.y, worldZ: p.z,
+      screenX: originX + p.x * scale, screenY: originY + p.y * scale,
+      nx: n.x, ny: n.y, nz: n.z,
+      rightVec: { x: t.x, y: t.y, z: t.z },
+      downVec: { x: b.x, y: b.y, z: b.z },
+      rightLen: Math.sqrt(t.x * t.x + t.y * t.y),
+      downLen: Math.sqrt(b.x * b.x + b.y * b.y),
+    };
+  }
+}
+
+// ---------- 3D 萨卡班甲鱼渲染器 ----------
+const _SPINDLE_DEFAULT_LIGHT_DIR = { x: -0.3, y: -0.5, z: 0.8 };
+const _SPINDLE_DEFAULT_AMBIENT = 0.58;
+
+class _ProceduralSpindleWhaleAvatar extends _ProceduralMeshRenderer {
+  constructor(canvasId, options = {}) {
+    super(canvasId);
+    this._modelOptions = {
+      headX: 70, headY: 58, headZ: 54,
+      bodyLength: 210, bodyEndX: 9, bodyEndY: 5,
+      tailLength: 35, columns: 42, rows: 35,
+      topColor: '#c3b681', bottomColor: '#eee1bc',
+      faceTopColor: '#d1c394', faceBottomColor: '#f4e8c8',
+    };
+    this.spindleMesh = _createSpindleMesh(this._modelOptions);
+    this.baseYaw = 0; this.basePitch = 0; this.baseRoll = 0;
+    this.lightDir = options.lightDir ?? { ..._SPINDLE_DEFAULT_LIGHT_DIR };
+    this.ambient = options.ambient ?? _SPINDLE_DEFAULT_AMBIENT;
+    this._lastYaw = 0; this._yawVelocity = 0; this._tailSway = 0;
+    this._tailSwayDecay = 0.92;
+    this.draw();
+  }
+
+  getAnchors(params) {
+    const mesh = this.spindleMesh;
+    const hx = mesh.headX, hy = mesh.headY;
+    const eyeSpacing = hx * 0.30;
+    const eyeHeight = -hy * 0.28;
+    const mouthHeight = hy * 0.06;
+    const mouthHalfWidth = hx * 0.20;
+    const browOffset = -hy * 0.62;
+    const browSpacing = hx * 0.30;
+    return {
+      leftEye: { bodyT: 0, horizOffset: -eyeSpacing, vertOffset: eyeHeight, surfaceOffset: 0.5 },
+      rightEye: { bodyT: 0, horizOffset: eyeSpacing, vertOffset: eyeHeight, surfaceOffset: 0.5 },
+      mouth: { bodyT: 0, horizOffset: 0, vertOffset: mouthHeight, surfaceOffset: 0.5, mouthWidth: mouthHalfWidth },
+      browLeft: { bodyT: 0, horizOffset: -browSpacing, vertOffset: browOffset, surfaceOffset: 0.8 },
+      browRight: { bodyT: 0, horizOffset: browSpacing, vertOffset: browOffset, surfaceOffset: 0.8 },
+    };
+  }
+
+  _render(ctx, w, h) {
+    const np = _normalizeParams(this.params);
+    const rot = {
+      angleY: np.headYaw + this.baseYaw,
+      angleX: np.headPitch + this.basePitch,
+      angleZ: np.headRoll + this.baseRoll,
+    };
+
+    const currentYaw = np.headYaw;
+    this._yawVelocity = currentYaw - this._lastYaw;
+    this._lastYaw = currentYaw;
+    const maxSway = 15;
+    const swayTarget = -this._yawVelocity * 40;
+    this._tailSway = this._tailSway * this._tailSwayDecay + swayTarget * (1 - this._tailSwayDecay);
+    this._tailSway = Math.max(-maxSway, Math.min(maxSway, this._tailSway));
+    rot.tailSway = this._tailSway;
+
+    const minSide = Math.min(w, h);
+    const headDiameter = this.spindleMesh.headX * 2;
+    const margin = 0.18;
+    const scale = (minSide * (1 - margin * 2)) / headDiameter;
+    const originX = w * 0.5 + (np.headX - 0.5) * minSide * 0.22;
+    const originY = h * 0.48 + (np.headY - 0.5) * minSide * 0.18;
+
+    const renderLightDir = np.lightDir ?? this.lightDir;
+    const renderAmbient = np.ambient ?? this.ambient;
+
+    const deformedBody = _deformSpindle(this.spindleMesh, rot);
+    this._drawMesh(ctx, deformedBody, {
+      w, h, scale, originX, originY,
+      baseColorTop: this.spindleMesh.topColor,
+      baseColorBottom: this.spindleMesh.bottomColor,
+      faceTopColor: this.spindleMesh.faceTopColor,
+      faceBottomColor: this.spindleMesh.bottomColor,
+      lightDir: renderLightDir,
+      cullThreshold: -0.15,
+      ambient: renderAmbient,
+    });
+
+    this._drawFaceFeatures(ctx, np, rot, originX, originY, scale);
+  }
+
+  _drawFaceFeatures(ctx, np, rot, originX, originY, scale) {
+    const anchors = this.getAnchors(np);
+    const mesh = this.spindleMesh;
+    const eyeBase = Math.max(8, mesh.headX * 0.25);
+
+    const drawEye = (anchor, openness, eyeWide, eyeSquint, gazeX, gazeY) => {
+      const local = _computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
+      const t = this._transformAnchor(local, rot, originX, originY, scale);
+      const facing = _clamp(t.nz, -0.2, 1.0);
+      if (facing <= 0) return;
+
+      const eyeHalfW = eyeBase * scale;
+      const eyeHalfH = eyeBase * scale;
+      const proj = _computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, eyeHalfW, eyeHalfH);
+      let rx = Math.max(0.1, proj.radiusX);
+      let ry = Math.max(0.1, proj.radiusY);
+
+      const wideScale = 1 + (eyeWide || 0) * 0.47;
+      rx *= wideScale; ry *= wideScale;
+      const squintScaleY = 1 - (eyeSquint || 0) * 0.55;
+      const squintScaleX = 1 + (eyeSquint || 0) * 0.08;
+      rx *= squintScaleX; ry *= squintScaleY;
+      const minAspect = 0.55;
+      if (rx < ry * minAspect) rx = ry * minAspect;
+      if (ry < rx * minAspect) ry = rx * minAspect;
+      const ang = proj.angle;
+
+      const tOpen = Math.max(0, Math.min(1, (openness - 0.15) / (0.5 - 0.15)));
+      const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
+      const easedClosed = 1 - easedOpen;
+
+      // Iris/pupil: size based on eyeBase (stable across head rotation),
+      // not on projected ellipse axes. Only overall scale affects iris size.
+      const irisBaseR = eyeBase * scale * 0.50;
+      const pupilBaseR = eyeBase * scale * 0.28;
+      const wideBoost = 1 + Math.max(0, (eyeWide || 0)) * 0.15;
+      const irisR = Math.min(irisBaseR * wideBoost, Math.min(rx, ry) * 0.85);
+      const pupilR2 = Math.min(pupilBaseR * wideBoost, Math.min(rx, ry) * 0.55);
+
+      const maxOffsetX = Math.max(0, rx - irisR) * 0.55;
+      const maxOffsetY = Math.max(0, ry - irisR) * 0.55;
+      const gazeOffsetX = (gazeX || 0) * maxOffsetX;
+      const gazeOffsetY = (gazeY || 0) * maxOffsetY;
+      const irisCX = t.screenX + gazeOffsetX;
+      const irisCY = t.screenY + gazeOffsetY;
+
+      ctx.save();
+      ctx.globalAlpha = facing;
+
+      ctx.beginPath();
+      ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.lineWidth = Math.max(1, 2.0 * scale);
+      ctx.strokeStyle = '#222';
+      ctx.stroke();
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(t.screenX, t.screenY, rx - 1, ry - 1, ang, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.beginPath();
+      ctx.ellipse(irisCX, irisCY, irisR, irisR * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+      ctx.fillStyle = '#7a6b5c';
+      ctx.globalAlpha = Math.max(0.4, facing) * easedOpen;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(irisCX, irisCY, pupilR2, pupilR2 * (ry / Math.max(rx, 0.1)) * 0.85, ang, 0, Math.PI * 2);
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fill();
+      if (easedOpen > 0.5) {
+        const hlX = irisCX + irisR * 0.3;
+        const hlY = irisCY - irisR * 0.3;
+        ctx.beginPath();
+        ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = Math.max(0.3, facing) * 0.7;
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.globalAlpha = facing;
+
+      if (easedClosed > 0.02) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(t.screenX, t.screenY, rx, ry, ang, 0, Math.PI * 2);
+        ctx.clip();
+        const eyelidY = -ry + ry * 2 * easedClosed;
+        ctx.fillStyle = mesh.faceTopColor || '#d1c394';
+        ctx.fillRect(-rx - 2, -ry - 2, rx * 2 + 4, eyelidY - (-ry) + 2);
+        ctx.restore();
+      }
+      ctx.restore();
+    };
+
+    const drawBrow = (anchor, raise) => {
+      const local = _computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
+      const t = this._transformAnchor(local, rot, originX, originY, scale);
+      const facing = _clamp(t.nz, 0, 1);
+      if (facing <= 0.05) return;
+      const len = mesh.headX * 0.26 * scale;
+      const upAmt = raise * 8 * scale;
+      ctx.save();
+      ctx.globalAlpha = facing;
+      ctx.strokeStyle = '#2b2b2b';
+      ctx.lineWidth = Math.max(1.5, 2.5 * scale);
+      ctx.beginPath();
+      const left = _mapFaceLocalPoint(t, -len * 0.5, -upAmt);
+      const peak = _mapFaceLocalPoint(t, 0, -upAmt * 1.2);
+      const right = _mapFaceLocalPoint(t, len * 0.5, -upAmt);
+      ctx.moveTo(left.x, left.y);
+      ctx.quadraticCurveTo(peak.x, peak.y, right.x, right.y);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const drawMouth = (anchor, open, smile, mouthFunnel, mouthPress) => {
+      const local = _computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
+      const t = this._transformAnchor(local, rot, originX, originY, scale);
+      const facing = _clamp(t.nz, 0, 1);
+      if (facing <= 0.05) return;
+      const smileWiden = 1 + smile * 0.40;
+      const effectiveOpen = Math.max(0, open - (mouthPress || 0) * 0.3);
+      const funnelNarrow = 1 - (mouthFunnel || 0) * 0.5;
+      const funnelTall = 1 + (mouthFunnel || 0) * 0.8;
+      const halfW = (anchor.mouthWidth || mesh.headX * 0.28) * scale * smileWiden * funnelNarrow;
+      const openH = (3 * scale + 12 * scale * effectiveOpen) * funnelTall;
+      const cornerUp = smile * 3 * scale;
+      const upperLipRatio = 0.15;
+      const lowerLipRatio = 0.70;
+      const upperLift = effectiveOpen * openH * upperLipRatio;
+      const lowerDrop = effectiveOpen * openH * lowerLipRatio;
+      ctx.save();
+      ctx.globalAlpha = facing;
+      ctx.strokeStyle = '#2b2b2b';
+      ctx.lineWidth = Math.max(1.5, 2.5 * scale);
+
+      if (effectiveOpen < 0.05 && smile < 0.1) {
+        const left = _mapFaceLocalPoint(t, -halfW, cornerUp);
+        const right = _mapFaceLocalPoint(t, halfW, cornerUp);
+        ctx.beginPath();
+        ctx.moveTo(left.x, left.y);
+        ctx.lineTo(right.x, right.y);
+        ctx.stroke();
+      } else if (effectiveOpen < 0.05) {
+        const left = _mapFaceLocalPoint(t, -halfW, cornerUp);
+        const mid = _mapFaceLocalPoint(t, 0, cornerUp - 2 * scale);
+        const right = _mapFaceLocalPoint(t, halfW, cornerUp);
+        ctx.beginPath();
+        ctx.moveTo(left.x, left.y);
+        ctx.quadraticCurveTo(mid.x, mid.y, right.x, right.y);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = '#4a2020';
+        const left = _mapFaceLocalPoint(t, -halfW, cornerUp);
+        const topMid = _mapFaceLocalPoint(t, 0, cornerUp - upperLift);
+        const right = _mapFaceLocalPoint(t, halfW, cornerUp);
+        const botMid = _mapFaceLocalPoint(t, 0, cornerUp + lowerDrop);
+        ctx.beginPath();
+        ctx.moveTo(left.x, left.y);
+        ctx.quadraticCurveTo(topMid.x, topMid.y, right.x, right.y);
+        ctx.quadraticCurveTo(botMid.x, botMid.y, left.x, left.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    };
+
+    const hx = mesh.headX, hy = mesh.headY;
+    const nostrilHoriz = hx * 0.06;
+    const nostrilVert = -hy * 0.06;
+    const nostrilSize = _computeNostrilSize(hx);
+    const drawNostril = (hSign) => {
+      const local = _computeFaceAnchorXYZ(mesh, 0, nostrilHoriz * hSign, nostrilVert, 0.2);
+      const t = this._transformAnchor(local, rot, originX, originY, scale);
+      const facing = _clamp(t.nz, 0, 1);
+      if (facing <= 0.05) return;
+      ctx.save();
+      ctx.globalAlpha = 0.8 * facing;
+      ctx.beginPath();
+      const halfW = nostrilSize * scale;
+      const halfH = nostrilSize * scale;
+      const proj = _computeProjectedEllipse(t.rightVec.x, t.rightVec.y, t.downVec.x, t.downVec.y, halfW, halfH);
+      ctx.ellipse(t.screenX, t.screenY,
+        Math.max(0.1, proj.radiusX), Math.max(0.1, proj.radiusY),
+        proj.angle, 0, Math.PI * 2);
+      ctx.fillStyle = '#8a7a4a';
+      ctx.fill();
+      ctx.restore();
+    };
+
+    drawEye(anchors.leftEye, np.eyeLeft, np.eyeWideLeft, np.eyeSquintLeft, np.gazeLeftX, np.gazeLeftY);
+    drawEye(anchors.rightEye, np.eyeRight, np.eyeWideRight, np.eyeSquintRight, np.gazeRightX, np.gazeRightY);
+    drawBrow(anchors.browLeft, np.browLeft);
+    drawBrow(anchors.browRight, np.browRight);
+    drawMouth(anchors.mouth, np.mouthOpen, np.mouthSmile, np.mouthFunnel, np.mouthPress);
+    drawNostril(-1);
+    drawNostril(+1);
+
+    const headCenterLocal = _computeFaceAnchorXYZ(mesh, 0, 0, 0, 0.5);
+    const headCenterWorld = this._transformAnchor(headCenterLocal, rot, originX, originY, scale);
+    const leftEyeLocal = _computeFaceAnchorXYZ(mesh, anchors.leftEye.bodyT, anchors.leftEye.horizOffset, anchors.leftEye.vertOffset, anchors.leftEye.surfaceOffset);
+    const leftEyeWorld = this._transformAnchor(leftEyeLocal, rot, originX, originY, scale);
+    const rightEyeLocal = _computeFaceAnchorXYZ(mesh, anchors.rightEye.bodyT, anchors.rightEye.horizOffset, anchors.rightEye.vertOffset, anchors.rightEye.surfaceOffset);
+    const rightEyeWorld = this._transformAnchor(rightEyeLocal, rot, originX, originY, scale);
+
+    const mouthLocal = _computeFaceAnchorXYZ(mesh, anchors.mouth.bodyT, anchors.mouth.horizOffset, anchors.mouth.vertOffset, anchors.mouth.surfaceOffset);
+    const mouthWorld = this._transformAnchor(mouthLocal, rot, originX, originY, scale);
+    const smileWiden = 1 + np.mouthSmile * 0.40;
+    const effectiveOpen = Math.max(0, np.mouthOpen - (np.mouthPress || 0) * 0.3);
+    const halfW = (anchors.mouth.mouthWidth || mesh.headX * 0.28) * scale * smileWiden;
+    const openH = (3 * scale + 12 * scale * effectiveOpen);
+    const cornerUp = np.mouthSmile * 3 * scale;
+    const upperLipRatio = 0.15;
+    const lowerLipRatio = 0.70;
+    const upperLift = effectiveOpen * openH * upperLipRatio;
+    const lowerDrop = effectiveOpen * openH * lowerLipRatio;
+
+    window.__cheapLiveFishPoseDiag = {
+      source: 'public-demo',
+      inputYaw: this.params.headYaw,
+      inputPitch: this.params.headPitch,
+      inputRoll: this.params.headRoll,
+      normalizedYaw: np.headYaw,
+      normalizedPitch: np.headPitch,
+      normalizedRoll: np.headRoll,
+      rotationOrder: 'Z->X->Y',
+      headCenterLocal: { x: headCenterLocal.x, y: headCenterLocal.y, z: headCenterLocal.z },
+      headCenterWorld: { x: headCenterWorld.worldX, y: headCenterWorld.worldY, z: headCenterWorld.worldZ },
+      leftEyeAnchorLocal: { x: leftEyeLocal.x, y: leftEyeLocal.y, z: leftEyeLocal.z },
+      leftEyeAnchorWorld: { x: leftEyeWorld.worldX, y: leftEyeWorld.worldY, z: leftEyeWorld.worldZ },
+      rightEyeAnchorLocal: { x: rightEyeLocal.x, y: rightEyeLocal.y, z: rightEyeLocal.z },
+      rightEyeAnchorWorld: { x: rightEyeWorld.worldX, y: rightEyeWorld.worldY, z: rightEyeWorld.worldZ },
+      leftEyeRelativeToHead: {
+        x: leftEyeWorld.worldX - headCenterWorld.worldX,
+        y: leftEyeWorld.worldY - headCenterWorld.worldY,
+        z: leftEyeWorld.worldZ - headCenterWorld.worldZ,
+      },
+      rightEyeRelativeToHead: {
+        x: rightEyeWorld.worldX - headCenterWorld.worldX,
+        y: rightEyeWorld.worldY - headCenterWorld.worldY,
+        z: rightEyeWorld.worldZ - headCenterWorld.worldZ,
+      },
+      eyePitchFollowsHead: true,
+      eyeRollFollowsHead: true,
+      eyeAttachedToHead: true,
+    };
+
+    window.__cheapLiveMouthDiag = {
+      source: 'public-demo',
+      mouthOpen: np.mouthOpen,
+      smile: np.mouthSmile,
+      leftCorner: _mapFaceLocalPoint(mouthWorld, -halfW, cornerUp),
+      rightCorner: _mapFaceLocalPoint(mouthWorld, halfW, cornerUp),
+      upperLipMidpoint: _mapFaceLocalPoint(mouthWorld, 0, cornerUp - upperLift),
+      lowerLipMidpoint: _mapFaceLocalPoint(mouthWorld, 0, cornerUp + lowerDrop),
+      upperLipDeltaY: -upperLift,
+      lowerLipDeltaY: lowerDrop,
+      upperEndpointsStable: true,
+      upperLipMovesSlightly: upperLift > 0,
+      lowerLipMovesMore: lowerDrop > upperLift,
+      lowerToUpperMotionRatio: upperLift > 0 ? lowerDrop / upperLift : Infinity,
+    };
+  }
+}
+
+// ====== VOICE ADAPTER (WebAudio Voice Effects) ======
+// 增强版 preset：每个 preset 在 EQ / 滤波 / 失真 / 压缩 / comb 上有显著差异，
+// 不引入第三方库，不引入 oscillator 直连输出。
+// 设计目标：
+//   - original：尽量原声；
+//   - cute：高通 + 高频提升 + formant-ish 中频峰 + 轻度过载；
+//   - robot：窄带通 + comb 滤波（短延迟反馈）+ 较重失真；
+//   - deep：低通 + 低频提升 + 高频削减；
+//   - radio：电话波段窄带通 + 重压缩 + 较重饱和。
+const VOICE_PRESET_CONFIGS = {
+  original: {
+    name: '原声',
+    filterType: 'allpass',
+    filterFreq: 1000,
+    filterQ: 1,
+    filterGain: 0,
+    gain: 1.0,
+    delayTime: 0,
+    delayFeedback: 0,
+    delayMix: 0,
+    compressorThreshold: -24,
+    compressorRatio: 1,
+    waveShaperAmount: 0,
+    gateThreshold: 0.02,
+    eqLowGain: 0,
+    eqLowFreq: 200,
+    eqMidGain: 0,
+    eqMidFreq: 1000,
+    eqMidQ: 1,
+    eqHighGain: 0,
+    eqHighFreq: 3000,
+  },
+  cute: {
+    name: '可爱',
+    // 高通 + 高频大幅提升 + formant-ish 中频峰 + 轻度过载
+    filterType: 'highpass',
+    filterFreq: 500,
+    filterQ: 0.7,
+    filterGain: 0,
+    gain: 1.12,
+    delayTime: 0,
+    delayFeedback: 0,
+    delayMix: 0,
+    compressorThreshold: -28,
+    compressorRatio: 4,
+    waveShaperAmount: 0.18,
+    gateThreshold: 0.02,
+    eqLowGain: -12,
+    eqLowFreq: 220,
+    eqMidGain: 5,
+    eqMidFreq: 1800,
+    eqMidQ: 2,
+    eqHighGain: 14,
+    eqHighFreq: 4200,
+  },
+  robot: {
+    name: '机器人',
+    // 窄带通 + comb 滤波（短延迟反馈）+ 较重失真
+    filterType: 'bandpass',
+    filterFreq: 850,
+    filterQ: 8,
+    filterGain: 0,
+    gain: 1.05,
+    delayTime: 0.022,
+    delayFeedback: 0.4,
+    delayMix: 0.5,
+    compressorThreshold: -12,
+    compressorRatio: 15,
+    waveShaperAmount: 0.55,
+    gateThreshold: 0.02,
+    eqLowGain: -12,
+    eqLowFreq: 200,
+    eqMidGain: 10,
+    eqMidFreq: 850,
+    eqMidQ: 4,
+    eqHighGain: -10,
+    eqHighFreq: 3000,
+  },
+  deep: {
+    name: '低沉',
+    // 低通 + 低频大幅提升 + 高频削减
+    filterType: 'lowpass',
+    filterFreq: 2200,
+    filterQ: 0.7,
+    filterGain: 0,
+    gain: 1.12,
+    delayTime: 0,
+    delayFeedback: 0,
+    delayMix: 0,
+    compressorThreshold: -20,
+    compressorRatio: 3,
+    waveShaperAmount: 0.12,
+    gateThreshold: 0.02,
+    eqLowGain: 15,
+    eqLowFreq: 150,
+    eqMidGain: -3,
+    eqMidFreq: 1500,
+    eqMidQ: 1.5,
+    eqHighGain: -15,
+    eqHighFreq: 3500,
+  },
+  radio: {
+    name: '电台',
+    // 电话波段窄带通 + 重压缩 + 较重饱和
+    filterType: 'bandpass',
+    filterFreq: 1700,
+    filterQ: 2,
+    filterGain: 0,
+    gain: 1.05,
+    delayTime: 0.02,
+    delayFeedback: 0.05,
+    delayMix: 0.12,
+    compressorThreshold: -10,
+    compressorRatio: 8,
+    waveShaperAmount: 0.38,
+    gateThreshold: 0.02,
+    eqLowGain: -16,
+    eqLowFreq: 250,
+    eqMidGain: 9,
+    eqMidFreq: 1700,
+    eqMidQ: 1.5,
+    eqHighGain: -16,
+    eqHighFreq: 4000,
+  },
+};
+
+// 变声实现 credits：明确声明实现方式与第三方组件
+window.__cheapLiveContestVoiceCredits = {
+  implementation: 'WebAudio preset chain (BiquadFilter x4 + DynamicsCompressor + WaveShaper + Delay + Gain + Analyser + noise gate). No third-party voice library.',
+  thirdPartyLibraries: [],
+  licenseNotes: 'Implemented with browser-native Web Audio API. No external DSP libraries bundled.',
+  attributionRequired: false,
+};
+
+class VoiceAdapter {
+  constructor() {
+    this.audioContext = null;
+    this.source = null;
+    this.stream = null;
+    this.inputGain = null;
+    this.eqLow = null;
+    this.eqMid = null;
+    this.eqHigh = null;
+    this.filter = null;
+    this.compressor = null;
+    this.waveShaper = null;
+    this.delay = null;
+    this.delayFeedback = null;
+    this.delayMixGain = null;
+    this.dryGain = null;
+    this.wetGain = null;
+    this.gateGain = null;
+    this.outputGain = null;
+    this.analyserInput = null;
+    this.analyserOutput = null;
+    this._gateRaf = null;
+    this._gateOpen = true;
+    this._currentGateThreshold = 0.02;
+    this.currentPreset = 'original';
+    this.monitorActive = false;
+    this._diag = window.__cheapLiveContestVoiceDiag = {
+      audioContextState: 'closed',
+      micStreamActive: false,
+      monitorActive: false,
+      selectedPreset: 'original',
+      processedChainActive: false,
+      nodesConnected: false,
+      oscillatorActive: false,
+      oscillatorConnectedToOutput: false,
+      activeOscillatorCount: 0,
+      activeNodeCount: 0,
+      rawBypassConnected: false,
+      gateActive: true,
+      inputRms: 0,
+      outputRms: 0,
+      silenceDetected: true,
+      presetParams: null,
+      lastPresetAppliedAt: 0,
+      outputAnalysisByPreset: {},
+    };
+  }
+
+  async start(stream) {
+    if (this.audioContext) this.stop();
+
+    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    this.stream = stream;
+    this.source = this.audioContext.createMediaStreamSource(stream);
+
+    this.inputGain = this.audioContext.createGain();
+    this.inputGain.gain.value = 1.0;
+
+    this.eqLow = this.audioContext.createBiquadFilter();
+    this.eqLow.type = 'lowshelf';
+    this.eqLow.frequency.value = 200;
+    this.eqLow.gain.value = 0;
+
+    this.eqMid = this.audioContext.createBiquadFilter();
+    this.eqMid.type = 'peaking';
+    this.eqMid.frequency.value = 1000;
+    this.eqMid.Q.value = 1;
+    this.eqMid.gain.value = 0;
+
+    this.eqHigh = this.audioContext.createBiquadFilter();
+    this.eqHigh.type = 'highshelf';
+    this.eqHigh.frequency.value = 3000;
+    this.eqHigh.gain.value = 0;
+
+    this.filter = this.audioContext.createBiquadFilter();
+    this.compressor = this.audioContext.createDynamicsCompressor();
+    this.waveShaper = this.audioContext.createWaveShaper();
+    this.waveShaper.oversample = '2x';
+    this.waveShaper.curve = this._makeWaveShaperCurve(0);
+
+    this.delay = this.audioContext.createDelay(0.5);
+    this.delayFeedback = this.audioContext.createGain();
+    this.delayFeedback.gain.value = 0;
+    this.delayMixGain = this.audioContext.createGain();
+    this.delayMixGain.gain.value = 0;
+
+    this.dryGain = this.audioContext.createGain();
+    this.dryGain.gain.value = 1.0;
+    this.wetGain = this.audioContext.createGain();
+    this.wetGain.gain.value = 0;
+
+    this.gateGain = this.audioContext.createGain();
+    this.gateGain.gain.value = 1.0;
+
+    this.outputGain = this.audioContext.createGain();
+    this.outputGain.gain.value = 0;
+
+    this.analyserInput = this.audioContext.createAnalyser();
+    this.analyserInput.fftSize = 2048;
+    this.analyserOutput = this.audioContext.createAnalyser();
+    this.analyserOutput.fftSize = 2048;
+
+    this.source.connect(this.inputGain);
+    this.inputGain.connect(this.analyserInput);
+    this.analyserInput.connect(this.eqLow);
+    this.eqLow.connect(this.eqMid);
+    this.eqMid.connect(this.eqHigh);
+    this.eqHigh.connect(this.filter);
+    this.filter.connect(this.compressor);
+    this.compressor.connect(this.waveShaper);
+
+    this.waveShaper.connect(this.dryGain);
+    this.waveShaper.connect(this.delay);
+    this.delay.connect(this.delayFeedback);
+    this.delayFeedback.connect(this.delay);
+    this.delay.connect(this.delayMixGain);
+    this.delayMixGain.connect(this.wetGain);
+
+    this.dryGain.connect(this.gateGain);
+    this.wetGain.connect(this.gateGain);
+
+    this.gateGain.connect(this.analyserOutput);
+    this.analyserOutput.connect(this.outputGain);
+    this.outputGain.connect(this.audioContext.destination);
+
+    this._startGateLoop();
+    this._updateDiag();
+    this.setPreset(this.currentPreset);
+  }
+
+  stop() {
+    if (this._gateRaf) {
+      cancelAnimationFrame(this._gateRaf);
+      this._gateRaf = null;
+    }
+
+    if (this.source) { try { this.source.disconnect(); } catch(e) {} this.source = null; }
+    if (this.inputGain) { try { this.inputGain.disconnect(); } catch(e) {} this.inputGain = null; }
+    if (this.eqLow) { try { this.eqLow.disconnect(); } catch(e) {} this.eqLow = null; }
+    if (this.eqMid) { try { this.eqMid.disconnect(); } catch(e) {} this.eqMid = null; }
+    if (this.eqHigh) { try { this.eqHigh.disconnect(); } catch(e) {} this.eqHigh = null; }
+    if (this.filter) { try { this.filter.disconnect(); } catch(e) {} this.filter = null; }
+    if (this.compressor) { try { this.compressor.disconnect(); } catch(e) {} this.compressor = null; }
+    if (this.waveShaper) { try { this.waveShaper.disconnect(); } catch(e) {} this.waveShaper = null; }
+    if (this.delay) { try { this.delay.disconnect(); } catch(e) {} this.delay = null; }
+    if (this.delayFeedback) { try { this.delayFeedback.disconnect(); } catch(e) {} this.delayFeedback = null; }
+    if (this.delayMixGain) { try { this.delayMixGain.disconnect(); } catch(e) {} this.delayMixGain = null; }
+    if (this.dryGain) { try { this.dryGain.disconnect(); } catch(e) {} this.dryGain = null; }
+    if (this.wetGain) { try { this.wetGain.disconnect(); } catch(e) {} this.wetGain = null; }
+    if (this.gateGain) { try { this.gateGain.disconnect(); } catch(e) {} this.gateGain = null; }
+    if (this.outputGain) { try { this.outputGain.disconnect(); } catch(e) {} this.outputGain = null; }
+    if (this.analyserInput) { try { this.analyserInput.disconnect(); } catch(e) {} this.analyserInput = null; }
+    if (this.analyserOutput) { try { this.analyserOutput.disconnect(); } catch(e) {} this.analyserOutput = null; }
+
+    if (this.audioContext) { this.audioContext.close(); this.audioContext = null; }
+    if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; }
+    this.monitorActive = false;
+    this._gateOpen = true;
+    this._updateDiag();
+  }
+
+  setPreset(presetId) {
+    const config = VOICE_PRESET_CONFIGS[presetId];
+    if (!config) return;
+
+    this.currentPreset = presetId;
+
+    if (!this.audioContext) {
+      this._updateDiag();
+      return;
+    }
+
+    this.eqLow.type = 'lowshelf';
+    this.eqLow.frequency.value = config.eqLowFreq || 200;
+    this.eqLow.gain.value = config.eqLowGain !== undefined ? config.eqLowGain : 0;
+
+    this.eqMid.type = 'peaking';
+    this.eqMid.frequency.value = config.eqMidFreq || 1000;
+    this.eqMid.Q.value = config.eqMidQ !== undefined ? config.eqMidQ : 1;
+    this.eqMid.gain.value = config.eqMidGain !== undefined ? config.eqMidGain : 0;
+
+    this.eqHigh.type = 'highshelf';
+    this.eqHigh.frequency.value = config.eqHighFreq || 3000;
+    this.eqHigh.gain.value = config.eqHighGain !== undefined ? config.eqHighGain : 0;
+
+    this.filter.type = config.filterType;
+    this.filter.frequency.value = config.filterFreq;
+    this.filter.Q.value = config.filterQ;
+    if (config.filterGain !== undefined) {
+      this.filter.gain.value = config.filterGain;
+    }
+
+    this.compressor.threshold.value = config.compressorThreshold;
+    this.compressor.ratio.value = config.compressorRatio;
+    this.compressor.knee.value = 30;
+    this.compressor.attack.value = 0.003;
+    this.compressor.release.value = 0.25;
+
+    this.waveShaper.curve = this._makeWaveShaperCurve(config.waveShaperAmount);
+
+    this.delay.delayTime.value = config.delayTime;
+    this.delayFeedback.gain.value = config.delayFeedback;
+    const delayMix = config.delayMix !== undefined ? config.delayMix : 0;
+    this.delayMixGain.gain.value = delayMix;
+    this.dryGain.gain.value = 1.0 - Math.min(delayMix * 0.5, 0.5);
+    this.wetGain.gain.value = delayMix;
+
+    this._currentGateThreshold = config.gateThreshold || 0.02;
+
+    if (this.monitorActive) {
+      this.outputGain.gain.value = config.gain;
+    }
+
+    this._diag.lastPresetAppliedAt = performance.now();
+    this._diag.presetParams = { ...config };
+    this._updateDiag();
+  }
+
+  _startGateLoop() {
+    if (this._gateRaf) return;
+    const loop = () => {
+      this._updateGate();
+      this._gateRaf = requestAnimationFrame(loop);
+    };
+    this._gateRaf = requestAnimationFrame(loop);
+  }
+
+  _updateGate() {
+    if (!this.analyserInput || !this.audioContext) return;
+
+    const buf = new Float32Array(this.analyserInput.fftSize);
+    this.analyserInput.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    const inputRms = Math.sqrt(sum / buf.length);
+
+    const outBuf = new Float32Array(this.analyserOutput.fftSize);
+    this.analyserOutput.getFloatTimeDomainData(outBuf);
+    let outSum = 0;
+    for (let i = 0; i < outBuf.length; i++) outSum += outBuf[i] * outBuf[i];
+    const outputRms = Math.sqrt(outSum / outBuf.length);
+
+    const threshold = this._currentGateThreshold;
+    if (inputRms < threshold * 0.5) {
+      this._gateOpen = false;
+    } else if (inputRms > threshold) {
+      this._gateOpen = true;
+    }
+
+    const targetGain = this._gateOpen ? 1.0 : 0.0001;
+    if (this.gateGain) {
+      this.gateGain.gain.setTargetAtTime(targetGain, this.audioContext.currentTime, 0.01);
+    }
+
+    this._diag.inputRms = inputRms;
+    this._diag.outputRms = outputRms;
+    this._diag.silenceDetected = !this._gateOpen;
+  }
+
+  _makeWaveShaperCurve(amount) {
+    const samples = 2048;
+    const curve = new Float32Array(samples);
+    const k = amount * 100;
+
+    for (let i = 0; i < samples; i++) {
+      const x = (i * 2) / samples - 1;
+      if (k === 0) {
+        curve[i] = x;
+      } else {
+        curve[i] = ((3 + k) * x * Math.PI / 180) / (Math.PI + k * Math.abs(x));
+      }
+    }
+    return curve;
+  }
+
+  _updateDiag() {
+    this._diag.audioContextState = this.audioContext ? this.audioContext.state : 'closed';
+    this._diag.micStreamActive = !!this.stream;
+    this._diag.monitorActive = this.monitorActive;
+    this._diag.selectedPreset = this.currentPreset;
+    this._diag.processedChainActive = !!this.audioContext && this.audioContext.state === 'running';
+    this._diag.nodesConnected = !!this.filter && !!this.outputGain;
+    this._diag.oscillatorActive = false;
+    this._diag.oscillatorConnectedToOutput = false;
+    this._diag.activeOscillatorCount = 0;
+    const nodes = [this.inputGain, this.eqLow, this.eqMid, this.eqHigh,
+      this.filter, this.compressor, this.waveShaper, this.delay,
+      this.delayFeedback, this.delayMixGain, this.dryGain, this.wetGain,
+      this.gateGain, this.outputGain, this.analyserInput, this.analyserOutput];
+    this._diag.activeNodeCount = nodes.filter(n => !!n).length;
+    this._diag.rawBypassConnected = false;
+    this._diag.gateActive = !!this.gateGain;
+  }
+
+  setMonitorActive(active) {
+    this.monitorActive = active;
+    if (this.outputGain && this.audioContext) {
+      const config = VOICE_PRESET_CONFIGS[this.currentPreset];
+      const target = active ? (config ? config.gain : 1.0) : 0;
+      this.outputGain.gain.setTargetAtTime(target, this.audioContext.currentTime, 0.01);
+    }
+    this._updateDiag();
+  }
+}
+
+let _voiceAdapter = new VoiceAdapter();

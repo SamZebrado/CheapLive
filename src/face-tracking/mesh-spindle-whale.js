@@ -358,6 +358,7 @@ export function createSpindleMesh(options = {}) {
       isTop: true, isBottom: false, faceWeight: 0, isHead: false,
     };
 
+    // 尾鳍主面（Y-Z 平面，doubleSided 保证正反两面都渲染）
     vertices.push(vBase, vTop, vBottom, vTip);
     const iBase = flukeStartIdx + 0;
     const iTop = flukeStartIdx + 1;
@@ -487,30 +488,21 @@ function crossVec3(a, b) {
 }
 
 export function computeFaceAnchorXYZ(mesh, _, horizOffset, vertOffset, depthOffset = 0.5) {
-  const hx = mesh.headX, hy = mesh.headY;
-  const headZ = mesh.headZ;
-  const bodyLen = mesh.bodyLength;
-  const zCenter = headZ - SPHERE_END * (headZ + bodyLen);
-  const zRadius = SPHERE_END * (headZ + bodyLen);
-
+  const hx = mesh.headX, hy = mesh.headY, hz = mesh.headZ;
   const x = horizOffset;
   const y = vertOffset;
   const invHx2 = 1 / (hx * hx);
   const invHy2 = 1 / (hy * hy);
-  const invZr2 = 1 / (zRadius * zRadius);
+  const invHz2 = 1 / (hz * hz);
   const inside = 1 - x * x * invHx2 - y * y * invHy2;
-  const zSurface = zCenter + zRadius * Math.sqrt(Math.max(0.02, inside));
+  const zSurface = hz * Math.sqrt(Math.max(0.02, inside));
+  const z = zSurface + depthOffset;
 
-  // 椭球表面法线：(x/hx², y/hy², (z-zCenter)/zRadius²)
-  const n = normalizeVec3(x * invHx2, y * invHy2, (zSurface - zCenter) * invZr2, { x: 0, y: 0, z: 1 });
+  // 椭球表面法线：(x/hx², y/hy², z/hz²)
+  const n = normalizeVec3(x * invHx2, y * invHy2, zSurface * invHz2, { x: 0, y: 0, z: 1 });
 
-  // 沿法线方向偏移 depthOffset
-  const px = x + n.x * depthOffset;
-  const py = y + n.y * depthOffset;
-  const pz = zSurface + n.z * depthOffset;
-
-  // 稳定的水平切向量：((z-zCenter)/zRadius², 0, -x/hx²)，与椭球梯度点积为零，无除法
-  let t = normalizeVec3((zSurface - zCenter) * invZr2, 0, -x * invHx2, { x: 1, y: 0, z: 0 });
+  // 稳定的水平切向量：(z/hz², 0, -x/hx²)，与椭球梯度点积为零，无除法
+  let t = normalizeVec3(zSurface * invHz2, 0, -x * invHx2, { x: 1, y: 0, z: 0 });
 
   // 下方向：n × t
   const rawB = crossVec3(n, t);
@@ -525,7 +517,7 @@ export function computeFaceAnchorXYZ(mesh, _, horizOffset, vertOffset, depthOffs
   b = normalizeVec3(rawB2.x, rawB2.y, rawB2.z, { x: 0, y: 1, z: 0 });
 
   return {
-    x: px, y: py, z: pz,
+    x, y, z,
     nx: n.x, ny: n.y, nz: n.z,
     tx: t.x, ty: t.y, tz: t.z,
     bx: b.x, by: b.y, bz: b.z,
@@ -650,7 +642,7 @@ export function createWhaleTailMesh(options = {}) {
 
 // -------------------- 变形与旋转 --------------------
 
-const BEND_COEF_YAW = 0.60;
+const BEND_COEF_YAW = 0.80;
 const BEND_COEF_PITCH = 0.60;
 
 /**

@@ -1,0 +1,2535 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CheapLive Receiver</title>
+<style>
+  :root {
+    --bg-primary: #0a0e1a;
+    --bg-card: #1a2236;
+    --border-color: #2a3654;
+    --text-primary: #e8edf5;
+    --text-secondary: #8896b3;
+    --text-muted: #5a6a85;
+    --color-accent: #4fc3f7;
+    --color-accent2: #69db7c;
+    --color-warning: #ffd43b;
+    --color-danger: #ff6b6b;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+    min-height: 100vh;
+  }
+  .container { max-width: 800px; margin: 0 auto; padding: 16px; }
+
+  .hero {
+    background: linear-gradient(135deg, #0a0e1a 0%, #111827 100%);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+  .hero h1 { font-size: 18px; margin-bottom: 4px; }
+  .hero h1 span { color: var(--color-accent); }
+  .hero-sub { color: var(--text-secondary); font-size: 12px; }
+
+  .stage-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  #stage {
+    display: block;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 600px;
+    height: 320px;
+    background: #11111f;
+    border-radius: var(--radius-sm);
+  }
+  .stage-overlay {
+    text-align: center;
+    padding: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .stage-overlay.simulated { color: var(--color-warning); }
+  .stage-overlay.real { color: var(--color-accent2); }
+
+  .status-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .status-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+  .status-item .label {
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 2px;
+  }
+  .status-item .value {
+    color: var(--text-primary);
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+  }
+  .status-item .value.on { color: var(--color-accent2); }
+  .status-item .value.off { color: var(--text-muted); }
+  .status-item .value.warn { color: var(--color-warning); }
+
+  .badge {
+    display: inline-block;
+    font-size: 9px; font-weight: 600;
+    padding: 2px 6px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .badge.simulated { background: rgba(255,212,59,0.12); border: 1px solid rgba(255,212,59,0.3); color: var(--color-warning); }
+  .badge.real { background: rgba(105,219,124,0.12); border: 1px solid rgba(105,219,124,0.3); color: var(--color-accent2); }
+  .badge.connected { background: rgba(79,195,247,0.12); border: 1px solid rgba(79,195,247,0.3); color: var(--color-accent); }
+  .badge.disconnected { background: rgba(255,107,107,0.12); border: 1px solid rgba(255,107,107,0.3); color: var(--color-danger); }
+
+  .actions {
+    display: flex; gap: 8px; margin-bottom: 12px;
+  }
+  button {
+    padding: 8px 16px; border: 1px solid var(--border-color);
+    background: rgba(255,255,255,0.04); color: var(--text-secondary);
+    border-radius: var(--radius-sm); cursor: pointer; font-size: 12px;
+    flex: 1; transition: all 0.15s;
+  }
+  button:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+  button.primary { background: rgba(79,195,247,0.15); border-color: rgba(79,195,247,0.4); color: var(--color-accent); }
+  button.active { background: rgba(105,219,124,0.15); border-color: rgba(105,219,124,0.4); color: var(--color-accent2); }
+  button.small { padding: 6px 10px; font-size: 11px; flex: none; }
+
+  .control-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .control-section {
+    margin-bottom: 10px;
+  }
+  .control-section:last-child { margin-bottom: 0; }
+  .control-section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .control-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .control-row:last-child { margin-bottom: 0; }
+  .control-row button { flex: 1; min-width: 80px; }
+
+  .preset-row { display: flex; gap: 4px; flex-wrap: wrap; }
+  .preset-row button { flex: 1; min-width: 50px; padding: 6px 4px; font-size: 10px; }
+
+  .sensitivity-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+  .sensitivity-row .sensitivity-label {
+    color: var(--text-muted);
+    min-width: 60px;
+    font-size: 10px;
+  }
+  .sensitivity-row .sensitivity-slider {
+    flex: 1;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: rgba(255,255,255,0.08);
+    border-radius: 2px;
+    outline: none;
+  }
+  .sensitivity-row .sensitivity-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    cursor: pointer;
+  }
+  .sensitivity-row .sensitivity-value {
+    color: var(--text-primary);
+    font-family: 'SF Mono', monospace;
+    min-width: 36px;
+    text-align: right;
+    font-size: 10px;
+  }
+
+  /* 应用模式 */
+  html,
+  body.app-mode,
+  body.app-mode .container,
+  body.app-mode .stage-card,
+  body.app-mode #stage {
+    background: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+  }
+  body.app-mode .container { max-width: 100%; padding: 0; }
+  body.app-mode .hero,
+  body.app-mode .status-grid,
+  body.app-mode .actions,
+  body.app-mode .control-panel,
+  body.app-mode .log-panel,
+  body.app-mode .stage-overlay { display: none !important; }
+  body.app-mode .stage-card {
+    border: none;
+    padding: 0;
+    margin: 0;
+    border-radius: 0;
+  }
+  body.app-mode #stage {
+    width: 100vw;
+    height: 100vh;
+    max-width: 100%;
+    border-radius: 0;
+  }
+  .app-mode-exit {
+    display: none;
+  }
+  body.app-mode .app-mode-exit { display: block; }
+
+  .log-panel {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    font-family: 'SF Mono', monospace;
+    font-size: 10px; color: var(--text-muted);
+    max-height: 120px; overflow-y: auto;
+    line-height: 1.6;
+  }
+  .log-entry { padding: 1px 0; }
+  .log-entry.info { color: var(--text-secondary); }
+  .log-entry.success { color: var(--color-accent2); }
+  .log-entry.warn { color: var(--color-warning); }
+  .log-entry.error { color: var(--color-danger); }
+  .log-entry.remote { color: var(--color-accent); }
+
+  /* ===== Showcase Mode ===== */
+  body.showcase {
+    background: radial-gradient(ellipse at center top, #0f1628 0%, #070a14 100%);
+  }
+  body.showcase .container {
+    max-width: 100%;
+    padding: 0;
+  }
+  body.showcase .hero {
+    display: none;
+  }
+  body.showcase .stage-card {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    margin-bottom: 0;
+  }
+  body.showcase #stage {
+    max-width: 100%;
+    width: 100vw;
+    height: 82vh;
+    background: transparent;
+    border-radius: 0;
+  }
+  body.showcase .stage-overlay {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  body.showcase .status-grid,
+  body.showcase .actions,
+  body.showcase .log-panel {
+    display: none;
+  }
+  body.showcase .showcase-statusbar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 8px 20px;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: rgba(0,0,0,0.4);
+    border-top: 1px solid rgba(255,255,255,0.06);
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    backdrop-filter: blur(8px);
+  }
+  body.showcase .showcase-statusbar .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  body.showcase .showcase-statusbar .dot.on { background: var(--color-accent2); }
+  body.showcase .showcase-statusbar .dot.off { background: var(--text-muted); }
+  body.showcase .showcase-avatarname {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    opacity: 0.75;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    pointer-events: none;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+  }
+  body:not(.showcase) .showcase-statusbar,
+  body:not(.showcase) .showcase-avatarname {
+    display: none;
+  }
+
+  /* ===== Public/Clean Capture Mode ===== */
+  body.public .showcase-statusbar,
+  body.public .showcase-avatarname,
+  body.public .stage-overlay {
+    display: none !important;
+  }
+  body.public #stage {
+    height: 100vh;
+  }
+
+  /* ===== 面捕个体化设置 ===== */
+  .ft-calib-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .ft-calib-status { font-family: 'SF Mono', monospace; font-size: 11px; color: var(--text-muted); }
+  .ft-calib-status.active { color: var(--color-warning); }
+  .ft-calib-status.done { color: var(--color-accent2); }
+  .ft-calib-status.error { color: var(--color-danger); }
+  .ft-sync-row { margin: 4px 0 8px 0; }
+  .ft-sync-status { font-size: 10px; color: var(--text-muted); font-family: 'SF Mono', monospace; }
+  .ft-sync-status.syncing { color: var(--color-warning); }
+  .ft-sync-status.synced { color: var(--color-accent2); }
+  .ft-sync-status.error { color: var(--color-danger); }
+  .ft-btn { padding: 6px 12px; background: rgba(79,195,247,0.12); color: var(--color-accent); border: 1px solid rgba(79,195,247,0.4); border-radius: var(--radius-sm); font-size: 12px; cursor: pointer; }
+  .ft-btn:active { background: rgba(79,195,247,0.25); }
+  .ft-btn.stop { background: rgba(255,107,107,0.12); color: var(--color-danger); border-color: rgba(255,107,107,0.4); }
+  .ft-btn.reset { background: rgba(255,212,59,0.1); color: var(--color-warning); border-color: rgba(255,212,59,0.3); }
+  .ft-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ft-collapsible { margin: 8px 0; border: 1px solid var(--border-color); border-radius: var(--radius-sm); overflow: hidden; }
+  .ft-collapsible-header { padding: 6px 10px; background: rgba(0,0,0,0.3); cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-secondary); }
+  .ft-collapsible-header:hover { background: rgba(255,255,255,0.04); }
+  .ft-collapsible-header .ft-arrow { transition: transform 0.15s; }
+  .ft-collapsible-header.expanded .ft-arrow { transform: rotate(90deg); }
+  .ft-collapsible-body { padding: 8px 10px; display: none; }
+  .ft-collapsible-body.expanded { display: block; }
+  .ft-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 11px; }
+  .ft-label { min-width: 90px; color: var(--text-muted); font-size: 11px; }
+  .ft-slider { flex: 1; height: 4px; -webkit-appearance: none; appearance: none; background: rgba(255,255,255,0.08); border-radius: 2px; outline: none; }
+  .ft-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--color-accent); cursor: pointer; }
+  .ft-value { min-width: 44px; text-align: right; font-family: 'SF Mono', monospace; font-size: 11px; color: var(--color-accent); }
+  .ft-divider { height: 1px; background: var(--border-color); margin: 8px 0; }
+  .ft-subsection-title { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 6px 0 4px 0; }
+</style>
+</head>
+<body>
+<div class="showcase-avatarname" id="showcaseAvatarName">3D SACABAMBASPIS</div>
+
+<div class="container">
+  <div class="hero">
+    <h1>CheapLive <span>Receiver</span></h1>
+    <p class="hero-sub" id="hostInfo">—</p>
+  </div>
+
+  <div class="stage-card">
+    <canvas id="stage"></canvas>
+    <div class="stage-overlay" id="stageOverlay">初始化中...</div>
+  </div>
+
+  <div class="status-grid">
+    <div class="status-item">
+      <div class="label">Connection</div>
+      <div class="value" id="connStatus">—</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Avatar</div>
+      <div class="value" id="avatarStatus">—</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Expression / Action</div>
+      <div class="value" id="exprStatus">—</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Face Capture</div>
+      <div class="value off" id="faceCapStatus">OFF</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Voice Preset</div>
+      <div class="value" id="voicePresetStatus">original</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Audio</div>
+      <div class="value off" id="audioStatus">TAP TO ENABLE</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Audio Chunks</div>
+      <div class="value" id="audioChunkStatus">0</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Subtitle</div>
+      <div class="value off" id="subtitleStatus">OFF</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Frame Count</div>
+      <div class="value" id="frameCountStatus">0</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Latency</div>
+      <div class="value" id="latencyStatus">— ms</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Last Command</div>
+      <div class="value" id="lastCmdStatus">—</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Capture Mode</div>
+      <div class="value" id="captureModeStatus">simulated</div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="primary" id="enableAudioBtn">打开音频</button>
+    <button class="primary" id="reconnect">重连 WebSocket</button>
+    <button id="refreshStatus">刷新状态</button>
+  </div>
+
+  <div class="control-panel" id="controlPanel">
+    <div class="control-section">
+      <div class="control-section-title">Display</div>
+      <div class="control-row">
+        <button id="toggleAppModeBtn" class="small">进入应用模式</button>
+        <button id="toggleMirrorBtn" class="small active">镜像 ON</button>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">Face Capture</div>
+      <div class="control-row">
+        <button id="startFaceBtn" class="small">启动面捕</button>
+        <button id="stopFaceBtn" class="small">停止面捕</button>
+      </div>
+      <div class="control-row">
+        <button id="togglePosBtn" class="small">位置追踪 OFF</button>
+        <button id="toggleBlinkBtn" class="small active">眨眼 ON</button>
+        <button id="togglePupilBtn" class="small active">瞳孔 ON</button>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">Test Expression (模拟表情测试)</div>
+      <div class="control-row">
+        <button data-expr="blink" class="expr-btn small">眨眼</button>
+        <button data-expr="smile" class="expr-btn small">微笑</button>
+        <button data-expr="mouth" class="expr-btn small">张嘴</button>
+        <button data-expr="wide" class="expr-btn small">睁大</button>
+        <button data-expr="halfblink" class="expr-btn small">半眨</button>
+        <button data-expr="brow_raise" class="expr-btn small">扬眉</button>
+        <button data-expr="" class="expr-btn small">重置表情</button>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">Test Head Pose (模拟姿态测试)</div>
+      <div class="control-row">
+        <button data-expr="look_left" class="expr-btn small">← 向左看</button>
+        <button data-expr="look_right" class="expr-btn small">向右看 →</button>
+        <button data-expr="look_up" class="expr-btn small">↑ 抬头</button>
+        <button data-expr="head_left" class="expr-btn small">↺ 左倾</button>
+        <button data-expr="head_right" class="expr-btn small">↻ 右倾</button>
+        <button data-expr="" class="expr-btn small">姿势归零</button>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">Test Action (模拟动作测试)</div>
+      <div class="control-row">
+        <button data-action="" class="action-btn small active">无动作</button>
+        <button data-action="nod" class="action-btn small">点头</button>
+        <button data-action="look" class="action-btn small">张望</button>
+        <button data-action="bounce" class="action-btn small">弹跳</button>
+        <button data-action="tail" class="action-btn small">摆尾</button>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">面捕个体化设置（远程控制 Capture App）</div>
+      <div class="ft-calib-row">
+        <button id="ftCalibBtn" class="ft-btn" onclick="toggleCalibration()">开始 3 秒中性校准</button>
+        <span id="ftCalibStatus" class="ft-calib-status">未校准</span>
+      </div>
+      <div class="ft-sync-row">
+        <span id="ftSyncStatus" class="ft-sync-status">—</span>
+      </div>
+      <div class="ft-collapsible">
+        <div class="ft-collapsible-header" id="ftBasicHeader" onclick="toggleFtSection('ftBasicBody', 'ftBasicHeader')">
+          <span>👁️ 基础设置（眼睛）</span><span class="ft-arrow">▶</span>
+        </div>
+        <div class="ft-collapsible-body" id="ftBasicBody">
+          <div class="ft-subsection-title">左眼</div>
+          <div class="ft-row">
+            <span class="ft-label">灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.eyeLeft" />
+            <span class="ft-value" data-ftdisplay="scale.eyeLeft">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">偏移</span>
+            <input type="range" class="ft-slider" min="-0.3" max="0.3" step="0.01" data-ftkey="offset.eyeLeft" />
+            <span class="ft-value" data-ftdisplay="offset.eyeLeft">0.00</span>
+          </div>
+          <div class="ft-subsection-title">右眼</div>
+          <div class="ft-row">
+            <span class="ft-label">灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.eyeRight" />
+            <span class="ft-value" data-ftdisplay="scale.eyeRight">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">偏移</span>
+            <input type="range" class="ft-slider" min="-0.3" max="0.3" step="0.01" data-ftkey="offset.eyeRight" />
+            <span class="ft-value" data-ftdisplay="offset.eyeRight">0.00</span>
+          </div>
+        </div>
+      </div>
+      <div class="ft-collapsible">
+        <div class="ft-collapsible-header" id="ftAdvancedHeader" onclick="toggleFtSection('ftAdvancedBody', 'ftAdvancedHeader')">
+          <span>⚙️ 高级设置（嘴/头/位置）</span><span class="ft-arrow">▶</span>
+        </div>
+        <div class="ft-collapsible-body" id="ftAdvancedBody">
+          <div class="ft-subsection-title">嘴巴</div>
+          <div class="ft-row">
+            <span class="ft-label">张嘴灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.mouthOpen" />
+            <span class="ft-value" data-ftdisplay="scale.mouthOpen">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">张嘴偏移</span>
+            <input type="range" class="ft-slider" min="-0.3" max="0.3" step="0.01" data-ftkey="offset.mouthOpen" />
+            <span class="ft-value" data-ftdisplay="offset.mouthOpen">0.00</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">微笑灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.mouthSmile" />
+            <span class="ft-value" data-ftdisplay="scale.mouthSmile">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">微笑偏移</span>
+            <input type="range" class="ft-slider" min="-0.3" max="0.3" step="0.01" data-ftkey="offset.mouthSmile" />
+            <span class="ft-value" data-ftdisplay="offset.mouthSmile">0.00</span>
+          </div>
+          <div class="ft-subsection-title">头部姿态</div>
+          <div class="ft-row">
+            <span class="ft-label">Yaw 灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.headYaw" />
+            <span class="ft-value" data-ftdisplay="scale.headYaw">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Yaw 偏移</span>
+            <input type="range" class="ft-slider" min="-30" max="30" step="1" data-ftkey="offset.headYaw" />
+            <span class="ft-value" data-ftdisplay="offset.headYaw">0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Pitch 灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.headPitch" />
+            <span class="ft-value" data-ftdisplay="scale.headPitch">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Pitch 偏移</span>
+            <input type="range" class="ft-slider" min="-30" max="30" step="1" data-ftkey="offset.headPitch" />
+            <span class="ft-value" data-ftdisplay="offset.headPitch">0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Roll 灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.headRoll" />
+            <span class="ft-value" data-ftdisplay="scale.headRoll">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Roll 偏移</span>
+            <input type="range" class="ft-slider" min="-30" max="30" step="1" data-ftkey="offset.headRoll" />
+            <span class="ft-value" data-ftdisplay="offset.headRoll">0</span>
+          </div>
+          <div class="ft-subsection-title">位置</div>
+          <div class="ft-row">
+            <span class="ft-label">X 灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.positionX" />
+            <span class="ft-value" data-ftdisplay="scale.positionX">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">X 偏移</span>
+            <input type="range" class="ft-slider" min="-0.3" max="0.3" step="0.01" data-ftkey="offset.positionX" />
+            <span class="ft-value" data-ftdisplay="offset.positionX">0.00</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Y 灵敏度</span>
+            <input type="range" class="ft-slider" min="0.1" max="5" step="0.1" data-ftkey="scale.positionY" />
+            <span class="ft-value" data-ftdisplay="scale.positionY">1.0</span>
+          </div>
+          <div class="ft-row">
+            <span class="ft-label">Y 偏移</span>
+            <input type="range" class="ft-slider" min="-0.3" max="0.3" step="0.01" data-ftkey="offset.positionY" />
+            <span class="ft-value" data-ftdisplay="offset.positionY">0.00</span>
+          </div>
+          <div class="ft-divider"></div>
+          <div class="ft-row">
+            <button class="ft-btn reset" onclick="resetConfig(true)">重置参数（保留校准）</button>
+            <button class="ft-btn reset" onclick="resetConfig(false)">全部重置</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">Voice Preset</div>
+      <div class="preset-row">
+        <button data-preset="original" class="preset-btn small active">original</button>
+        <button data-preset="cute" class="preset-btn small">cute</button>
+        <button data-preset="robot" class="preset-btn small">robot</button>
+        <button data-preset="deep" class="preset-btn small">deep</button>
+        <button data-preset="radio" class="preset-btn small">radio</button>
+      </div>
+    </div>
+    <div class="control-section">
+      <div class="control-section-title">Avatar</div>
+      <div class="preset-row">
+        <button data-avatar="sacabambaspis3d" class="avatar-btn small active">fish3d</button>
+        <button data-avatar="sacabambaspis" class="avatar-btn small">fish</button>
+        <button data-avatar="cat" class="avatar-btn small">cat</button>
+        <button data-avatar="dog" class="avatar-btn small">dog</button>
+      </div>
+    </div>
+  </div>
+
+  <button class="app-mode-exit" id="appModeExitBtn">退出应用模式</button>
+
+  <div class="log-panel" id="logPanel">
+    <div class="log-entry info">Receiver 初始化中...</div>
+  </div>
+</div>
+
+<div class="showcase-statusbar" id="showcaseStatusbar">
+  <span><span class="dot off" id="scConnDot"></span><span id="scConnText">Disconnected</span></span>
+  <span>·</span>
+  <span id="scAvatarText">3D 萨卡班甲鱼</span>
+  <span>·</span>
+  <span><span class="dot off" id="scFaceDot"></span><span id="scFaceText">Face Capture OFF</span></span>
+</div>
+
+<script type="module">
+  import { ProceduralSphereAvatar, ProceduralSpindleWhaleAvatar } from './procedural-mesh-renderer.js?v=receiver-transparent-1';
+  import { ProceduralQuadrupedAvatar } from './quadruped-renderer.js?v=receiver-transparent-1';
+
+  window._ProceduralSphereAvatar = ProceduralSphereAvatar;
+  window._ProceduralSpindleWhaleAvatar = ProceduralSpindleWhaleAvatar;
+  window._ProceduralQuadrupedAvatar = ProceduralQuadrupedAvatar;
+  window._rendererReady = true;
+
+  if (window._onRendererReady) window._onRendererReady();
+</script>
+<script>
+(function() {
+  'use strict';
+
+  // ===== 全局错误捕获 =====
+  window.onerror = function(msg, url, line, col, error) {
+    try {
+      var errMsg = '错误: ' + msg + ' (' + line + ':' + col + ')';
+      if (error && error.stack) errMsg += '\n' + error.stack;
+      var entry = document.createElement('div');
+      entry.className = 'log-entry error';
+      entry.textContent = '[ERR] ' + msg;
+      var panel = document.getElementById('logPanel');
+      if (panel) {
+        panel.appendChild(entry);
+        panel.scrollTop = panel.scrollHeight;
+      }
+      console.error(errMsg);
+    } catch (e) {}
+    return false;
+  };
+
+  // ===== DOM =====
+  var stage = document.getElementById('stage');
+  var ctx = stage ? stage.getContext('2d') : null;
+  var stageOverlay = document.getElementById('stageOverlay');
+  var logPanel = document.getElementById('logPanel');
+
+  // ===== Helpers =====
+  function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+  // ===== State =====
+  var appState = {
+    serverRunning: false,
+    faceCaptureEnabled: false,
+    voiceChangerEnabled: false,
+    voicePreset: 'original',
+    captureMode: 'simulated',
+    subtitleEnabled: false,
+    viewerConnected: false,
+    frameCount: 0,
+    latencyMs: 0,
+    lastCommand: '',
+    lastError: '',
+    avatar: 'sacabambaspis3d',
+    avatarExpression: '',
+    avatarAction: '',
+    aiVoiceStatus: 'real_app_only',
+    webVoiceStatus: 'available',
+    voicePermission: 'not_requested',
+    headPositionTrackingEnabled: false,
+    blinkTrackingEnabled: true,
+    pupilTrackingEnabled: true,
+    poseCaptureEnabled: false,
+    poseCaptureStatus: 'off',
+    poseMode: 'simulated',
+    bodyPose: 'idle',
+    poseQuality: 'none',
+    poseLandmarkCount: 0,
+    poseLastUpdatedAt: 0,
+    poseError: '',
+    // 接收端本地控制选项（不依赖服务器）
+    mirrorEnabled: true,
+    sensitivity: {
+      eye: 1.0,
+      mouth: 1.0,
+      smile: 1.0,
+      brow: 1.0,
+      head: 1.0
+    },
+    // 面捕个体化配置（从 Capture App 同步；旧 sensitivity 字段保留兼容但不再驱动渲染）
+    faceTrackingConfig: null,
+    calibrationInProgress: false,
+    calibrationSampleCount: 0,
+    calibrationTargetSamples: 30,
+    calibrationLastError: ''
+  };
+
+  // WebSocket face frame data (from real capture)
+  var faceFrame = null;
+  var lastFrameSeq = -1;
+  var lastFrameTime = 0;
+  var hasRealFrame = false;
+  var lastFrameSource = null;
+  var localFrameCount = 0;
+  var lastAppliedSeq = -1;
+  var lastAppliedSource = null;
+
+  // 位置追踪平滑
+  var smoothPosX = 0.5;
+  var smoothPosY = 0.5;
+  var targetPosX = 0.5;
+  var targetPosY = 0.5;
+
+  // Diagnostic object for testing
+  window.__cheapLiveReceiverDiag = {
+    connected: false,
+    lastFrameSeq: 0,
+    lastFrameSource: null,
+    lastAppliedSeq: 0,
+    lastAppliedSource: null,
+    lastAppliedValues: {
+      eyeLeft: null,
+      eyeRight: null,
+      mouthOpen: null,
+      headYaw: null,
+      mouthSmile: null
+    },
+    rendererKey: null,
+    rendererFile: null,
+    rendererReady: false,
+    rendererParams: null,
+    simulationEnabled: true,
+    idleActive: null,
+    realFrameActive: null,
+    captureMode: null,
+    frameCount: 0,
+    latencyMs: null,
+    positionTracking: {
+      enabled: false,
+      rawFaceX: 0,
+      rawFaceY: 0,
+      appliedX: 0.5,
+      appliedY: 0.5
+    }
+  };
+
+  // WebSocket
+  var ws = null;
+  var wsRetryCount = 0;
+  var wsMaxRetries = 20;
+  var wsReconnectMs = 1000;
+
+  // SSE
+  var eventSource = null;
+  var useSSE = false;
+  var pollTimer = null;
+
+  // Animation
+  var animTime = 0;
+
+  // Token & Mode Detection
+  var query = new URLSearchParams(location.search);
+  var token = query.get('token') || '';
+  var publicMode = query.get('public') === '1';
+  var showcaseMode = query.get('showcase') === '1';
+
+  // Public/Clean Capture Mode (also enables showcase layout)
+  if (publicMode) {
+    document.body.classList.add('public');
+    if (!showcaseMode) { document.body.classList.add('showcase'); }
+  }
+
+  // Showcase Mode
+  if (showcaseMode) {
+    document.body.classList.add('showcase');
+  }
+
+  // 3D Procedural Renderer
+  var procRenderer = null;
+  var rendererReady = false;
+
+  // ===== Logging =====
+  function log(msg, level) {
+    level = level || 'info';
+    var entry = document.createElement('div');
+    entry.className = 'log-entry ' + level;
+    var now = new Date();
+    var ts = String(now.getHours()).padStart(2,'0') + ':' +
+             String(now.getMinutes()).padStart(2,'0') + ':' +
+             String(now.getSeconds()).padStart(2,'0');
+    entry.textContent = '[' + ts + '] ' + msg;
+    logPanel.appendChild(entry);
+    logPanel.scrollTop = logPanel.scrollHeight;
+    while (logPanel.children.length > 50) logPanel.removeChild(logPanel.firstChild);
+  }
+
+  // ===== Canvas resize =====
+  function resize() {
+    if (!stage) return;
+    var w = stage.clientWidth || 600;
+    var h = 320;
+    stage.width = Math.min(600, w);
+    stage.height = h;
+    if (ctx && stage.width > 0 && stage.height > 0) {
+      ctx.fillStyle = '#11111f';
+      ctx.fillRect(0, 0, stage.width, stage.height);
+    }
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ===== Avatar rendering =====
+  var AVATAR_COLORS = {
+    sacabambaspis: { body: '#e4e1d3', dark: '#8a8778', accent: '#c4c0b0', spot: '#8b7355' },
+    sacabambaspis3d: { body: '#6b7048', dark: '#4a4d30', accent: '#a8a070', spot: '#8b8b6b' },
+    cat: { body: '#f0d090', dark: '#c0a060', accent: '#e0b070', spot: '#c0a060' },
+    dog: { body: '#c8a070', dark: '#9a7050', accent: '#b89060', spot: '#9a7050' },
+    rabbit: { body: '#f5f5f5', dark: '#c0c0c0', accent: '#e0e0e0', spot: '#d0d0d0' },
+    fox: { body: '#e88040', dark: '#b05020', accent: '#d07030', spot: '#e88040' },
+    bear: { body: '#a07050', dark: '#704830', accent: '#906040', spot: '#704830' }
+  };
+
+  function getAvatarColors(name) {
+    return AVATAR_COLORS[name] || AVATAR_COLORS.sacabambaspis;
+  }
+
+  // 初始化 3D 渲染器
+  var currentRendererAvatar = null;
+  var currentRendererType = null;
+  var QUADRUPED_AVATARS = ['cat', 'dog', 'rabbit', 'fox', 'bear'];
+  function initProcRenderer(avatarName) {
+    var isQuadruped = QUADRUPED_AVATARS.indexOf(avatarName) !== -1;
+    var hasQuadruped = !!window._ProceduralQuadrupedAvatar;
+    var hasSphere = !!window._ProceduralSphereAvatar;
+    var hasWhale = !!window._ProceduralSpindleWhaleAvatar;
+
+    if (isQuadruped && !hasQuadruped) {
+      log('四足动物渲染器类不存在', 'warn');
+      return false;
+    }
+    var isWhale = (avatarName === 'sacabambaspis' || avatarName === 'sacabambaspis3d');
+    if (isWhale && !hasWhale) {
+      log('纺锤体渲染器类不存在', 'warn');
+      return false;
+    }
+    if (!isQuadruped && !isWhale && !hasSphere) {
+      log('球体渲染器类不存在', 'warn');
+      return false;
+    }
+    if (currentRendererAvatar === avatarName && procRenderer) return true;
+
+    try {
+      if (procRenderer) {
+        if (typeof procRenderer.stop === 'function') {
+          try { procRenderer.stop(); } catch (e) {}
+        }
+        if (typeof procRenderer.destroy === 'function') {
+          try { procRenderer.destroy(); } catch (e) {}
+        }
+      }
+      procRenderer = null;
+      rendererReady = false;
+      currentRendererType = null;
+      currentRendererAvatar = null;
+
+      var canvas = document.getElementById('stage');
+      if (canvas) {
+        var ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+
+      if (isQuadruped) {
+        procRenderer = new window._ProceduralQuadrupedAvatar('stage');
+        procRenderer.setAvatar(avatarName);
+        procRenderer.start();
+        currentRendererType = 'quadruped';
+      } else if (isWhale) {
+        procRenderer = new window._ProceduralSpindleWhaleAvatar('stage');
+        currentRendererType = 'whale';
+      } else {
+        procRenderer = new window._ProceduralSphereAvatar('stage');
+        currentRendererType = 'sphere';
+      }
+
+      currentRendererAvatar = avatarName;
+      rendererReady = true;
+      window.__cheapLiveReceiverDiag.rendererReady = true;
+      log('3D 渲染器已初始化: ' + avatarName + (isQuadruped ? ' (四足动物)' : isWhale ? ' (纺锤体)' : ' (球体)'), 'success');
+      return true;
+    } catch (e) {
+      log('3D 渲染器初始化失败: ' + e.message, 'error');
+      procRenderer = null;
+      rendererReady = false;
+      window.__cheapLiveReceiverDiag.rendererReady = false;
+      currentRendererType = null;
+      currentRendererAvatar = null;
+      return false;
+    }
+  }
+
+  // 暴露 initProcRenderer 供测试调用
+  window.__cheapLiveInitRenderer = initProcRenderer;
+
+  // 暴露镜像开关供测试调用（F 轨测试需要关闭镜像以直接断言左右眼几何）
+  window.__cheapLiveSetMirror = function(enabled) {
+    appState.mirrorEnabled = !!enabled;
+  };
+
+  // 暴露面捕帧注入函数供测试调用（模拟 WebSocket face-frame 消息）
+  window.__cheapLiveInjectFaceFrame = function(params, source) {
+    lastFrameSeq = (lastFrameSeq || 0) + 1;
+    lastFrameTime = Date.now();
+    faceFrame = params;
+    hasRealFrame = true;
+    lastFrameSource = source || 'real-camera';
+    localFrameCount++;
+    window.__cheapLiveReceiverDiag.lastFrameSeq = lastFrameSeq;
+    window.__cheapLiveReceiverDiag.lastFrameSource = lastFrameSource;
+    window.__cheapLiveReceiverDiag.frameCount = localFrameCount;
+    window.__cheapLiveReceiverDiag.realFrameActive = true;
+    window.__cheapLiveReceiverDiag.captureMode = lastFrameSource;
+  };
+
+  // 当 module script 加载完成后初始化
+  window._onRendererReady = function() {
+    log('3D 渲染模块已加载，初始化中...', 'info');
+    var result = initProcRenderer(appState.avatar || 'sacabambaspis3d');
+    document.title = 'RDR:' + (result ? 'OK' : 'FAIL') + ':' + appState.avatar;
+  };
+
+  function drawSimulatedAvatar() {
+    if (!ctx || !stage) return;
+    var w = stage.width, h = stage.height;
+    if (w <= 0 || h <= 0) {
+      resize();
+      w = stage.width;
+      h = stage.height;
+      if (w <= 0 || h <= 0) return;
+    }
+
+    // 如果 3D 渲染器就绪，使用它
+    if (rendererReady && procRenderer && currentRendererAvatar === appState.avatar) {
+      try {
+        var eyeLeft = 1, eyeRight = 1;
+        var mouthOpen = 0, mouthSmile = 0;
+        var browLeft = 0, browRight = 0;
+        var gazeLeftX = 0, gazeLeftY = 0;
+        var gazeRightX = 0, gazeRightY = 0;
+
+        // 头部旋转（角度转换为归一化 0-1）
+        var headYaw = 0.5;
+        var headPitch = 0.5;
+        var headRoll = 0.5;
+
+        var isRealFrame = hasRealFrame && lastFrameSource === 'real-camera' && faceFrame;
+
+        window.__cheapLiveReceiverDiag.realFrameActive = isRealFrame;
+        window.__cheapLiveReceiverDiag.idleActive = !isRealFrame;
+        window.__cheapLiveReceiverDiag.captureMode = lastFrameSource || 'none';
+
+        // 优先使用真实面捕数据
+        if (isRealFrame) {
+          // 镜像关系（可选）：人和画面上的鱼是镜像，需要翻转 yaw/pitch/roll 并交换左右眼
+          // 人向左转头(yaw负) → 鱼向画面右边看；人低头(pitch正) → 鱼抬头
+          var rawEyeLeft = faceFrame.eyeLeft !== undefined ? faceFrame.eyeLeft : 1;
+          var rawEyeRight = faceFrame.eyeRight !== undefined ? faceFrame.eyeRight : 1;
+          var rawMouthOpen = faceFrame.mouthOpen !== undefined ? faceFrame.mouthOpen : 0;
+          var rawMouthSmile = faceFrame.mouthSmile !== undefined ? faceFrame.mouthSmile : 0;
+          var rawBrowLeft = faceFrame.browLeft !== undefined ? faceFrame.browLeft : 0;
+          var rawBrowRight = faceFrame.browRight !== undefined ? faceFrame.browRight : 0;
+          var rawYaw = faceFrame.headYaw || 0;
+          var rawPitch = faceFrame.headPitch || 0;
+          var rawRoll = faceFrame.headRoll || 0;
+          var rawGazeLX = faceFrame.gazeLeftX !== undefined ? faceFrame.gazeLeftX : 0;
+          var rawGazeLY = faceFrame.gazeLeftY !== undefined ? faceFrame.gazeLeftY : 0;
+          var rawGazeRX = faceFrame.gazeRightX !== undefined ? faceFrame.gazeRightX : 0;
+          var rawGazeRY = faceFrame.gazeRightY !== undefined ? faceFrame.gazeRightY : 0;
+
+          // 灵敏度系数不再在 Receiver 本地应用。
+          // Capture App 已通过 applyTransforms 应用 sensitivity/offset，并广播变换后的值。
+          // Receiver 仅做镜像处理，避免重复补偿。
+          // 旧 appState.sensitivity 字段保留以兼容旧状态包，但不再驱动渲染。
+
+          if (appState.mirrorEnabled) {
+            // 镜像：交换左右眼/眉，反转 yaw/pitch/roll，gaze 交换并反转 x
+            eyeLeft = rawEyeRight;
+            eyeRight = rawEyeLeft;
+            browLeft = rawBrowRight;
+            browRight = rawBrowLeft;
+            headYaw = 0.5 - rawYaw / 120;
+            headPitch = 0.5 - rawPitch / 90;
+            headRoll = 0.5 - rawRoll / 80;
+            gazeLeftX = -rawGazeRX;
+            gazeLeftY = rawGazeRY;
+            gazeRightX = -rawGazeLX;
+            gazeRightY = rawGazeLY;
+          } else {
+            // 不镜像：保留原始方向
+            eyeLeft = rawEyeLeft;
+            eyeRight = rawEyeRight;
+            browLeft = rawBrowLeft;
+            browRight = rawBrowRight;
+            headYaw = 0.5 + rawYaw / 120;
+            headPitch = 0.5 + rawPitch / 90;
+            headRoll = 0.5 + rawRoll / 80;
+            gazeLeftX = rawGazeLX;
+            gazeLeftY = rawGazeLY;
+            gazeRightX = rawGazeRX;
+            gazeRightY = rawGazeRY;
+          }
+
+          // Receiver 不再应用 sensitivity（Capture App 已应用 transforms）。
+          // 仅对 mouthOpen/mouthSmile 赋值（镜像逻辑未处理这两项）。
+          mouthOpen = clamp(rawMouthOpen, 0, 1);
+          mouthSmile = clamp(rawMouthSmile, 0, 1);
+          // eyeLeft/eyeRight/browLeft/browRight/headYaw/headPitch/headRoll 已在镜像逻辑中赋值
+
+          lastAppliedSeq = lastFrameSeq;
+          lastAppliedSource = lastFrameSource;
+          window.__cheapLiveReceiverDiag.lastAppliedSeq = lastAppliedSeq;
+          window.__cheapLiveReceiverDiag.lastAppliedSource = lastAppliedSource;
+          window.__cheapLiveReceiverDiag.lastAppliedValues = {
+            eyeLeft: eyeLeft,
+            eyeRight: eyeRight,
+            mouthOpen: mouthOpen,
+            headYaw: rawYaw,
+            headPitch: rawPitch,
+            headRoll: rawRoll,
+            mouthSmile: mouthSmile,
+            gazeLeftX: gazeLeftX,
+            gazeLeftY: gazeLeftY
+          };
+          if (animTime % 30 === 0) {
+            console.error('[CheapLiveReceiverDiag] avatar_frame_applied seq=' + lastAppliedSeq + ' source=' + lastAppliedSource + ' headYaw=' + rawYaw + ' headPitch=' + rawPitch + ' headRoll=' + rawRoll + ' mouthOpen=' + mouthOpen.toFixed(2) + ' eyeL=' + eyeLeft.toFixed(2) + ' eyeR=' + eyeRight.toFixed(2) + ' gazeLX=' + gazeLeftX.toFixed(2) + ' mirror=' + (appState.mirrorEnabled ? 1 : 0) + ' localSens=disabled');
+          }
+          // 传给 3D 渲染器（在下面 updateParams 调用中加入 gaze 参数）
+        } else {
+          // 表情（仅模拟模式使用）
+          if (appState.avatarExpression === 'blink') {
+            eyeLeft = 0; eyeRight = 0;
+          } else if (appState.avatarExpression === 'halfblink') {
+            eyeLeft = 0.4; eyeRight = 0.4;
+          } else if (appState.avatarExpression === 'mouth') {
+            mouthOpen = 1.0;
+          } else if (appState.avatarExpression === 'smile') {
+            mouthSmile = 1.0;
+            eyeLeft = 0.65; eyeRight = 0.65;
+          } else if (appState.avatarExpression === 'wide') {
+            mouthOpen = 1;
+            eyeLeft = 1; eyeRight = 1;
+          } else if (appState.avatarExpression === 'look_left') {
+            headYaw = 0.5 - 0.55;
+          } else if (appState.avatarExpression === 'look_right') {
+            headYaw = 0.5 + 0.55;
+          } else if (appState.avatarExpression === 'look_up') {
+            headPitch = 0.5 - 0.5;
+          } else if (appState.avatarExpression === 'brow_raise') {
+            browLeft = 1.0; browRight = 1.0;
+          } else if (appState.avatarExpression === 'head_left') {
+            headRoll = 0.5 - 0.35;
+            headYaw = 0.5 - 0.15;
+          } else if (appState.avatarExpression === 'head_right') {
+            headRoll = 0.5 + 0.35;
+            headYaw = 0.5 + 0.15;
+          }
+
+          // 动作（仅模拟模式使用）
+          if (appState.avatarAction === 'nod') {
+            headPitch = 0.5 + Math.sin(animTime * 0.12) * 15 / 90;
+          } else if (appState.avatarAction === 'look') {
+            headYaw = 0.5 + Math.sin(animTime * 0.08) * 20 / 120;
+          }
+
+          // 默认轻微转动（仅模拟模式）
+          if (!appState.avatarAction) {
+            headYaw = 0.5 + Math.sin(animTime * 0.03) * 5 / 120;
+          }
+
+          if (animTime % 120 === 0) {
+            console.error('[CheapLiveReceiverDiag] idle_tick realFrameActive=false headYaw=' + headYaw);
+          }
+        }
+
+        // 眨眼追踪开关
+        if (!appState.blinkTrackingEnabled) {
+          eyeLeft = 1;
+          eyeRight = 1;
+        }
+        // 瞳孔追踪开关
+        if (!appState.pupilTrackingEnabled) {
+          gazeLeftX = 0;
+          gazeLeftY = 0;
+          gazeRightX = 0;
+          gazeRightY = 0;
+        }
+
+        // 呼吸效果（通过 headY 微偏移模拟）
+        var breathY = 0;
+        if (appState.avatarAction === 'bounce') {
+          breathY = -Math.abs(Math.sin(animTime * 0.15)) * 0.1;
+        } else {
+          breathY = Math.sin(animTime * 0.05) * 0.02;
+        }
+
+        // 头部位置追踪
+        var posX = 0.5;
+        var posY = 0.5 + breathY;
+        if (isRealFrame && appState.headPositionTrackingEnabled && faceFrame) {
+          // 镜像：用户在画面左侧（positionX 负），鱼也应该在画面左侧
+          // 由于 video 是镜像显示，faceFrame.positionX 是原始坐标（未镜像）
+          // 用户往左移（原始 x 减小，positionX 负），鱼也往左移
+          var rawX = faceFrame.positionX || 0;
+          var rawY = faceFrame.positionY || 0;
+          targetPosX = 0.5 + rawX * 0.25; // 偏移幅度限制
+          targetPosY = 0.5 + rawY * 0.2 + breathY;
+          // 平滑
+          smoothPosX = smoothPosX * 0.85 + targetPosX * 0.15;
+          smoothPosY = smoothPosY * 0.85 + targetPosY * 0.15;
+          posX = smoothPosX;
+          posY = smoothPosY;
+          window.__cheapLiveReceiverDiag.positionTracking = {
+            enabled: true,
+            rawFaceX: rawX,
+            rawFaceY: rawY,
+            appliedX: posX,
+            appliedY: posY
+          };
+        } else {
+          // 关闭时平滑回到中心
+          targetPosX = 0.5;
+          targetPosY = 0.5 + breathY;
+          smoothPosX = smoothPosX * 0.9 + targetPosX * 0.1;
+          smoothPosY = smoothPosY * 0.9 + targetPosY * 0.1;
+          posX = smoothPosX;
+          posY = smoothPosY;
+          window.__cheapLiveReceiverDiag.positionTracking = {
+            enabled: false,
+            rawFaceX: faceFrame ? (faceFrame.positionX || 0) : 0,
+            rawFaceY: faceFrame ? (faceFrame.positionY || 0) : 0,
+            appliedX: posX,
+            appliedY: posY
+          };
+        }
+
+        // 四足动物额外参数
+        var tailWag = 0;
+        var bodyBounce = 0;
+        if (appState.avatarAction === 'tail') {
+          tailWag = Math.sin(animTime * 0.2) * 1;
+        } else {
+          tailWag = Math.sin(animTime * 0.06) * 0.3;
+        }
+        if (appState.avatarAction === 'bounce') {
+          bodyBounce = Math.abs(Math.sin(animTime * 0.15)) * 1;
+        } else {
+          bodyBounce = Math.sin(animTime * 0.05) * 0.2;
+        }
+
+        // bodyCheck 动作触发
+        if (appState.bodyPose === 'body_check' && procRenderer && typeof procRenderer.triggerBodyCheck === 'function') {
+          if (!window._bodyCheckTriggered) {
+            try { procRenderer.triggerBodyCheck(); } catch(e) {}
+            window._bodyCheckTriggered = true;
+          }
+        } else if (appState.bodyPose !== 'body_check') {
+          window._bodyCheckTriggered = false;
+        }
+
+        if (currentRendererType === 'quadruped') {
+          procRenderer.updateParams({
+            animTime: animTime,
+            eyeLeft: eyeLeft,
+            eyeRight: eyeRight,
+            mouthOpen: mouthOpen,
+            mouthSmile: mouthSmile,
+            browLeft: browLeft,
+            browRight: browRight,
+            headYaw: headYaw,
+            headPitch: headPitch,
+            headRoll: headRoll,
+            headX: posX,
+            headY: posY,
+            bodyPose: appState.bodyPose,
+            tailWag: tailWag,
+            bodyBounce: bodyBounce,
+          });
+        } else {
+          procRenderer.updateParams({
+            eyeLeft: eyeLeft,
+            eyeRight: eyeRight,
+            mouthOpen: mouthOpen,
+            mouthSmile: mouthSmile,
+            browLeft: browLeft,
+            browRight: browRight,
+            headYaw: headYaw,
+            headPitch: headPitch,
+            headRoll: headRoll,
+            headX: posX,
+            headY: posY,
+            gazeLeftX: isRealFrame ? gazeLeftX : 0,
+            gazeLeftY: isRealFrame ? gazeLeftY : 0,
+            gazeRightX: isRealFrame ? gazeRightX : 0,
+            gazeRightY: isRealFrame ? gazeRightY : 0,
+          });
+        }
+
+        // 暴露 renderer params 快照供测试验证
+        if (procRenderer && procRenderer.params) {
+          window.__cheapLiveReceiverDiag.rendererParams = Object.assign({}, procRenderer.params);
+        }
+
+        // Android pose diag — pitch 方向必须与 Web 视觉方向一致，但中间符号和映射公式
+        // 与 Web adapter 独立。Android 当前 mirror 模式：headPitch = 0.5 - rawPitch/90
+        // 用户已确认 Android 低头/抬头方向正确，禁止修改。
+        if (isRealFrame) {
+          window.__cheapLiveAndroidPoseDiag = {
+            rawPitch: rawPitch,
+            rawYaw: rawYaw,
+            rawRoll: rawRoll,
+            mirrorEnabled: !!appState.mirrorEnabled,
+            mappedNormalizedPitch: headPitch,
+            mappedNormalizedYaw: headYaw,
+            mappedNormalizedRoll: headRoll,
+            rendererPitchDegrees: (headPitch - 0.5) * 90,
+            visualDirection: (rawPitch < 0) ? 'visual-down' : (rawPitch > 0) ? 'visual-up' : 'neutral',
+          };
+        }
+
+        // Android runtime trace — APK 内 renderer hash + 实际加载 URL + 函数 hash
+        if (typeof window !== 'undefined' && !window.__cheapLiveAndroidRuntimeTraceInitialized) {
+          window.__cheapLiveAndroidRuntimeTraceInitialized = true;
+          try {
+            var procRendererSrc = '';
+            try {
+              // 通过 URL/importmap 找到 renderer 的源
+              if (procRenderer && procRenderer.constructor && procRenderer.constructor.name) {
+                window.__cheapLiveAndroidRuntimeTrace = window.__cheapLiveAndroidRuntimeTrace || {};
+                window.__cheapLiveAndroidRuntimeTrace.procRendererClass = procRenderer.constructor.name;
+                window.__cheapLiveAndroidRuntimeTrace.drawFaceMethodName = typeof procRenderer._drawFaceFeatures === 'function' ? '_drawFaceFeatures' : null;
+                window.__cheapLiveAndroidRuntimeTrace.transformAnchorMethodName = typeof procRenderer._transformAnchor === 'function' ? '_transformAnchor' : null;
+                window.__cheapLiveAndroidRuntimeTrace.eyeSurfaceBindingsPresent = !!(procRenderer.eyeSurfaceBindings && (procRenderer.eyeSurfaceBindings.left || procRenderer.eyeSurfaceBindings.right));
+                window.__cheapLiveAndroidRuntimeTrace.rendererParamsKeyCount = procRenderer.params ? Object.keys(procRenderer.params).length : 0;
+                window.__cheapLiveAndroidRuntimeTrace.normalizeParamsFn = typeof procRenderer.normalizeParams === 'function' ? 'present' : null;
+                window.__cheapLiveAndroidRuntimeTrace.poseUnitFn = typeof procRenderer.normalizeParams === 'function' ? procRenderer.normalizeParams({ poseUnit: 'degrees', headYaw: 0, headPitch: 0, headRoll: 0, mouthOpen: 0, mouthSmile: 0, eyeLeft: 1, eyeRight: 1, headX: 0.5, headY: 0.5, gazeLeftX: 0, gazeLeftY: 0, gazeRightX: 0, gazeRightY: 0 }).poseUnit || 'normalized' : null;
+              }
+            } catch (_) {}
+          } catch (_) {}
+        }
+
+        if (animTime % 60 === 0) document.title = '3D:' + appState.avatar + '|w=' + stage.width + '|h=' + stage.height;
+        return;
+      } catch (e) {
+        log('3D 渲染失败，回退到 2D: ' + e.message, 'warn');
+        rendererReady = false;
+        window.__cheapLiveReceiverDiag.rendererReady = false;
+        document.title = '3DFAIL:' + e.message.substring(0, 20);
+      }
+    }
+
+    // Fallback: 3D 渲染器未就绪 → 显示覆盖提示，不画错误 2D
+    ctx.fillStyle = '#0a0a10';
+    ctx.fillRect(0, 0, w, h);
+
+    var errMsg = '3D 渲染器尚未加载。请检查网络，或点击下方「重试 3D 渲染器」。';
+    ctx.fillStyle = '#e0e0e0';
+    ctx.font = 'bold 14px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('3D 渲染器不可用', w / 2, h / 2 - 24);
+    ctx.font = '11px system-ui';
+    ctx.fillStyle = '#8896b3';
+    var lines = errMsg.split('。');
+    for (var li = 0; li < lines.length; li++) {
+      if (lines[li]) ctx.fillText(lines[li], w / 2, h / 2 + 4 + li * 18);
+    }
+
+    if (animTime % 60 === 0) document.title = 'NO3D:' + appState.avatar;
+
+    var overlay = document.getElementById('stageOverlay');
+    if (overlay) {
+      overlay.className = 'stage-overlay simulated';
+      overlay.innerHTML = '3D 渲染器未就绪 <button onclick="retryRenderer()" style="margin-left:8px;padding:2px 10px;font-size:11px;background:rgba(79,195,247,0.2);border:1px solid rgba(79,195,247,0.5);color:#4fc3f7;border-radius:4px;cursor:pointer;">重试 3D 渲染器</button>';
+    }
+
+    return;
+  }
+
+  function retryRenderer() {
+    log('手动重试 3D 渲染器...', 'info');
+    var result = initProcRenderer(appState.avatar || 'sacabambaspis3d');
+    document.title = 'RDR:' + (result ? 'OK' : 'FAIL') + ':' + appState.avatar;
+    if (result) {
+      log('3D 渲染器重新初始化成功', 'success');
+    } else {
+      log('3D 渲染器重试失败', 'error');
+    }
+  }
+  window.retryRenderer = retryRenderer;
+
+  function drawRealFrame() {
+    if (!faceFrame) { drawSimulatedAvatar(); return; }
+    var w = stage.width, h = stage.height;
+    ctx.fillStyle = '#11111f';
+    ctx.fillRect(0, 0, w, h);
+
+    var cx = w / 2 + (faceFrame.positionX || 0) * 120;
+    var cy = h / 2 + (faceFrame.positionY || 0) * 80;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(((faceFrame.headRoll || 0) * Math.PI) / 180);
+
+    var bodyW = 180 * (faceFrame.scale || 1);
+    var bodyH = 120 * (faceFrame.scale || 1);
+    var grad = ctx.createRadialGradient(-30, -20, 10, 0, 0, bodyW / 2);
+    grad.addColorStop(0, '#e4e1d3');
+    grad.addColorStop(1, '#8a8778');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, bodyW / 2, bodyH / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    var eyeOffset = (faceFrame.headYaw || 0) / 90 * 18;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.ellipse(-30 + eyeOffset, -15, 12, 8, 0, 0, Math.PI * 2);
+    ctx.ellipse(30 + eyeOffset, -15, 12, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(-30 + eyeOffset, -15, Math.max(2, 5 * (faceFrame.eyeLeft || 1)), 0, Math.PI * 2);
+    ctx.arc(30 + eyeOffset, -15, Math.max(2, 5 * (faceFrame.eyeRight || 1)), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#2a1010';
+    if ((faceFrame.mouthOpen || 0) > 0.1) {
+      ctx.beginPath();
+      ctx.ellipse(eyeOffset, 25, 14, 4 + (faceFrame.mouthOpen || 0) * 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.strokeStyle = '#3a3020';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-10 + eyeOffset, 25);
+      ctx.quadraticCurveTo(eyeOffset, 25 + (faceFrame.mouthSmile || 0) * 4, 10 + eyeOffset, 25);
+      ctx.stroke();
+    }
+
+    var tailOffset = (faceFrame.tailWave || 0) * 30 + (faceFrame.tailYaw || 0) / 30 * 20;
+    ctx.beginPath();
+    ctx.moveTo(bodyW / 2, 0);
+    ctx.quadraticCurveTo(bodyW / 2 + 40, -20 - (faceFrame.tailPitch || 0) / 30 * 30, bodyW / 2 + 80, tailOffset - (faceFrame.tailPitch || 0));
+    ctx.quadraticCurveTo(bodyW / 2 + 40, 20 + (faceFrame.tailPitch || 0) / 30 * 30, bodyW / 2, 10);
+    ctx.fillStyle = '#888';
+    ctx.fill();
+    ctx.strokeStyle = '#333';
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function render() {
+    var hasRecentFrame = hasRealFrame && Date.now() - lastFrameTime < 3000;
+    if (hasRecentFrame) {
+      // 有真实帧时，优先使用 3D renderer（如果就绪），否则 fallback 到 2D drawRealFrame
+      if (rendererReady && procRenderer && currentRendererAvatar === appState.avatar) {
+        drawSimulatedAvatar();
+      } else {
+        drawRealFrame();
+      }
+      stageOverlay.textContent = '真实面捕帧 · seq=' + lastFrameSeq + ' · source=' + (lastFrameSource || 'unknown');
+      stageOverlay.className = 'stage-overlay real';
+    } else {
+      if (hasRealFrame && Date.now() - lastFrameTime >= 3000) {
+        hasRealFrame = false;
+        lastFrameSource = null;
+        log('真实帧超时（>3s），切换到模拟预览', 'warn');
+      }
+      drawSimulatedAvatar();
+      if (appState.faceCaptureEnabled) {
+        stageOverlay.textContent = '模拟预览 · 等待真实采集';
+        stageOverlay.className = 'stage-overlay simulated';
+      } else {
+        stageOverlay.textContent = '模拟预览 · 模拟预览 · 等待真实采集';
+        stageOverlay.className = 'stage-overlay simulated';
+      }
+    }
+    animTime++;
+  }
+
+  // ===== UI update =====
+  function updateUI() {
+    document.getElementById('hostInfo').textContent = location.host;
+
+    // 本地观测到的真实面捕状态（优先级高于服务器端状态）
+    var hasRecentRealFrame = hasRealFrame && lastFrameSource === 'real-camera' && Date.now() - lastFrameTime < 3000;
+    var displayCaptureMode = hasRecentRealFrame ? 'real-camera' : (appState.captureMode || 'simulated');
+    var displayFrameCount = hasRecentRealFrame ? Math.max(localFrameCount, appState.frameCount || 0) : (appState.frameCount || 0);
+    var displayFaceCapture = hasRecentRealFrame || appState.faceCaptureEnabled;
+    var displayLatency = (window.__cheapLiveReceiverDiag.latencyMs != null && window.__cheapLiveReceiverDiag.latencyMs > 0)
+      ? window.__cheapLiveReceiverDiag.latencyMs
+      : (appState.latencyMs || 0);
+
+    // Connection
+    var connEl = document.getElementById('connStatus');
+    if (appState.viewerConnected || hasRecentRealFrame) {
+      connEl.innerHTML = '<span class="badge connected">Connected</span>';
+    } else {
+      connEl.innerHTML = '<span class="badge disconnected">Disconnected</span>';
+    }
+
+    // Avatar
+    document.getElementById('avatarStatus').textContent = appState.avatar || '—';
+
+    // Expression / Action
+    var exprText = '—';
+    if (hasRecentRealFrame) {
+      exprText = '真实面捕驱动';
+    } else {
+      if (appState.avatarExpression) exprText = appState.avatarExpression;
+      if (appState.avatarAction) exprText += (exprText === '—' ? '' : ' / ') + appState.avatarAction;
+    }
+    document.getElementById('exprStatus').textContent = exprText;
+
+    // Face capture
+    var fcEl = document.getElementById('faceCapStatus');
+    fcEl.textContent = displayFaceCapture ? 'ON' : 'OFF';
+    fcEl.className = 'value ' + (displayFaceCapture ? 'on' : 'off');
+
+    // Voice preset
+    document.getElementById('voicePresetStatus').textContent = appState.voicePreset || 'original';
+
+    // Subtitle
+    var subEl = document.getElementById('subtitleStatus');
+    subEl.textContent = appState.subtitleEnabled ? 'ON' : 'OFF';
+    subEl.className = 'value ' + (appState.subtitleEnabled ? 'on' : 'off');
+
+    // Frame count / latency
+    document.getElementById('frameCountStatus').textContent = displayFrameCount;
+    document.getElementById('latencyStatus').textContent = (displayLatency > 0 ? displayLatency + ' ms' : '— ms');
+
+    // Last command
+    document.getElementById('lastCmdStatus').textContent = appState.lastCommand || '—';
+
+    // Capture mode
+    document.getElementById('captureModeStatus').textContent = displayCaptureMode;
+
+    // Renderer mode
+    var rendererModeEl = document.getElementById('rendererModeStatus');
+    if (rendererModeEl) {
+      rendererModeEl.textContent = currentRendererType || '2d';
+    }
+
+    // Body pose
+    var bodyPoseEl = document.getElementById('bodyPoseStatus');
+    if (bodyPoseEl) {
+      bodyPoseEl.textContent = appState.bodyPose || 'idle';
+    }
+
+    // Showcase UI
+    if (showcaseMode) {
+      var scAvatarName = document.getElementById('showcaseAvatarName');
+      if (scAvatarName) {
+        scAvatarName.textContent = (appState.avatar || 'sacabambaspis').toUpperCase();
+      }
+      var scConnDot = document.getElementById('scConnDot');
+      var scConnText = document.getElementById('scConnText');
+      if (scConnDot && scConnText) {
+        if (appState.viewerConnected) {
+          scConnDot.className = 'dot on';
+          scConnText.textContent = 'Connected';
+        } else {
+          scConnDot.className = 'dot off';
+          scConnText.textContent = 'Disconnected';
+        }
+      }
+      var scAvatarText = document.getElementById('scAvatarText');
+      if (scAvatarText) {
+        var scLabel = appState.avatar || 'sacabambaspis';
+        if (appState.avatarExpression) scLabel += ' · ' + appState.avatarExpression;
+        if (appState.avatarAction) scLabel += ' · ' + appState.avatarAction;
+        scAvatarText.textContent = scLabel;
+      }
+      var scFaceDot = document.getElementById('scFaceDot');
+      var scFaceText = document.getElementById('scFaceText');
+      if (scFaceDot && scFaceText) {
+        if (displayFaceCapture) {
+          scFaceDot.className = 'dot on';
+          scFaceText.textContent = 'Face Capture ON';
+        } else {
+          scFaceDot.className = 'dot off';
+          scFaceText.textContent = 'Face Capture OFF';
+        }
+      }
+    }
+
+    // Control panel UI
+    if (typeof updateControlUI === 'function') updateControlUI();
+  }
+
+  function applyState(data) {
+    if (!data) return;
+    var oldAvatar = appState.avatar;
+    appState.serverRunning = !!data.serverRunning;
+    appState.faceCaptureEnabled = !!data.faceCaptureEnabled;
+    appState.voiceChangerEnabled = !!data.voiceChangerEnabled;
+    appState.voicePreset = data.voicePreset || 'original';
+    appState.captureMode = data.captureMode || 'simulated';
+    appState.subtitleEnabled = !!data.subtitleEnabled;
+    appState.viewerConnected = !!data.viewerConnected;
+    appState.frameCount = data.frameCount || 0;
+    appState.latencyMs = data.latencyMs || 0;
+    appState.lastCommand = data.lastCommand || '';
+    appState.lastError = data.lastError || '';
+    appState.avatar = data.avatar || 'sacabambaspis';
+    appState.avatarExpression = data.avatarExpression || '';
+    appState.avatarAction = data.avatarAction || '';
+    appState.aiVoiceStatus = data.aiVoiceStatus || 'real_app_only';
+    appState.webVoiceStatus = data.webVoiceStatus || 'available';
+    appState.voicePermission = data.voicePermission || 'not_requested';
+    appState.headPositionTrackingEnabled = !!data.headPositionTrackingEnabled;
+    appState.blinkTrackingEnabled = data.blinkTrackingEnabled !== false;
+    appState.pupilTrackingEnabled = data.pupilTrackingEnabled !== false;
+    appState.poseCaptureEnabled = !!data.poseCaptureEnabled;
+    appState.poseCaptureStatus = data.poseCaptureStatus || 'off';
+    appState.poseMode = data.poseMode || 'simulated';
+    appState.bodyPose = data.bodyPose || 'idle';
+    appState.poseQuality = data.poseQuality || 'none';
+    appState.poseLandmarkCount = data.poseLandmarkCount || 0;
+    appState.poseLastUpdatedAt = data.poseLastUpdatedAt || 0;
+    appState.poseError = data.poseError || '';
+    // 面捕个体化配置（从 Capture App 同步）
+    // 兼容两种格式：早期版本用 faceTrackingConfigJson（字符串），当前 /api/status 直接返回 faceTrackingConfig（对象）
+    var cfg = null;
+    if (data.faceTrackingConfigJson) {
+      try { cfg = JSON.parse(data.faceTrackingConfigJson); }
+      catch (e) { console.error('[CheapLiveReceiverDiag] parse faceTrackingConfigJson error=' + e.message); }
+    } else if (data.faceTrackingConfig && typeof data.faceTrackingConfig === 'object') {
+      cfg = data.faceTrackingConfig;
+    }
+    if (cfg) {
+      appState.faceTrackingConfig = cfg;
+      // 更新面捕设置 UI
+      if (typeof updateFtUI === 'function') updateFtUI(cfg);
+    }
+    appState.calibrationInProgress = !!data.calibrationInProgress;
+    appState.calibrationSampleCount = data.calibrationSampleCount || 0;
+    appState.calibrationTargetSamples = data.calibrationTargetSamples || 30;
+    appState.calibrationLastError = data.calibrationLastError || '';
+    if (typeof updateCalibrationUI === 'function') updateCalibrationUI({
+      inProgress: appState.calibrationInProgress,
+      sampleCount: appState.calibrationSampleCount,
+      targetSamples: appState.calibrationTargetSamples,
+      lastError: appState.calibrationLastError
+    });
+    // 如果 avatar 变了，重新初始化 3D 渲染器
+    if (oldAvatar !== appState.avatar &&
+        (window._ProceduralSphereAvatar || window._ProceduralQuadrupedAvatar || window._ProceduralSpindleWhaleAvatar)) {
+      setTimeout(function() { initProcRenderer(appState.avatar); }, 0);
+    }
+    updateUI();
+  }
+
+  // ===== API: send control command =====
+  var lastControlMsg = null;
+  function sendControl(type, params) {
+    var body = { type: type };
+    if (params) {
+      for (var k in params) body[k] = params[k];
+    }
+    lastControlMsg = body;
+    window.__cheapLiveReceiverDiag.lastControlMsg = body;
+    console.error('[CheapLiveReceiverDiag] send_control type=' + type + ' params=' + JSON.stringify(params || {}));
+    return fetch('/api/control?token=' + encodeURIComponent(token), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data && data.state) {
+          applyState(data.state);
+        }
+        return data;
+      }).catch(function(e) {
+        log('控制命令失败: ' + e.message, 'error');
+        console.error('[CheapLiveReceiverDiag] control_error type=' + type + ' error=' + e.message);
+      });
+  }
+
+  // ===== 更新控制按钮 UI =====
+  function updateControlUI() {
+    // 位置追踪按钮
+    var posBtn = document.getElementById('togglePosBtn');
+    if (posBtn) {
+      posBtn.textContent = appState.headPositionTrackingEnabled ? '位置追踪 ON' : '位置追踪 OFF';
+      posBtn.classList.toggle('active', !!appState.headPositionTrackingEnabled);
+    }
+    // 眨眼
+    var blinkBtn = document.getElementById('toggleBlinkBtn');
+    if (blinkBtn) {
+      blinkBtn.textContent = appState.blinkTrackingEnabled ? '眨眼 ON' : '眨眼 OFF';
+      blinkBtn.classList.toggle('active', !!appState.blinkTrackingEnabled);
+    }
+    // 瞳孔
+    var pupilBtn = document.getElementById('togglePupilBtn');
+    if (pupilBtn) {
+      pupilBtn.textContent = appState.pupilTrackingEnabled ? '瞳孔 ON' : '瞳孔 OFF';
+      pupilBtn.classList.toggle('active', !!appState.pupilTrackingEnabled);
+    }
+    // 镜像
+    var mirrorBtn = document.getElementById('toggleMirrorBtn');
+    if (mirrorBtn) {
+      mirrorBtn.textContent = appState.mirrorEnabled ? '镜像 ON' : '镜像 OFF';
+      mirrorBtn.classList.toggle('active', !!appState.mirrorEnabled);
+    }
+    // voice preset
+    var presetBtns = document.querySelectorAll('.preset-btn');
+    presetBtns.forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.preset === appState.voicePreset);
+    });
+    // avatar
+    var avatarBtns = document.querySelectorAll('.avatar-btn');
+    avatarBtns.forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.avatar === appState.avatar);
+    });
+    // 测试表情按钮（高亮当前选中的表情）
+    var exprBtns = document.querySelectorAll('.expr-btn');
+    exprBtns.forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.expr === appState.avatarExpression);
+    });
+    // 测试动作按钮
+    var actionBtns = document.querySelectorAll('.action-btn');
+    actionBtns.forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.action === appState.avatarAction);
+    });
+    // 面捕个体化设置 UI（由 applyState 中的 updateFtUI 调用驱动，这里仅作兜底）
+    if (appState.faceTrackingConfig && typeof updateFtUI === 'function') {
+      updateFtUI(appState.faceTrackingConfig);
+    }
+  }
+
+  // ===== 应用模式 =====
+  var appMode = false;
+  function toggleAppMode(force) {
+    appMode = (force !== undefined) ? force : !appMode;
+    document.body.classList.toggle('app-mode', appMode);
+    var btn = document.getElementById('toggleAppModeBtn');
+    if (btn) btn.textContent = appMode ? '退出应用模式' : '进入应用模式';
+    // 同步 appMode 到 renderer
+    if (typeof procRenderer !== 'undefined' && procRenderer && typeof procRenderer.setAppMode === 'function') {
+      procRenderer.setAppMode(appMode);
+    }
+    // 同步 transparentMode 到 renderer（应用模式下 canvas 背景透明）
+    if (typeof procRenderer !== 'undefined' && procRenderer && typeof procRenderer.setTransparentMode === 'function') {
+      procRenderer.setTransparentMode(appMode);
+    }
+    // 重新计算 canvas 尺寸
+    if (typeof resizeStage === 'function') resizeStage();
+    log(appMode ? '已进入应用模式（双击屏幕退出）' : '已退出应用模式', 'info');
+  }
+
+  // ===== 绑定控制按钮 =====
+  function bindControlButtons() {
+    var startBtn = document.getElementById('startFaceBtn');
+    if (startBtn) startBtn.addEventListener('click', function() {
+      sendControl('setFaceCapture', { enabled: true });
+    });
+    var stopBtn = document.getElementById('stopFaceBtn');
+    if (stopBtn) stopBtn.addEventListener('click', function() {
+      sendControl('setFaceCapture', { enabled: false });
+    });
+    var posBtn = document.getElementById('togglePosBtn');
+    if (posBtn) posBtn.addEventListener('click', function() {
+      sendControl('setHeadPositionTracking', { enabled: !appState.headPositionTrackingEnabled });
+    });
+    var blinkBtn = document.getElementById('toggleBlinkBtn');
+    if (blinkBtn) blinkBtn.addEventListener('click', function() {
+      sendControl('setBlinkTracking', { enabled: !appState.blinkTrackingEnabled });
+    });
+    var pupilBtn = document.getElementById('togglePupilBtn');
+    if (pupilBtn) pupilBtn.addEventListener('click', function() {
+      sendControl('setPupilTracking', { enabled: !appState.pupilTrackingEnabled });
+    });
+    var mirrorBtn = document.getElementById('toggleMirrorBtn');
+    if (mirrorBtn) mirrorBtn.addEventListener('click', function() {
+      // 镜像是接收端本地选项，不需要发送到服务器
+      appState.mirrorEnabled = !appState.mirrorEnabled;
+      log('镜像翻转: ' + (appState.mirrorEnabled ? 'ON' : 'OFF'), 'info');
+      updateControlUI();
+    });
+    var appModeBtn = document.getElementById('toggleAppModeBtn');
+    if (appModeBtn) appModeBtn.addEventListener('click', function() { toggleAppMode(); });
+    // 应用模式下"退出应用模式"按钮（应用模式下显示，CSS body.app-mode .app-mode-exit { display:block })
+    var appModeExitBtn = document.getElementById('appModeExitBtn');
+    if (appModeExitBtn) appModeExitBtn.addEventListener('click', function() { toggleAppMode(false); });
+    // 应用模式下双击屏幕退出
+    document.addEventListener('dblclick', function(e) {
+      if (appMode) {
+        toggleAppMode(false);
+      }
+    });
+    // preset buttons
+    var presetBtns = document.querySelectorAll('.preset-btn');
+    presetBtns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        sendControl('setVoicePreset', { preset: btn.dataset.preset });
+      });
+    });
+    // avatar buttons
+    var avatarBtns = document.querySelectorAll('.avatar-btn');
+    avatarBtns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        sendControl('setAvatar', { avatar: btn.dataset.avatar });
+      });
+    });
+    // 测试表情按钮（本地模拟，不发到服务器）
+    var exprBtns = document.querySelectorAll('.expr-btn');
+    exprBtns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var ex = btn.dataset.expr || '';
+        appState.avatarExpression = ex;
+        // 设置表情时清空真实帧标记，让模拟预览生效
+        hasRealFrame = false;
+        lastFrameSource = null;
+        log('测试表情: ' + (ex || '重置'), 'info');
+        updateControlUI();
+      });
+    });
+    // 测试动作按钮
+    var actionBtns = document.querySelectorAll('.action-btn');
+    actionBtns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var act = btn.dataset.action || '';
+        appState.avatarAction = act;
+        hasRealFrame = false;
+        lastFrameSource = null;
+        log('测试动作: ' + (act || '无'), 'info');
+        updateControlUI();
+      });
+    });
+    // 面捕个体化设置滑块（远程控制 Capture App）
+    bindFtSliders();
+  }
+
+  // ===== API: fetch status =====
+  function fetchStatus() {
+    fetch('/api/status?token=' + encodeURIComponent(token))
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        applyState(data);
+        log('状态已刷新: avatar=' + data.avatar + ' faceCapture=' + data.faceCaptureEnabled, 'info');
+      })
+      .catch(function(e) {
+        log('fetchStatus 错误: ' + e.message, 'error');
+      });
+  }
+
+  // ===== SSE =====
+  function initSSE() {
+    try {
+      eventSource = new EventSource('/events?token=' + encodeURIComponent(token));
+      eventSource.addEventListener('state', function(e) {
+        try {
+          var data = JSON.parse(e.data);
+          applyState(data);
+          if (!useSSE) {
+            useSSE = true;
+            log('SSE 已连接，停止轮询', 'success');
+            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+          }
+        } catch (err) {
+          log('SSE 解析错误: ' + err.message, 'error');
+        }
+      });
+      eventSource.onerror = function() {
+        log('SSE 错误，回退到轮询', 'warn');
+        if (eventSource) { try { eventSource.close(); } catch(_){} eventSource = null; }
+        useSSE = false;
+        startPolling();
+      };
+      log('SSE 连接中...', 'info');
+    } catch (e) {
+      log('SSE 不支持，使用轮询', 'warn');
+      startPolling();
+    }
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(fetchStatus, 2000);
+    fetchStatus();
+    log('轮询已启动（2s 间隔）', 'info');
+  }
+
+  // ===== Audio playback (MediaSource + SourceBuffer 流式播放) =====
+  var audioElement = null;
+  var mediaSource = null;
+  var sourceBuffer = null;
+  var audioMimeType = '';
+  var audioChunkCount = 0;
+  var audioQueue = [];
+  var audioObjectUrl = null;
+  var mediaSourceReady = false;
+  var audioUnlocked = false;
+  var audioPlaybackState = 'off'; // off / waiting / playing / error
+
+  window.__cheapLiveReceiverDiag.audioUnlocked = false;
+  window.__cheapLiveReceiverDiag.audioPlaybackState = 'off';
+  window.__cheapLiveReceiverDiag.audioChunkCount = 0;
+
+  function updateAudioStatusUI() {
+    var el = document.getElementById('audioStatus');
+    var chunkEl = document.getElementById('audioChunkStatus');
+    var btn = document.getElementById('enableAudioBtn');
+    if (el) {
+      el.textContent = audioPlaybackState.toUpperCase();
+      el.className = 'value ' + (audioPlaybackState === 'playing' ? 'on' : audioPlaybackState === 'error' ? 'warn' : 'off');
+    }
+    if (chunkEl) chunkEl.textContent = audioChunkCount;
+    if (btn) {
+      if (audioUnlocked) {
+        btn.textContent = '关闭音频';
+        btn.disabled = false;
+      } else {
+        btn.textContent = '打开音频';
+        btn.disabled = false;
+      }
+    }
+  }
+
+  function toggleAudio() {
+    if (audioUnlocked) {
+      disableAudio();
+    } else {
+      enableAudio();
+    }
+  }
+
+  function enableAudio() {
+    if (audioUnlocked) return;
+    console.error('[CheapLiveAudioReceiver] audio_enable_clicked');
+    audioUnlocked = true;
+    window.__cheapLiveReceiverDiag.audioUnlocked = true;
+    if (!audioElement) initAudioPlayback();
+    // 状态设为 waiting，等音频数据到达后自动播放
+    audioPlaybackState = 'waiting';
+    window.__cheapLiveReceiverDiag.audioPlaybackState = 'waiting';
+    updateAudioStatusUI();
+    // 立即尝试播放（如果已经有数据）
+    tryStartAudioPlayback();
+    // 用户手势期间，直接 play() 以解锁 autoplay
+    if (audioElement && audioElement.paused) {
+      audioElement.play().then(function() {
+        if (!audioUnlocked) return;
+        console.error('[CheapLiveAudioReceiver] audio_unlocked_by_user_gesture');
+      }).catch(function(e) {
+        if (!audioUnlocked) return;
+        console.error('[CheapLiveAudioReceiver] unlock_play_failed:', e.message);
+      });
+    }
+  }
+
+  function disableAudio() {
+    if (!audioUnlocked) return;
+    console.error('[CheapLiveAudioReceiver] audio_disable_clicked');
+    audioUnlocked = false;
+    window.__cheapLiveReceiverDiag.audioUnlocked = false;
+
+    // 停止播放
+    if (audioElement) {
+      try { audioElement.pause(); } catch (e) {}
+      try {
+        if (audioObjectUrl) {
+          URL.revokeObjectURL(audioObjectUrl);
+          audioObjectUrl = null;
+        }
+      } catch (e) {}
+      audioElement.src = '';
+      try { audioElement.remove(); } catch (e) {}
+      audioElement = null;
+    }
+
+    // 清理 MediaSource
+    mediaSource = null;
+    sourceBuffer = null;
+    mediaSourceReady = false;
+    audioMimeType = '';
+
+    // 清空队列
+    audioQueue = [];
+    audioChunkCount = 0;
+    window.__cheapLiveReceiverDiag.audioChunkCount = 0;
+
+    // 更新状态
+    audioPlaybackState = 'off';
+    window.__cheapLiveReceiverDiag.audioPlaybackState = 'off';
+    updateAudioStatusUI();
+  }
+
+  // 尝试播放音频（在有数据且已解锁时）— 不检查 readyState，直接尝试 play
+  function tryStartAudioPlayback() {
+    if (!audioUnlocked || !audioElement) return;
+    if (!audioElement.paused) {
+      if (audioPlaybackState !== 'playing') {
+        audioPlaybackState = 'playing';
+        window.__cheapLiveReceiverDiag.audioPlaybackState = 'playing';
+        console.error('[CheapLiveAudioReceiver] audio_playback_started');
+        updateAudioStatusUI();
+      }
+      return;
+    }
+    // 直接尝试 play()，不检查 readyState
+    audioElement.play().then(function() {
+      if (!audioUnlocked) return;
+      if (audioPlaybackState !== 'playing') {
+        audioPlaybackState = 'playing';
+        window.__cheapLiveReceiverDiag.audioPlaybackState = 'playing';
+        console.error('[CheapLiveAudioReceiver] audio_playback_started');
+        updateAudioStatusUI();
+      }
+    }).catch(function(e) {
+      if (!audioUnlocked) return;
+      // play() 失败可能是 autoplay policy 或数据不足，保持 waiting 状态
+      if (audioPlaybackState !== 'error' && audioPlaybackState !== 'playing') {
+        audioPlaybackState = 'waiting';
+        window.__cheapLiveReceiverDiag.audioPlaybackState = 'waiting';
+      }
+      console.error('[CheapLiveAudioReceiver] play_attempt:', e.message, 'readyState=' + audioElement.readyState);
+    });
+  }
+
+  var enableAudioBtn = document.getElementById('enableAudioBtn');
+  if (enableAudioBtn) {
+    enableAudioBtn.addEventListener('click', toggleAudio);
+  }
+
+  function initAudioPlayback() {
+    if (audioElement) return;
+    audioElement = document.createElement('audio');
+    audioElement.autoplay = true;
+    document.body.appendChild(audioElement);
+    log('音频播放元素已创建（点击页面启动声音）', 'info');
+    // autoplay policy：首次用户交互时尝试 play
+    var resumeOnce = function() {
+      if (audioUnlocked && audioElement && audioElement.readyState >= 2) {
+        audioElement.play().then(function() {
+          if (!audioUnlocked) return;
+          console.error('[CheapLiveAudioReceiver] audio_playback_started_by_user_gesture');
+        }).catch(function(e) {
+          if (!audioUnlocked) return;
+          console.error('[CheapLiveAudioReceiver] resume_play_error:', e.message);
+        });
+      }
+      document.removeEventListener('click', resumeOnce);
+      document.removeEventListener('touchstart', resumeOnce);
+    };
+    document.addEventListener('click', resumeOnce);
+    document.addEventListener('touchstart', resumeOnce);
+  }
+
+  function pickSupportedMimeType(rawMime) {
+    if (typeof MediaSource === 'undefined') return null;
+    var candidates = [
+      rawMime,
+      'audio/webm; codecs="opus"',
+      'audio/webm; codecs=opus',
+      'audio/webm'
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+      var m = candidates[i];
+      if (m && MediaSource.isTypeSupported(m)) return m;
+    }
+    return null;
+  }
+
+  function initMediaSource(rawMime) {
+    if (mediaSource) return;
+    var supportedMime = pickSupportedMimeType(rawMime);
+    if (!supportedMime) {
+      console.error('[CheapLiveAudioReceiver] mime_not_supported raw=' + rawMime);
+      return;
+    }
+    audioMimeType = supportedMime;
+    try {
+      mediaSource = new MediaSource();
+      audioObjectUrl = URL.createObjectURL(mediaSource);
+      audioElement.src = audioObjectUrl;
+      mediaSource.addEventListener('sourceopen', function() {
+        try {
+          sourceBuffer = mediaSource.addSourceBuffer(audioMimeType);
+          sourceBuffer.mode = 'sequence';
+          sourceBuffer.addEventListener('updateend', flushAudioQueue);
+          mediaSourceReady = true;
+          console.error('[CheapLiveAudioReceiver] media_source_ready mime=' + audioMimeType);
+          flushAudioQueue();
+          tryStartAudioPlayback();
+        } catch (e) {
+          console.error('[CheapLiveAudioReceiver] add_sourcebuffer_error:', e.message, 'mime=' + audioMimeType);
+        }
+      });
+      mediaSource.addEventListener('sourceended', function() {
+        console.error('[CheapLiveAudioReceiver] media_source_ended');
+      });
+      mediaSource.addEventListener('error', function(e) {
+        console.error('[CheapLiveAudioReceiver] media_source_error:', (e && e.message) || 'unknown');
+      });
+    } catch (e) {
+      console.error('[CheapLiveAudioReceiver] init_media_source_error:', e.message);
+    }
+  }
+
+  function handleAudioChunk(msg) {
+    if (!audioElement) initAudioPlayback();
+    audioChunkCount++;
+    window.__cheapLiveReceiverDiag.audioChunkCount = audioChunkCount;
+
+    var chunkMimeType = msg.mimeType || 'audio/webm';
+    var base64 = msg.data;
+
+    // 解码 base64
+    try {
+      var binaryString = atob(base64);
+      var bytes = new Uint8Array(binaryString.length);
+      for (var i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+    } catch (e) {
+      if (audioChunkCount % 50 === 0) {
+        console.error('[CheapLiveAudioReceiver] decode_error:', e.message);
+      }
+      return;
+    }
+
+    // 第一个 chunk：初始化 MediaSource（第一个 chunk 包含 webm header）
+    if (audioChunkCount === 1 && !mediaSource) {
+      initMediaSource(chunkMimeType);
+    }
+
+    // append 到 SourceBuffer（如果还没 ready，会进队列等待）
+    appendAudioChunk(bytes);
+
+    if (audioUnlocked && audioPlaybackState !== 'playing') {
+      audioPlaybackState = 'waiting';
+      window.__cheapLiveReceiverDiag.audioPlaybackState = 'waiting';
+    }
+    updateAudioStatusUI();
+
+    if (audioChunkCount % 20 === 0) {
+      var sbState = sourceBuffer ? (sourceBuffer.updating ? 'updating' : 'idle') : 'null';
+      console.error('[CheapLiveAudioReceiver] audio_chunk_received count=' + audioChunkCount + ' size=' + bytes.length + ' queue=' + audioQueue.length + ' sb=' + sbState);
+    }
+  }
+
+  function appendAudioChunk(bytes) {
+    if (!sourceBuffer || !mediaSourceReady || mediaSource.readyState !== 'open') {
+      audioQueue.push(bytes);
+      if (audioQueue.length > 60) audioQueue.shift();
+      return;
+    }
+    if (sourceBuffer.updating) {
+      audioQueue.push(bytes);
+      if (audioQueue.length > 60) audioQueue.shift();
+      return;
+    }
+    try {
+      sourceBuffer.appendBuffer(bytes);
+      tryStartAudioPlayback();
+    } catch (e) {
+      console.error('[CheapLiveAudioReceiver] append_error:', e.message);
+      // 如果 append 失败（可能是缓冲区满），跳过这个 chunk
+      if (audioQueue.length > 30) audioQueue.shift();
+    }
+  }
+
+  function flushAudioQueue() {
+    if (!sourceBuffer || !mediaSourceReady || mediaSource.readyState !== 'open') return;
+    if (sourceBuffer.updating || audioQueue.length === 0) return;
+    var chunk = audioQueue.shift();
+    try {
+      sourceBuffer.appendBuffer(chunk);
+    } catch (e) {
+      console.error('[CheapLiveAudioReceiver] flush_error:', e.message);
+    }
+  }
+
+  // 定期刷新队列 + 清理旧缓冲
+  setInterval(function() {
+    if (sourceBuffer && !sourceBuffer.updating && audioQueue.length > 0) {
+      flushAudioQueue();
+    }
+    // 清理 SourceBuffer 旧数据，避免缓冲区无限增长
+    if (sourceBuffer && !sourceBuffer.updating && mediaSource.readyState === 'open') {
+      try {
+        var buffered = sourceBuffer.buffered;
+        if (buffered.length > 0) {
+          var end = buffered.end(buffered.length - 1);
+          var start = buffered.start(0);
+          if (end - start > 10) {
+            sourceBuffer.remove(start, end - 5);
+          }
+        }
+      } catch (e) {}
+    }
+    // 尝试自动播放（如果已解锁且有数据）
+    tryStartAudioPlayback();
+  }, 1000);
+
+  // ===== WebSocket (for real face frames) =====
+  function connectWS() {
+    if (!token) {
+      log('缺少 token，跳过 WebSocket 连接（仅模拟预览）', 'warn');
+      return;
+    }
+    var wsUrl = 'ws://' + location.host + '/ws?token=' + encodeURIComponent(token);
+    log('WebSocket 连接: ' + wsUrl, 'info');
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch (e) {
+      log('WebSocket 不支持: ' + e.message, 'error');
+      return;
+    }
+    ws.onopen = function() {
+      log('WebSocket 已连接，等待面捕帧', 'success');
+      wsReconnectMs = 1000;
+      wsRetryCount = 0;
+      window.__cheapLiveReceiverDiag.connected = true;
+    };
+    ws.onmessage = function(ev) {
+      try {
+        var msg = typeof ev.data === 'string' ? JSON.parse(ev.data) : null;
+        if (!msg) return;
+
+        // 处理音频分片
+        if (msg.type === 'audio-chunk' && msg.data) {
+          handleAudioChunk(msg);
+          return;
+        }
+
+        // 处理音频电平
+        if (msg.type === 'audio-level') {
+          if (msg.effectMode) {
+            appState.voicePreset = msg.effectMode;
+            updateUI();
+          }
+          return;
+        }
+
+        if (msg.type !== 'face-frame' || !msg.params) return;
+        if (msg.seq <= lastFrameSeq) return;
+        lastFrameSeq = msg.seq;
+        lastFrameTime = Date.now();
+        faceFrame = msg.params;
+        hasRealFrame = true;
+        lastFrameSource = msg.source || 'unknown';
+        localFrameCount++;
+        var latencyMs = msg.timestamp ? (Date.now() - msg.timestamp) : null;
+        window.__cheapLiveReceiverDiag.lastFrameSeq = msg.seq;
+        window.__cheapLiveReceiverDiag.lastFrameSource = lastFrameSource;
+        window.__cheapLiveReceiverDiag.frameCount = localFrameCount;
+        window.__cheapLiveReceiverDiag.latencyMs = latencyMs;
+        window.__cheapLiveReceiverDiag.simulationEnabled = (lastFrameSource !== 'real-camera');
+        window.__cheapLiveReceiverDiag.rendererKey = appState.avatar;
+        console.error('[CheapLiveReceiverDiag] ws_frame_received seq=' + msg.seq + ' source=' + lastFrameSource + ' headYaw=' + (msg.params.headYaw || 0) + ' mouthOpen=' + (msg.params.mouthOpen || 0));
+        updateUI();
+      } catch (_) {}
+    };
+    ws.onclose = function() {
+      log('WebSocket 断开', 'warn');
+      window.__cheapLiveReceiverDiag.connected = false;
+      if (wsRetryCount < wsMaxRetries) {
+        wsRetryCount++;
+        wsReconnectMs = Math.min(wsReconnectMs * 1.5, 10000);
+        log(wsReconnectMs + 'ms 后第 ' + wsRetryCount + ' 次重连', 'info');
+        setTimeout(connectWS, wsReconnectMs);
+      } else {
+        log('已达最大重连次数，请手动重连', 'error');
+      }
+    };
+    ws.onerror = function() { try { ws.close(); } catch (_) {} };
+  }
+
+  // ===== Animation loop =====
+  function animLoop() {
+    render();
+    requestAnimationFrame(animLoop);
+  }
+
+  // ===== Event handlers =====
+  document.getElementById('reconnect').addEventListener('click', function() {
+    wsRetryCount = 0;
+    try { ws.close(); } catch (_) {}
+    connectWS();
+  });
+
+  document.getElementById('refreshStatus').addEventListener('click', function() {
+    fetchStatus();
+  });
+
+  // ===== Visual Test Hook =====
+  if (new URLSearchParams(location.search).get('test') === '1') {
+    window.__cheapLiveTest = {
+      setFace: function(ex) {
+        appState.avatarExpression = ex || '';
+        updateUI();
+      },
+      setPose: function(pose) {
+        appState.bodyPose = pose || 'idle';
+        updateUI();
+      },
+      setAvatar: function(av) {
+        appState.avatar = av || 'sacabambaspis';
+        if (window._ProceduralSphereAvatar || window._ProceduralQuadrupedAvatar || window._ProceduralSpindleWhaleAvatar) {
+          initProcRenderer(appState.avatar);
+        }
+        updateUI();
+      },
+      resetFace: function() {
+        appState.avatarExpression = '';
+        updateUI();
+      },
+      resetPose: function() {
+        appState.bodyPose = 'idle';
+        updateUI();
+      },
+      getState: function() {
+        return {
+          avatar: appState.avatar,
+          avatarExpression: appState.avatarExpression,
+          bodyPose: appState.bodyPose,
+          currentRendererType: currentRendererType,
+          rendererReady: rendererReady
+        };
+      },
+      getRendererDebug: function() {
+        var debug = {
+          avatar: appState.avatar,
+          bodyPose: appState.bodyPose,
+          avatarAction: appState.avatarAction,
+          rendererReady: rendererReady,
+          currentRendererType: currentRendererType,
+          currentRendererAvatar: currentRendererAvatar,
+          hasProcRenderer: !!procRenderer,
+          hasTriggerBodyCheck: !!(procRenderer && typeof procRenderer.triggerBodyCheck === 'function'),
+          bodyCheckActive: false,
+          bodyCheckPhase: 0,
+          bodyCheckTimer: 0
+        };
+        if (procRenderer) {
+          if (procRenderer._bodyCheckActive !== undefined) {
+            debug.bodyCheckActive = procRenderer._bodyCheckActive;
+          }
+          if (procRenderer._bodyCheckPhase !== undefined) {
+            debug.bodyCheckPhase = procRenderer._bodyCheckPhase;
+          }
+          if (procRenderer._bodyCheckTimer !== undefined) {
+            debug.bodyCheckTimer = procRenderer._bodyCheckTimer;
+          }
+          if (procRenderer.bodyPose !== undefined) {
+            debug.rendererBodyPose = procRenderer.bodyPose;
+          }
+        }
+        return debug;
+      },
+      triggerBodyCheckNow: function() {
+        if (procRenderer && typeof procRenderer.triggerBodyCheck === 'function') {
+          procRenderer.triggerBodyCheck();
+          window._bodyCheckTriggered = true;
+          return true;
+        }
+        return false;
+      }
+    };
+  }
+
+  // ===== Init =====
+  log('Receiver 页面加载', 'info');
+  log('Token: ' + (token ? '已提供' : '缺失'), 'info');
+
+  // ========================================
+  // 面捕个体化设置：UI、远程同步、校准
+  // ========================================
+  // Receiver 是远程控制器：滑块可编辑 → debounce 后发送给 Capture App →
+  // Capture App 应用并保存 → SSE 回传最新配置 → Receiver 更新 UI
+  // Receiver 渲染路径不再做本地 sensitivity 放大（已从 drawSimulatedAvatar 移除）
+
+  var ftUiBound = false;
+  var ftDebounceTimer = null;
+  var ftPendingPatch = null;
+  var ftSyncResetTimer = null;
+
+  // 折叠面板展开/收起
+  window.toggleFtSection = function(bodyId, headerId) {
+    var body = document.getElementById(bodyId);
+    var header = document.getElementById(headerId);
+    if (!body || !header) return;
+    var expanded = body.classList.toggle('expanded');
+    header.classList.toggle('expanded', expanded);
+  };
+
+  // 切换校准（开始/取消）— 远程触发 Capture App
+  window.toggleCalibration = function() {
+    var inProgress = !!(appState.calibrationInProgress);
+    var action = inProgress ? 'cancel' : 'start';
+    setFtSyncStatus('syncing', inProgress ? '取消校准中...' : '启动校准中...');
+    sendControl('triggerCalibration', { action: action }).then(function(data) {
+      if (data && data.staleRevision) {
+        setFtSyncStatus('error', '校准请求被拒绝');
+      } else {
+        setFtSyncStatus('synced', action === 'start' ? '校准已启动' : '校准已取消');
+      }
+      resetFtSyncStatusLater();
+    }).catch(function(e) {
+      setFtSyncStatus('error', '校准失败: ' + (e && e.message ? e.message : String(e)));
+    });
+  };
+
+  // 重置配置（keepCalibration=true 保留校准基线）
+  window.resetConfig = function(keepCalibration) {
+    setFtSyncStatus('syncing', keepCalibration ? '重置参数中（保留校准）...' : '全部重置中...');
+    sendControl('resetFaceTrackingConfig', { keepCalibration: !!keepCalibration }).then(function() {
+      setFtSyncStatus('synced', '已重置');
+      resetFtSyncStatusLater();
+    }).catch(function(e) {
+      setFtSyncStatus('error', '重置失败: ' + (e && e.message ? e.message : String(e)));
+    });
+  };
+
+  // 更新面捕设置 UI（滑块值 + 数值标签 + 校准状态）
+  function updateFtUI(cfg) {
+    if (!cfg) return;
+    var sliders = document.querySelectorAll('.ft-slider[data-ftkey]');
+    sliders.forEach(function(slider) {
+      var key = slider.getAttribute('data-ftkey');
+      var val = getNestedValue(cfg, key);
+      if (typeof val === 'number' && !isNaN(val)) {
+        // 避免用户正在拖动时被覆盖
+        if (Math.abs(parseFloat(slider.value) - val) > 0.001) {
+          slider.value = String(val);
+        }
+      }
+      var display = document.querySelector('[data-ftdisplay="' + key + '"]');
+      if (display) display.textContent = formatFtValue(key, val);
+    });
+    // 校准状态
+    var calib = cfg.calibration || {};
+    var calibStatusEl = document.getElementById('ftCalibStatus');
+    var calibBtn = document.getElementById('ftCalibBtn');
+    if (calibStatusEl && calibBtn && !appState.calibrationInProgress) {
+      if (calib.sampleCount && calib.sampleCount > 0 && calib.calibratedAt) {
+        calibStatusEl.textContent = '已校准（' + calib.sampleCount + ' 帧）';
+        calibStatusEl.className = 'ft-calib-status done';
+      } else {
+        calibStatusEl.textContent = '未校准';
+        calibStatusEl.className = 'ft-calib-status';
+      }
+      calibBtn.textContent = '开始 3 秒中性校准';
+      calibBtn.classList.remove('stop');
+    }
+  }
+
+  // 更新校准进行中状态 UI
+  function updateCalibrationUI(status) {
+    var calibStatusEl = document.getElementById('ftCalibStatus');
+    var calibBtn = document.getElementById('ftCalibBtn');
+    if (!calibStatusEl || !calibBtn) return;
+    if (status.inProgress) {
+      var cnt = status.sampleCount || 0;
+      var target = status.targetSamples || 30;
+      calibStatusEl.textContent = '采样中 ' + cnt + '/' + target;
+      calibStatusEl.className = 'ft-calib-status active';
+      calibBtn.textContent = '取消校准';
+      calibBtn.classList.add('stop');
+    } else {
+      calibBtn.textContent = '开始 3 秒中性校准';
+      calibBtn.classList.remove('stop');
+      if (status.lastError) {
+        calibStatusEl.textContent = '错误: ' + status.lastError;
+        calibStatusEl.className = 'ft-calib-status error';
+      } else if (appState.faceTrackingConfig && appState.faceTrackingConfig.calibration && appState.faceTrackingConfig.calibration.sampleCount > 0) {
+        calibStatusEl.textContent = '已校准（' + appState.faceTrackingConfig.calibration.sampleCount + ' 帧）';
+        calibStatusEl.className = 'ft-calib-status done';
+      } else {
+        calibStatusEl.textContent = '未校准';
+        calibStatusEl.className = 'ft-calib-status';
+      }
+    }
+  }
+
+  // 设置同步状态显示
+  function setFtSyncStatus(state, msg) {
+    var el = document.getElementById('ftSyncStatus');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.className = 'ft-sync-status' + (state ? ' ' + state : '');
+  }
+  // 同步成功后 2 秒清除状态
+  function resetFtSyncStatusLater() {
+    if (ftSyncResetTimer) clearTimeout(ftSyncResetTimer);
+    ftSyncResetTimer = setTimeout(function() {
+      setFtSyncStatus('', '');
+    }, 2000);
+  }
+
+  // 绑定滑块事件：input 时更新数值预览 + debounce 后发送 patch
+  function bindFtSliders() {
+    if (ftUiBound) return;
+    ftUiBound = true;
+    var sliders = document.querySelectorAll('.ft-slider[data-ftkey]');
+    sliders.forEach(function(slider) {
+      slider.addEventListener('input', function() {
+        var key = slider.getAttribute('data-ftkey');
+        var val = parseFloat(slider.value);
+        var display = document.querySelector('[data-ftdisplay="' + key + '"]');
+        if (display) display.textContent = formatFtValue(key, val);
+        if (!ftPendingPatch) ftPendingPatch = {};
+        setNestedValue(ftPendingPatch, key, val);
+        setFtSyncStatus('syncing', '正在同步...');
+        if (ftDebounceTimer) clearTimeout(ftDebounceTimer);
+        ftDebounceTimer = setTimeout(commitFtPatch, 300);
+      });
+    });
+  }
+
+  // 通过 sendControl 发送 patch 给 Capture App
+  function commitFtPatch() {
+    if (!ftPendingPatch) return;
+    var baseRevision = (appState.faceTrackingConfig && appState.faceTrackingConfig.revision) || 0;
+    var patch = ftPendingPatch;
+    ftPendingPatch = null;
+    sendControl('setFaceTrackingConfig', { baseRevision: baseRevision, patch: patch }).then(function(data) {
+      // Capture App 返回最新状态后，SSE 会触发 applyState → updateFtUI
+      // server 拒绝 stale revision 时返回 {ok:false, message:"stale revision"}（无 staleRevision 字段）
+      // 兼容两种判定方式：data.staleRevision（旧约定）或 data.ok === false 且 message 含 stale
+      var isStale = (data && data.staleRevision) ||
+                    (data && data.ok === false && typeof data.message === 'string' && data.message.indexOf('stale') >= 0);
+      if (isStale) {
+        setFtSyncStatus('error', '版本冲突，已回滚到 Capture App 最新值');
+      } else {
+        setFtSyncStatus('synced', '已同步');
+      }
+      resetFtSyncStatusLater();
+    }).catch(function(e) {
+      setFtSyncStatus('error', '同步失败: ' + (e && e.message ? e.message : String(e)));
+    });
+  }
+
+  // 辅助：按路径取嵌套值
+  function getNestedValue(obj, path) {
+    var parts = String(path).split('.');
+    var cur = obj;
+    for (var i = 0; i < parts.length; i++) {
+      if (cur == null) return undefined;
+      cur = cur[parts[i]];
+    }
+    return cur;
+  }
+  // 辅助：按路径设嵌套值
+  function setNestedValue(obj, path, val) {
+    var parts = String(path).split('.');
+    var cur = obj;
+    for (var i = 0; i < parts.length - 1; i++) {
+      if (cur[parts[i]] == null || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {};
+      cur = cur[parts[i]];
+    }
+    cur[parts[parts.length - 1]] = val;
+  }
+  // 辅助：格式化显示值
+  function formatFtValue(key, val) {
+    if (typeof val !== 'number' || isNaN(val)) return '—';
+    if (key.indexOf('offset.head') === 0) return val.toFixed(0);
+    if (key.indexOf('offset.') === 0) return val.toFixed(2);
+    return val.toFixed(1);
+  }
+
+  // 绑定控制按钮
+  if (typeof bindControlButtons === 'function') bindControlButtons();
+
+  // 先获取一次状态
+  fetchStatus();
+
+  // 启动 SSE 订阅状态变化
+  setTimeout(initSSE, 300);
+
+  // 启动 WebSocket 获取真实帧（如果有）
+  setTimeout(connectWS, 500);
+
+  // 启动动画循环
+  animLoop();
+})();
+</script>
+</body>
+</html>

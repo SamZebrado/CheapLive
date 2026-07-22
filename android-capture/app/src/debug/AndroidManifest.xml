@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.cheaplive.capture">
+
+    <application>
+        <!-- Debug only: 允许 adb 直接启动以测试 WebView fallback -->
+        <activity
+            android:name=".AvatarDemoActivity"
+            android:exported="true"
+            tools:replace="android:exported"
+            tools:ignore="ExportedActivity" />
+    </application>
+</manifest>
