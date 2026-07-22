@@ -485,6 +485,14 @@ class MainActivity : AppCompatActivity() {
         // 启动服务器
         ensureServerStarted()
 
+        session?.let { active ->
+            val receiverLink = "http://127.0.0.1:${active.port}/min-face-receiver?token=${active.token}"
+            currentSessionUrl = receiverLink
+            tvMinFaceToken.text = "token: ${active.token.take(12)}..."
+            tvMinFaceReceiverUrl.text = "receiver URL: $receiverLink"
+            qrImageView?.setImageBitmap(generateQRCode(receiverLink, 500))
+        }
+
         // 加载 min-face-send 页面
         showMinFaceSendPage()
 
@@ -500,7 +508,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             "file:///android_asset/web/min-face-send.html"
         }
-        android.util.Log.i("CheapLiveCapture", "showMinFaceSendPage: loading $url")
+        android.util.Log.i("CheapLiveCapture", "showMinFaceSendPage: loading local test route")
         webView?.loadUrl(url)
     }
 
@@ -779,6 +787,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         ensureServerStarted()
+        session?.let { active ->
+            val debugLink = "http://127.0.0.1:${active.port}/min-audio-receiver?token=${active.token}"
+            val lanLink = "http://${active.privateIp}:${active.port}/min-audio-receiver?token=${active.token}"
+            currentSessionUrl = lanLink
+            tvMinAudioToken.text = "token: ${active.token.take(12)}..."
+            tvMinAudioReceiverUrl.text = "LAN: $lanLink\nDebug: $debugLink (requires adb forward)"
+            qrImageView?.setImageBitmap(generateQRCode(lanLink, 500))
+        }
         showMinAudioSendPage()
 
         tvMinAudioServerStatus.text = "服务器状态: 运行中 ✓"
@@ -793,7 +809,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             "file:///android_asset/web/min-audio-send.html"
         }
-        android.util.Log.i("CheapLiveCapture", "showMinAudioSendPage: loading $url")
+        android.util.Log.i("CheapLiveCapture", "showMinAudioSendPage: loading local test route")
         webView?.loadUrl(url)
     }
 
@@ -1829,16 +1845,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun ensureServerStarted() {
-        android.util.Log.i("CheapLiveCapture", "ensureServerStarted: entering, isServerRunning=$isServerRunning")
-        if (isServerRunning) {
-            android.util.Log.i("CheapLiveCapture", "ensureServerStarted: already running, returning")
-            return
-        }
         val ip = PrivateIpPicker.pick() ?: "127.0.0.1"
-        // 使用持久化的稳定连接身份，不重新生成 token/sessionId
-        if (connectionStore == null) {
-            connectionStore = ConnectionIdentityStore(this)
-        }
+        if (connectionStore == null) connectionStore = ConnectionIdentityStore(this)
         val identity = connectionStore!!.load() ?: connectionStore!!.reset()
         val baseSession = session ?: Session(
             sessionId = identity.sessionId,
@@ -1846,39 +1854,28 @@ class MainActivity : AppCompatActivity() {
             port = identity.port,
             privateIp = ip,
         ).also { session = it }
-        val srv = LocalServer(this, baseSession, appState ?: AppState())
-        var actualPort = -1
-        var lastError: Throwable? = null
-        for (retry in 0..5) {
-            try {
-                actualPort = srv.start()
-                break
-            } catch (t: Throwable) {
-                lastError = t
-                android.util.Log.e("CheapLiveCapture", "ensureServerStarted attempt ${retry + 1} failed: ${t.message}")
-                if (retry < 5) {
-                    Thread.sleep((300 + retry * 200).toLong())
-                }
-            }
-        }
-        if (actualPort < 0) {
-            android.util.Log.e("CheapLiveCapture", "ensureServerStarted all retries failed: ${lastError?.message}")
+        val requestedState = appState ?: AppState()
+        val handle = try {
+            CaptureServerRuntime.ensureStarted(this, baseSession, requestedState)
+        } catch (error: Throwable) {
+            android.util.Log.e("CheapLiveCapture", "LocalServer start failed: ${error.javaClass.simpleName}")
             runOnUiThread {
                 tvServerStatus?.text = "服务器启动失败：端口 ${identity.port} 被占用"
             }
             return
         }
-        val finalSession = baseSession.copy(port = actualPort, privateIp = ip)
-        session = finalSession
-        server = srv
+        CaptureServerService.start(this)
+        session = handle.session.copy(privateIp = ip)
+        server = handle.server
+        appState = handle.appState
         isServerRunning = true
         appState?.setField("serverRunning", true)
         appState?.onResetConnectionIdentity = { resetConnectionIdentity() }
-        android.util.Log.i("CheapLiveCapture", "ensureServerStarted: port=$actualPort")
+        android.util.Log.i("CheapLiveCapture", "LocalServer foreground owner active")
 
         val b = bridge ?: CaptureBridge(
-            session = finalSession,
-            broadcast = srv,
+            session = session!!,
+            broadcast = handle.server,
             onStateChange = { _, _ -> },
             appState = appState,
             configStore = configStore,
@@ -1897,7 +1894,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             "file:///android_asset/web/capture/index.html"
         }
-        android.util.Log.i("CheapLiveCapture", "showCapturePage: loading $url")
+        android.util.Log.i("CheapLiveCapture", "showCapturePage: loading local capture route")
         webView?.loadUrl(url)
     }
 
@@ -1907,9 +1904,9 @@ class MainActivity : AppCompatActivity() {
         appStateListenerRegistered = true
 
         // 追踪上一次的 camera 需要状态，避免重复调用
-        var lastCameraNeeded = (appState?.faceCaptureEnabled ?: false) || (appState?.poseCaptureEnabled ?: false)
-        var lastVoiceEnabled = appState?.voiceChangerEnabled ?: false
-        var lastVoicePreset = appState?.voicePreset ?: "original"
+        var lastCameraNeeded = false
+        var lastVoiceEnabled = false
+        var lastVoicePreset = ""
         var lastConfigRevision = appState?.faceTrackingConfig?.revision ?: 0L
         // 注册前补漏：如果 /api/control 在 listener 注册前调用了 resetFaceTrackingConfig，
         // appState.faceTrackingConfig 已是 reset 后的新值，但 prefs 仍是旧值。
@@ -1932,7 +1929,7 @@ class MainActivity : AppCompatActivity() {
         var lastCalibrationInProgress = appState?.calibrationStatus?.inProgress ?: false
         var lastCalibrationSampleCount = 0
 
-        appState?.addListener { snap ->
+        val listener: (AppStateSnapshot) -> Unit = { snap ->
             runOnUiThread {
                 updateStatePanel(snap)
                 updateAvatarDisplay()
@@ -2043,134 +2040,52 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        appStateListener = listener
+        appState?.addListener(listener)
         android.util.Log.i("CheapLiveCapture", "AppState listener registered")
     }
 
     private var appStateListenerRegistered = false
+    private var appStateListener: ((AppStateSnapshot) -> Unit)? = null
+
+    override fun onDestroy() {
+        appStateListener?.let { listener -> appState?.removeListener(listener) }
+        appStateListener = null
+        appStateListenerRegistered = false
+        webView?.evaluateJavascript(
+            "(function(){if(window.CheapLiveCapture){window.CheapLiveCapture.stopCamera('activity-destroy',true);window.CheapLiveCapture.stopVoiceCapture('activity-destroy');}})()",
+            null,
+        )
+        webView?.removeJavascriptInterface("CheapLiveBridge")
+        webView?.destroy()
+        webView = null
+        super.onDestroy()
+    }
 
     private fun startSession() {
-        if (isServerRunning && server != null && appState != null && session != null) {
-            // server 已由 ensureServerStarted 提前启动，补全 UI 和监听器
-            val finalSession = session!!
-            val srv = server!!
-            appState?.setField("serverRunning", true)
-            appState?.setField("viewerConnected", true)
-            appState?.onResetConnectionIdentity = { resetConnectionIdentity() }
-            val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-            appState?.setField("voicePermission", if (hasAudio) "granted" else "denied")
-
-            // listener 已在 onPageFinished 中通过 setupAppStateListener() 注册，无需重复
-
-            val b = bridge ?: CaptureBridge(
-                session = finalSession,
-                broadcast = srv,
-                onStateChange = { _, _ -> },
-                appState = appState,
-                configStore = configStore,
-            ).also { bridge = it }
-            webView?.addJavascriptInterface(b, "CheapLiveBridge")
-            val link = "http://${finalSession.privateIp}:${finalSession.port}/receiver/?token=${finalSession.token}&v=${BuildConfig.VERSION_NAME}"
-            currentSessionUrl = link
-            tvServerStatus.text = "会话已启动"
-            tvSessionInfo.text = "扫描二维码在接收端打开（电脑/展示设备浏览器）"
-            qrImageView?.apply {
-                visibility = View.VISIBLE
-                setImageBitmap(generateQRCode(link, 600))
-            }
+        ensureServerStarted()
+        val finalSession = session
+        val activeServer = server
+        if (!isServerRunning || finalSession == null || activeServer == null || appState == null) {
+            tvServerStatus.text = "服务器启动失败，请检查端口状态"
             return
-        }
-        if (isServerRunning) {
-            tvServerStatus.text = "服务器已在运行中（链接与二维码不变）"
-            return
-        }
-        val ip = PrivateIpPicker.pick()
-        if (ip == null) {
-            tvServerStatus.text = "无法获取局域网 IP，请检查 Wi-Fi"
-            return
-        }
-        // 使用持久化的稳定连接身份，不重新生成 token/sessionId
-        if (connectionStore == null) {
-            connectionStore = ConnectionIdentityStore(this)
-        }
-        val identity = connectionStore!!.load() ?: connectionStore!!.reset()
-        val existingSession = session
-        val baseSession = existingSession ?: Session(
-            sessionId = identity.sessionId,
-            token = identity.token,
-            port = identity.port,
-            privateIp = ip,
-        ).also { session = it }
-        val srv = LocalServer(this, baseSession)
-        val actualPort = try { srv.start() } catch (t: Throwable) {
-            // 端口冲突时短暂等待旧实例释放后重试一次（不静默切换端口）
-            Thread.sleep(500)
-            try { srv.start() } catch (t2: Throwable) {
-                tvServerStatus.text = "服务器启动失败：端口 ${identity.port} 被占用（${t2.message}）"
-                return
-            }
-        }
-        val finalSession = baseSession.copy(port = actualPort, privateIp = ip)
-        session = finalSession
-        server = srv
-        // 保存本地已设置的状态，替换到新 AppState 中
-        val prevSnap = appState?.snapshot()
-        val prevConfig = appState?.faceTrackingConfig
-        val prevCalibration = appState?.calibrationStatus
-        appState = srv.getAppState()
-        if (prevSnap != null) {
-            appState?.let { s ->
-                s.avatar = prevSnap.avatar
-                s.avatarExpression = prevSnap.avatarExpression
-                s.avatarAction = prevSnap.avatarAction
-                s.voicePreset = prevSnap.voicePreset
-                s.voiceChangerEnabled = prevSnap.voiceChangerEnabled
-                s.faceCaptureEnabled = prevSnap.faceCaptureEnabled
-                s.subtitleEnabled = prevSnap.subtitleEnabled
-                s.captureMode = prevSnap.captureMode
-                s.voicePermission = prevSnap.voicePermission
-                s.cameraPermission = prevSnap.cameraPermission
-                // 恢复面部追踪配置（如果之前已加载）
-                if (prevConfig != null) {
-                    s.faceTrackingConfig = prevConfig
-                }
-                if (prevCalibration != null) {
-                    s.calibrationStatus = prevCalibration
-                }
-            }
-        } else {
-            // 没有先前状态，从持久化加载
-            if (configStore == null) {
-                configStore = FaceTrackingConfigStore(this)
-            }
-            appState?.let { s ->
-                if (s.faceTrackingConfig.revision == 0L) {
-                    s.faceTrackingConfig = configStore!!.load()
-                    lastPersistedConfigRevision = s.faceTrackingConfig.revision
-                }
-            }
         }
         appState?.setField("serverRunning", true)
         appState?.setField("viewerConnected", true)
         appState?.onResetConnectionIdentity = { resetConnectionIdentity() }
-        android.util.Log.i("CheapLiveCapture", "onResetConnectionIdentity callback registered, appState=$appState")
-        // set voice permission based on current state
         val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         appState?.setField("voicePermission", if (hasAudio) "granted" else "denied")
-        isServerRunning = true
-
-        // listener 已在 onPageFinished 中通过 setupAppStateListener() 注册，无需重复
-
         val b = bridge ?: CaptureBridge(
             session = finalSession,
-            broadcast = srv,
+            broadcast = activeServer,
             onStateChange = { _, _ -> },
             appState = appState,
             configStore = configStore,
         ).also { bridge = it }
         webView?.addJavascriptInterface(b, "CheapLiveBridge")
-        val link = "http://${finalSession.privateIp}:$actualPort/receiver/?token=${finalSession.token}&v=${BuildConfig.VERSION_NAME}"
+        val link = "http://${finalSession.privateIp}:${finalSession.port}/receiver/?token=${finalSession.token}&v=${BuildConfig.VERSION_NAME}"
         currentSessionUrl = link
-        tvServerStatus.text = if (existingSession == null) "会话已启动" else "会话已重启（链接与二维码不变）"
+        tvServerStatus.text = "会话已启动"
         tvSessionInfo.text = "扫描二维码在接收端打开（电脑/展示设备浏览器）"
         qrImageView?.apply {
             visibility = View.VISIBLE
@@ -2181,7 +2096,7 @@ class MainActivity : AppCompatActivity() {
     private fun resetSession() {
         // 停止服务器，但保留持久化连接身份（token/sessionId/port）
         // 用户重新点击"开始"会复用同一身份生成相同 URL
-        try { server?.stop() } catch (_: Throwable) {}
+        CaptureServerService.stop(this)
         server = null
         isServerRunning = false
         // 不清 session：保留 token/sessionId/port，仅清运行时状态
@@ -2201,7 +2116,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun resetConnectionIdentity() {
         android.util.Log.i("CheapLiveCapture", "resetConnectionIdentity called")
-        try { server?.stop() } catch (_: Throwable) {}
+        CaptureServerService.stop(this)
         server = null
         isServerRunning = false
         bridge = null
@@ -2242,7 +2157,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopSession() {
-        try { server?.stop() } catch (_: Throwable) {}
+        CaptureServerService.stop(this)
         appState?.setField("serverRunning", false)
         appState?.setField("viewerConnected", false)
         server = null
