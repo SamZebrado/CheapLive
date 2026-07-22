@@ -67,6 +67,16 @@ class AppState {
     @Volatile var poseLandmarkCount: Int = 0
     @Volatile var poseLastUpdatedAt: Long = 0L
     @Volatile var poseError: String = ""
+    @Volatile var posePerformanceProfile: String = "low"
+    @Volatile var poseSmoothing: Double = 0.35
+    @Volatile var poseMirrored: Boolean = true
+    @Volatile var poseDebugSkeleton: Boolean = false
+    @Volatile var poseFps: Double = 0.0
+    @Volatile var poseInferenceMs: Double = 0.0
+    @Volatile var poseFramesSkipped: Long = 0L
+    @Volatile var poseDroppedMessages: Long = 0L
+    @Volatile var poseTrackingConfidence: Double = 0.0
+    @Volatile var poseModelStatus: String = "off"
 
     // === 面部追踪个体化配置（Capture App 唯一权威来源） ===
     /** 当前生效的配置（持久化于 SharedPreferences，启动时加载） */
@@ -126,6 +136,16 @@ class AppState {
         poseLandmarkCount = poseLandmarkCount,
         poseLastUpdatedAt = poseLastUpdatedAt,
         poseError = poseError,
+        posePerformanceProfile = posePerformanceProfile,
+        poseSmoothing = poseSmoothing,
+        poseMirrored = poseMirrored,
+        poseDebugSkeleton = poseDebugSkeleton,
+        poseFps = poseFps,
+        poseInferenceMs = poseInferenceMs,
+        poseFramesSkipped = poseFramesSkipped,
+        poseDroppedMessages = poseDroppedMessages,
+        poseTrackingConfidence = poseTrackingConfidence,
+        poseModelStatus = poseModelStatus,
         faceTrackingConfigJson = faceTrackingConfig.toJson(),
         calibrationInProgress = calibrationStatus.inProgress,
         calibrationSampleCount = calibrationStatus.sampleCount,
@@ -287,6 +307,44 @@ class AppState {
                     CommandResult(true, "pose quality set to $quality")
                 }
             }
+            "setPosePerformanceProfile" -> {
+                val profile = params["profile"] as? String ?: "low"
+                if (profile !in setOf("low", "balanced", "high")) {
+                    lastError = "invalid pose performance profile: $profile"
+                    CommandResult(false, lastError)
+                } else {
+                    posePerformanceProfile = profile
+                    lastCommand = "setPosePerformanceProfile($profile)"
+                    lastError = ""
+                    CommandResult(true, "pose performance profile set to $profile")
+                }
+            }
+            "setPoseSmoothing" -> {
+                val smoothing = (params["smoothing"] as? Number)?.toDouble()
+                if (smoothing == null || !smoothing.isFinite() || smoothing !in 0.0..1.0) {
+                    lastError = "invalid pose smoothing"
+                    CommandResult(false, lastError)
+                } else {
+                    poseSmoothing = smoothing
+                    lastCommand = "setPoseSmoothing($smoothing)"
+                    lastError = ""
+                    CommandResult(true, "pose smoothing set")
+                }
+            }
+            "setPoseMirror" -> {
+                val mirrored = params["mirrored"] as? Boolean ?: true
+                poseMirrored = mirrored
+                lastCommand = "setPoseMirror($mirrored)"
+                lastError = ""
+                CommandResult(true, "pose mirror set to $mirrored")
+            }
+            "setPoseDebugSkeleton" -> {
+                val enabled = params["enabled"] as? Boolean ?: false
+                poseDebugSkeleton = enabled
+                lastCommand = "setPoseDebugSkeleton($enabled)"
+                lastError = ""
+                CommandResult(true, "pose debug skeleton set to $enabled")
+            }
             "ping" -> {
                 lastCommand = "ping"
                 CommandResult(true, "pong")
@@ -425,6 +483,16 @@ class AppState {
             "poseLandmarkCount" -> poseLandmarkCount = value as? Int ?: 0
             "poseLastUpdatedAt" -> poseLastUpdatedAt = value as? Long ?: 0L
             "poseError" -> poseError = value as? String ?: ""
+            "posePerformanceProfile" -> posePerformanceProfile = value as? String ?: "low"
+            "poseSmoothing" -> poseSmoothing = (value as? Number)?.toDouble() ?: 0.35
+            "poseMirrored" -> poseMirrored = value as? Boolean ?: true
+            "poseDebugSkeleton" -> poseDebugSkeleton = value as? Boolean ?: false
+            "poseFps" -> poseFps = (value as? Number)?.toDouble() ?: 0.0
+            "poseInferenceMs" -> poseInferenceMs = (value as? Number)?.toDouble() ?: 0.0
+            "poseFramesSkipped" -> poseFramesSkipped = (value as? Number)?.toLong() ?: 0L
+            "poseDroppedMessages" -> poseDroppedMessages = (value as? Number)?.toLong() ?: 0L
+            "poseTrackingConfidence" -> poseTrackingConfidence = (value as? Number)?.toDouble() ?: 0.0
+            "poseModelStatus" -> poseModelStatus = value as? String ?: "off"
             "faceTrackingConfig" -> {
                 // 接受 FaceTrackingConfig 对象或 JSON 字符串
                 faceTrackingConfig = when (value) {
@@ -435,6 +503,38 @@ class AppState {
             }
         }
         updatedAt = System.currentTimeMillis()
+        notifyListeners()
+    }
+
+    /** Applies the low-rate aggregate emitted by the pose worker; raw camera data is never stored. */
+    fun updatePoseTelemetry(
+        status: String,
+        fps: Double,
+        inferenceMs: Double,
+        skipped: Long,
+        dropped: Long,
+        confidence: Double,
+        landmarkCount: Int,
+        error: String = "",
+    ) {
+        poseCaptureStatus = status.take(48)
+        poseModelStatus = status.take(48)
+        poseFps = fps.takeIf { it.isFinite() }?.coerceIn(0.0, 120.0) ?: 0.0
+        poseInferenceMs = inferenceMs.takeIf { it.isFinite() }?.coerceIn(0.0, 10_000.0) ?: 0.0
+        poseFramesSkipped = skipped.coerceAtLeast(0L)
+        poseDroppedMessages = dropped.coerceAtLeast(0L)
+        poseTrackingConfidence = confidence.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.0
+        poseLandmarkCount = landmarkCount.coerceIn(0, 33)
+        poseQuality = when {
+            poseTrackingConfidence >= 0.8 -> "excellent"
+            poseTrackingConfidence >= 0.6 -> "good"
+            poseTrackingConfidence >= 0.4 -> "fair"
+            poseTrackingConfidence > 0.0 -> "poor"
+            else -> "none"
+        }
+        poseLastUpdatedAt = System.currentTimeMillis()
+        poseError = error.take(160)
+        updatedAt = poseLastUpdatedAt
         notifyListeners()
     }
 
@@ -480,6 +580,16 @@ data class AppStateSnapshot(
     val poseLandmarkCount: Int,
     val poseLastUpdatedAt: Long,
     val poseError: String,
+    val posePerformanceProfile: String,
+    val poseSmoothing: Double,
+    val poseMirrored: Boolean,
+    val poseDebugSkeleton: Boolean,
+    val poseFps: Double,
+    val poseInferenceMs: Double,
+    val poseFramesSkipped: Long,
+    val poseDroppedMessages: Long,
+    val poseTrackingConfidence: Double,
+    val poseModelStatus: String,
     // 面部追踪个体化配置（嵌套 JSON 字符串，直接嵌入为对象）
     val faceTrackingConfigJson: String,
     val calibrationInProgress: Boolean,
@@ -530,6 +640,16 @@ fun AppStateSnapshot.toJson(): String {
     sb.append(",\"poseLandmarkCount\":$poseLandmarkCount")
     sb.append(",\"poseLastUpdatedAt\":$poseLastUpdatedAt")
     sb.append(",\"poseError\":\"").append(escapeJson(poseError)).append('"')
+    sb.append(",\"posePerformanceProfile\":\"").append(escapeJson(posePerformanceProfile)).append('"')
+    sb.append(",\"poseSmoothing\":$poseSmoothing")
+    sb.append(",\"poseMirrored\":$poseMirrored")
+    sb.append(",\"poseDebugSkeleton\":$poseDebugSkeleton")
+    sb.append(",\"poseFps\":$poseFps")
+    sb.append(",\"poseInferenceMs\":$poseInferenceMs")
+    sb.append(",\"poseFramesSkipped\":$poseFramesSkipped")
+    sb.append(",\"poseDroppedMessages\":$poseDroppedMessages")
+    sb.append(",\"poseTrackingConfidence\":$poseTrackingConfidence")
+    sb.append(",\"poseModelStatus\":\"").append(escapeJson(poseModelStatus)).append('"')
     // 面部追踪个体化配置（直接嵌入为嵌套对象，faceTrackingConfigJson 已经是 JSON 字符串）
     sb.append(",\"faceTrackingConfig\":").append(faceTrackingConfigJson)
     sb.append(",\"calibrationInProgress\":$calibrationInProgress")

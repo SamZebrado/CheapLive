@@ -77,6 +77,7 @@ class CaptureServerService : Service() {
             val state = AppState().apply {
                 faceTrackingConfig = FaceTrackingConfigStore(this@CaptureServerService).load()
             }
+            MotionCaptureSettingsStore(this).applyTo(state)
             val session = Session(
                 sessionId = identity.sessionId,
                 token = identity.token,

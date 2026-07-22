@@ -234,6 +234,10 @@
   import { createSphereMesh, deformSphere, computeVertexLight, computeSphereFaceColor } from '/capture/sphere.js';
   import { createVoiceInputController } from '/capture/voice-effects.js';
   import { FaceLandmarker, FilesetResolver } from '/web/mediapipe/tasks-vision/vision_bundle.mjs';
+  import { PoseWorkerClient } from '/web/shared/motion/pose-worker-client.js';
+  import { PERFORMANCE_PROFILES } from '/web/shared/motion/pose-scheduler.js';
+  import { createPoseCalibration, applyPoseCalibration } from '/web/shared/protocol/pose-calibration.js';
+  import { NEUTRAL_POSE_LANDMARKS } from '/web/shared/protocol/pose-frame.js';
 
   const videoElement = document.getElementById('webcam');
   const canvasElement = document.getElementById('output_canvas');
@@ -340,6 +344,66 @@
   let cameraStream = null;
   let cameraStarting = false;
   let cameraRequestGeneration = 0;
+  let poseSettings = { enabled: false, mode: 'real-camera', performanceProfile: 'low', smoothing: 0.35, mirrored: true, debugSkeleton: false };
+  let lastFaceInferenceAt = -Infinity;
+  let lastPoseSubmitAt = -Infinity;
+  let lastPoseStatsAt = 0;
+  let poseCalibration = null;
+  let poseCalibrationFrames = [];
+  let poseCalibrationActive = false;
+
+  const poseWorkerClient = new PoseWorkerClient({
+    workerFactory: () => new Worker('/web/shared/motion/pose-worker-bootstrap.js'),
+    createBitmap: (video, options) => createImageBitmap(video, options),
+    onFrame: (frame) => {
+      if (!poseSettings.enabled || poseSettings.mode !== 'real-camera' || !frame) return;
+      if (poseCalibrationActive && frame.tracking && frame.confidence >= 0.6) {
+        poseCalibrationFrames.push(frame);
+        if (poseCalibrationFrames.length >= 24) {
+          poseCalibration = createPoseCalibration(poseCalibrationFrames);
+          poseCalibrationActive = false;
+          window.CheapLiveBridge?.reportPoseStatus?.('calibrated', `${poseCalibration.sampleCount} samples`);
+        }
+      }
+      const output = poseCalibration ? {
+        ...frame,
+        landmarks: Object.fromEntries(Object.entries(applyPoseCalibration(frame.landmarks, poseCalibration, NEUTRAL_POSE_LANDMARKS)).map(([name, point]) => [name, {
+          ...point,
+          x: Math.max(0, Math.min(1, point.x)),
+          y: Math.max(0, Math.min(1, point.y)),
+          z: Math.max(-2, Math.min(2, point.z)),
+        }])),
+      } : frame;
+      try { window.CheapLiveBridge?.publishPoseFrame?.(JSON.stringify(output)); } catch (_) {}
+    },
+    onStatus: (status, detail = '') => {
+      try { window.CheapLiveBridge?.reportPoseStatus?.(status, detail); } catch (_) {}
+    },
+    onStats: (stats) => {
+      const now = performance.now();
+      if (now - lastPoseStatsAt < 1000) return;
+      lastPoseStatsAt = now;
+      try {
+        window.CheapLiveBridge?.reportPoseStats?.(JSON.stringify({
+          status: 'ready',
+          effectiveFps: stats.effectivePoseFps || 0,
+          averageInferenceMs: stats.poseInferenceMs || 0,
+          skippedFrames: stats.frameSkipped || 0,
+          droppedMessages: stats.droppedMessages || 0,
+        }));
+      } catch (_) {}
+    },
+  });
+
+  function syncPoseWorker() {
+    const shouldRun = poseSettings.enabled && poseSettings.mode === 'real-camera';
+    if (shouldRun) {
+      if (!poseWorkerClient.enabled) poseWorkerClient.enable({ profile: poseSettings.performanceProfile, mirrored: poseSettings.mirrored });
+      else poseWorkerClient.configure({ profile: poseSettings.performanceProfile, mirrored: poseSettings.mirrored });
+    } else if (poseWorkerClient.enabled) {
+      poseWorkerClient.disable();
+    }
+  }
 
   // ===== 面捕个体化配置状态 =====
   let currentConfig = null; // FaceTrackingConfig 对象（来自 Kotlin 推送）
@@ -417,7 +481,7 @@
   window.CheapLiveCapture = {
     startCamera: function(reason) {
       console.error('[CheapLiveCaptureDiag] start_camera reason=' + (reason || 'unknown'));
-      publishEnabled = true;
+      if (reason !== 'state-change' && reason !== 'android-permission-result') publishEnabled = true;
       if (cameraStream && !cameraStarted) {
         // 已有 stream 但被暂停，恢复播放
         videoElement.play().then(() => {
@@ -477,7 +541,44 @@
         faceLandmarkerReady: faceLandmarkerReady,
         frameLoopRunning: frameLoopRunning,
         seq: seq
+        ,poseEnabled: poseSettings.enabled
+        ,poseMode: poseSettings.mode
+        ,poseWorkerReady: poseWorkerClient.ready
+        ,poseWorkerBusy: poseWorkerClient.busy
+        ,poseWorkerStatus: poseWorkerClient.status
+        ,poseWorkerError: poseWorkerClient.lastError
       });
+    },
+    applyCaptureFeatures: function(faceEnabled, poseEnabled) {
+      publishEnabled = !!faceEnabled;
+      poseSettings.enabled = !!poseEnabled;
+      syncPoseWorker();
+      return { ok: true, faceEnabled: publishEnabled, poseEnabled: poseSettings.enabled };
+    },
+    applyPoseSettings: function(json) {
+      try {
+        const next = typeof json === 'string' ? JSON.parse(json) : (json || {});
+        const profile = PERFORMANCE_PROFILES[next.performanceProfile] ? next.performanceProfile : 'low';
+        poseSettings = {
+          enabled: next.enabled === true,
+          mode: next.mode === 'simulated' ? 'simulated' : 'real-camera',
+          performanceProfile: profile,
+          smoothing: Number.isFinite(next.smoothing) ? Math.max(0, Math.min(1, next.smoothing)) : 0.35,
+          mirrored: next.mirrored !== false,
+          debugSkeleton: next.debugSkeleton === true,
+        };
+        syncPoseWorker();
+        return { ok: true, ...poseSettings };
+      } catch (error) {
+        return { ok: false, error: error?.message || String(error) };
+      }
+    },
+    beginPoseCalibration: function() {
+      if (!poseSettings.enabled || poseSettings.mode !== 'real-camera') return { ok: false, error: 'real-camera pose is not enabled' };
+      poseCalibrationFrames = [];
+      poseCalibrationActive = true;
+      window.CheapLiveBridge?.reportPoseStatus?.('calibrating', 'hold a neutral upper-body pose');
+      return { ok: true, targetSamples: 24 };
     },
     // 音频控制 API
     startVoiceCapture: function(reason) {
@@ -526,7 +627,7 @@
     }));
     navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false })
       .then((stream) => {
-        if (requestGeneration !== cameraRequestGeneration || !publishEnabled) {
+        if (requestGeneration !== cameraRequestGeneration || !(publishEnabled || poseSettings.enabled)) {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
@@ -730,11 +831,14 @@
     function tick() {
       if (!frameLoopRunning) return;
       try {
-        if (faceLandmarkerReady && videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
+        if (videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
           const now = performance.now();
           if (videoElement.currentTime !== lastVideoTime) {
             lastVideoTime = videoElement.currentTime;
-            const results = faceLandmarker.detectForVideo(videoElement, now);
+            const profile = PERFORMANCE_PROFILES[poseSettings.performanceProfile] || PERFORMANCE_PROFILES.low;
+            if (publishEnabled && faceLandmarkerReady && now - lastFaceInferenceAt >= 1000 / profile.faceFps) {
+              lastFaceInferenceAt = now;
+              const results = faceLandmarker.detectForVideo(videoElement, now);
             // 一次性结构诊断（前 3 帧 + 之后每 120 帧）
             frameLoopDiagCount++;
             if (frameLoopDiagCount <= 3 || frameLoopDiagCount % 120 === 0) {
@@ -743,6 +847,11 @@
               console.error('[CheapLiveCaptureDiag] detect_result count=' + frameLoopDiagCount + ' currentTime=' + videoElement.currentTime.toFixed(3) + ' faceLandmarks_type=' + (fl === undefined ? 'undefined' : Array.isArray(fl) ? 'array[' + fl.length + ']' : typeof fl) + ' firstFace_len=' + flLen);
             }
             onResults({ multiFaceLandmarks: results.faceLandmarks || [] });
+            }
+            if (poseSettings.enabled && poseSettings.mode === 'real-camera' && !document.hidden && now - lastPoseSubmitAt >= 1000 / profile.poseFps) {
+              lastPoseSubmitAt = now;
+              void poseWorkerClient.process(videoElement, now);
+            }
           }
         }
       } catch (e) {
@@ -852,6 +961,7 @@
   };
 
   window.addEventListener('pagehide', function() {
+    poseWorkerClient.disable();
     window.CheapLiveCapture.stopCamera('pagehide', true);
     window.stopVoiceCapture();
   }, { once: true });

@@ -13,13 +13,14 @@ class CaptureBridgeTest {
         override fun broadcastFrame(json: String) { frames.add(json) }
     }
 
-    private fun makeBridge(token: String = "t1", sessionId: String = "s1"): Pair<CaptureBridge, StubBroadcast> {
+    private fun makeBridge(token: String = "t1", sessionId: String = "s1", state: AppState? = null): Pair<CaptureBridge, StubBroadcast> {
         val stub = StubBroadcast()
         val fakeSession = Session(sessionId = sessionId, token = token, port = 8766, privateIp = "192.168.1.2")
         return CaptureBridge(
             session = fakeSession,
             broadcast = stub,
             onStateChange = { _, _ -> },
+            appState = state,
         ) to stub
     }
 
@@ -102,5 +103,60 @@ class CaptureBridgeTest {
         assertTrue(r1.getBoolean("ok"))
         assertTrue(r2.getBoolean("ok"))
         assertFalse(r3.getBoolean("ok"))
+    }
+
+    private fun validPoseFrame(): JSONObject = JSONObject().apply {
+        put("type", "pose-frame")
+        put("schemaVersion", 1)
+        put("sequence", 7)
+        put("timestampMs", 1234.0)
+        put("revision", 1)
+        put("sourceId", "capture-worker")
+        put("tracking", true)
+        put("confidence", 0.9)
+        put("coordinateSpace", "normalized-camera")
+        put("mirrored", true)
+        put("landmarks", JSONObject().apply {
+            put("nose", JSONObject().put("x", 0.5).put("y", 0.2).put("z", 0.0).put("visibility", 0.9))
+            put("leftShoulder", JSONObject().put("x", 0.4).put("y", 0.35).put("z", 0.0).put("visibility", 0.8))
+        })
+    }
+
+    @Test
+    fun `valid pose frame is sanitized broadcast and updates aggregate state`() {
+        val state = AppState()
+        val (bridge, stub) = makeBridge(state = state)
+        val result = JSONObject(bridge.publishPoseFrame(validPoseFrame().toString()))
+        assertTrue(result.getBoolean("ok"))
+        val output = JSONObject(stub.frames.single())
+        assertEquals("pose-frame", output.getString("type"))
+        assertEquals(2, output.getJSONObject("landmarks").length())
+        assertEquals("tracking", state.poseCaptureStatus)
+        assertEquals(0.9, state.poseTrackingConfidence, 0.0001)
+    }
+
+    @Test
+    fun `pose bridge rejects unknown landmark and non finite coordinate`() {
+        val (bridge, stub) = makeBridge()
+        val unknown = validPoseFrame().apply {
+            getJSONObject("landmarks").put("leftAnkle", JSONObject().put("x", 0.5).put("y", 0.5).put("z", 0.0).put("visibility", 1.0))
+        }
+        assertFalse(JSONObject(bridge.publishPoseFrame(unknown.toString())).getBoolean("ok"))
+        val invalid = validPoseFrame().apply {
+            getJSONObject("landmarks").getJSONObject("nose").put("x", 2.0)
+        }
+        assertFalse(JSONObject(bridge.publishPoseFrame(invalid.toString())).getBoolean("ok"))
+        assertEquals(0, stub.frames.size)
+    }
+
+    @Test
+    fun `pose controls validate profile smoothing and default off`() {
+        val state = AppState()
+        assertFalse(state.poseCaptureEnabled)
+        assertTrue(state.applyCommand("setPosePerformanceProfile", mapOf("profile" to "balanced")).ok)
+        assertEquals("balanced", state.posePerformanceProfile)
+        assertFalse(state.applyCommand("setPoseSmoothing", mapOf("smoothing" to 2.0)).ok)
+        assertTrue(state.applyCommand("setPoseSmoothing", mapOf("smoothing" to 0.6)).ok)
+        assertEquals(0.6, state.poseSmoothing, 0.0001)
     }
 }

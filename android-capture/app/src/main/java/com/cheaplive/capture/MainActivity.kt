@@ -22,9 +22,11 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -67,6 +69,7 @@ class MainActivity : AppCompatActivity() {
     private var appState: AppState? = null
     private var configStore: FaceTrackingConfigStore? = null
     private var connectionStore: ConnectionIdentityStore? = null
+    private var motionSettingsStore: MotionCaptureSettingsStore? = null
     @Volatile private var lastPersistedConfigRevision: Long = -1L
 
     // === Design Tokens (对齐 demo) ===
@@ -186,6 +189,10 @@ class MainActivity : AppCompatActivity() {
             // 加载持久化的稳定连接身份（token/sessionId/port 不随重启变化）
             if (connectionStore == null) {
                 connectionStore = ConnectionIdentityStore(this)
+            }
+            if (motionSettingsStore == null) {
+                motionSettingsStore = MotionCaptureSettingsStore(this)
+                appState?.let { motionSettingsStore!!.applyTo(it) }
             }
             appState?.let { s ->
                 if (s.faceTrackingConfig.revision == 0L) {
@@ -1057,6 +1064,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnPoseToggle: Button
     private lateinit var poseModeButtons: MutableList<Button>
     private lateinit var bodyPoseButtons: MutableList<Button>
+    private lateinit var poseProfileButtons: MutableList<Button>
+    private lateinit var poseSmoothingSeek: SeekBar
+    private lateinit var poseSmoothingValue: TextView
+    private lateinit var poseMirrorCheck: CheckBox
+    private lateinit var poseDebugCheck: CheckBox
 
     private fun buildFaceCaptureCard(root: LinearLayout) {
         val card = makeCard()
@@ -1155,10 +1167,10 @@ class MainActivity : AppCompatActivity() {
     // ============================================================
     private fun buildPoseCaptureCard(root: LinearLayout) {
         val card = makeCard()
-        addCardTitle(card, "🏃 姿态捕捉", "Body Pose")
+        addCardTitle(card, "🏃 上半身动作捕捉 Beta", "Upper-body Motion Beta")
 
         val desc = TextView(this).apply {
-            text = "模拟姿态可用，真实姿态捕捉待接入。"
+            text = "默认关闭；显式启用后复用面捕摄像头，并在隔离 Worker 中加载本地模型。"
             textSize = 11f
             setTextColor(cTextSec)
             val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
@@ -1203,6 +1215,60 @@ class MainActivity : AppCompatActivity() {
             modeRow.addView(btn)
         }
         card.addView(modeRow)
+
+        addSectionLabel(card, "性能档位 / Performance")
+        poseProfileButtons = mutableListOf()
+        val profileRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for ((profile, label) in listOf("low" to "低功耗", "balanced" to "均衡", "high" to "高质量")) {
+            val btn = makeChipButton(label).apply {
+                tag = profile
+                setOnClickListener { appState?.applyCommand("setPosePerformanceProfile", mapOf("profile" to profile)) }
+            }
+            poseProfileButtons.add(btn)
+            profileRow.addView(btn)
+        }
+        card.addView(profileRow)
+
+        val smoothingRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        smoothingRow.addView(TextView(this).apply { text = "平滑 / Smoothing"; setTextColor(cTextSec); textSize = 11f })
+        poseSmoothingSeek = SeekBar(this).apply {
+            max = 100
+            progress = 35
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    poseSmoothingValue.text = String.format(java.util.Locale.US, "%.2f", progress / 100.0)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    appState?.applyCommand("setPoseSmoothing", mapOf("smoothing" to ((seekBar?.progress ?: 35) / 100.0)))
+                }
+            })
+        }
+        smoothingRow.addView(poseSmoothingSeek)
+        poseSmoothingValue = TextView(this).apply { text = "0.35"; setTextColor(cAccent); textSize = 11f }
+        smoothingRow.addView(poseSmoothingValue)
+        card.addView(smoothingRow)
+
+        poseMirrorCheck = CheckBox(this).apply {
+            text = "镜像语义 / Mirror"
+            setTextColor(cText)
+            isChecked = true
+            setOnCheckedChangeListener { _, checked -> appState?.applyCommand("setPoseMirror", mapOf("mirrored" to checked)) }
+        }
+        card.addView(poseMirrorCheck)
+        poseDebugCheck = CheckBox(this).apply {
+            text = "调试骨架 / Debug skeleton"
+            setTextColor(cText)
+            setOnCheckedChangeListener { _, checked -> appState?.applyCommand("setPoseDebugSkeleton", mapOf("enabled" to checked)) }
+        }
+        card.addView(poseDebugCheck)
+
+        card.addView(makeButton("中性校准 / Calibrate neutral", cPurple, cBg).apply {
+            setOnClickListener {
+                webView?.evaluateJavascript("(function(){return window.CheapLiveCapture?.beginPoseCalibration?.() || {ok:false,error:'not ready'};})()", null)
+            }
+        })
 
         addSectionLabel(card, "身体姿态")
         bodyPoseButtons = mutableListOf()
@@ -1278,6 +1344,18 @@ class MainActivity : AppCompatActivity() {
         val modeText = snap.poseMode
         val poseText = snap.bodyPose
         tvPoseCaptureStatus.text = "状态: $stateText | 模式: $modeText | 姿态: $poseText"
+        if (::poseProfileButtons.isInitialized) {
+            for (btn in poseProfileButtons) {
+                val active = btn.tag == snap.posePerformanceProfile
+                btn.setBackgroundColor(if (active) cAccent2 else cBgSecondary)
+                btn.setTextColor(if (active) cBg else cText)
+            }
+        }
+        if (::poseSmoothingSeek.isInitialized && !poseSmoothingSeek.isPressed) poseSmoothingSeek.progress = (snap.poseSmoothing * 100).toInt()
+        if (::poseSmoothingValue.isInitialized) poseSmoothingValue.text = String.format(java.util.Locale.US, "%.2f", snap.poseSmoothing)
+        if (::poseMirrorCheck.isInitialized && poseMirrorCheck.isChecked != snap.poseMirrored) poseMirrorCheck.isChecked = snap.poseMirrored
+        if (::poseDebugCheck.isInitialized && poseDebugCheck.isChecked != snap.poseDebugSkeleton) poseDebugCheck.isChecked = snap.poseDebugSkeleton
+        tvPoseCaptureStatus.text = "状态: $stateText/${snap.poseCaptureStatus} | 模式: $modeText | ${snap.posePerformanceProfile} | ${String.format(java.util.Locale.US, "%.1f", snap.poseFps)} FPS | 模型: ${snap.poseModelStatus}"
         refreshPoseModeButtons()
         refreshBodyPoseButtons()
     }
@@ -1765,6 +1843,7 @@ class MainActivity : AppCompatActivity() {
                 // capture 页面加载完成后立即初始化 AppState listener（不需要等待 viewer 连接）
                 if (url?.contains("capture") == true || url?.startsWith("file:///android_asset/") == true) {
                     setupAppStateListener()
+                    pushMotionStateToCaptureWebView()
                 }
             }
 
@@ -1906,6 +1985,17 @@ class MainActivity : AppCompatActivity() {
         webView?.loadUrl(url)
     }
 
+    private fun pushMotionStateToCaptureWebView() {
+        val state = appState ?: return
+        val settingsJson = MotionCaptureSettings.fromState(state).toJson()
+        webView?.evaluateJavascript(
+            "(function(){if(!window.CheapLiveCapture)return {ok:false,error:'not ready'};" +
+                "window.CheapLiveCapture.applyCaptureFeatures(${state.faceCaptureEnabled},${state.poseCaptureEnabled});" +
+                "return window.CheapLiveCapture.applyPoseSettings(${org.json.JSONObject.quote(settingsJson)});})()",
+            null,
+        )
+    }
+
     private fun setupAppStateListener() {
         // 防止重复注册
         if (appStateListenerRegistered) return
@@ -1916,6 +2006,8 @@ class MainActivity : AppCompatActivity() {
         var lastVoiceEnabled = false
         var lastVoicePreset = ""
         var lastConfigRevision = appState?.faceTrackingConfig?.revision ?: 0L
+        var lastMotionSettingsJson = ""
+        var lastCaptureFeatures = ""
         // 注册前补漏：如果 /api/control 在 listener 注册前调用了 resetFaceTrackingConfig，
         // appState.faceTrackingConfig 已是 reset 后的新值，但 prefs 仍是旧值。
         // 通过 lastPersistedConfigRevision（onCreate 中加载后设置）对比当前 rev，发现差异立即同步 save。
@@ -1943,6 +2035,7 @@ class MainActivity : AppCompatActivity() {
                 updateAvatarDisplay()
                 updateVoiceStatus()
                 updateFaceCaptureStatus()
+                updatePoseCaptureStatus()
                 refreshAvatarButtons()
                 refreshExprButtons()
                 refreshActionButtons()
@@ -1951,6 +2044,27 @@ class MainActivity : AppCompatActivity() {
                 tvServerBadge.text = if (snap.serverRunning) "ONLINE" else "OFFLINE"
                 tvServerBadge.setTextColor(if (snap.serverRunning) cAccent2 else cDanger)
                 tvServerBadge.setBackgroundColor(if (snap.serverRunning) Color.argb(30, 105, 219, 124) else Color.argb(30, 255, 107, 107))
+
+                val motionSettings = appState?.let { MotionCaptureSettings.fromState(it) } ?: MotionCaptureSettings()
+                val motionSettingsJson = motionSettings.toJson()
+                if (motionSettingsJson != lastMotionSettingsJson) {
+                    lastMotionSettingsJson = motionSettingsJson
+                    motionSettingsStore?.save(motionSettings)
+                    webView?.evaluateJavascript(
+                        "(function(){if(!window.CheapLiveCapture)return {ok:false,error:'not ready'};" +
+                            "window.CheapLiveCapture.applyCaptureFeatures(${snap.faceCaptureEnabled},${snap.poseCaptureEnabled});" +
+                            "return window.CheapLiveCapture.applyPoseSettings(${org.json.JSONObject.quote(motionSettingsJson)});})()",
+                        null,
+                    )
+                }
+                val captureFeatures = "${snap.faceCaptureEnabled}:${snap.poseCaptureEnabled}"
+                if (captureFeatures != lastCaptureFeatures) {
+                    lastCaptureFeatures = captureFeatures
+                    webView?.evaluateJavascript(
+                        "window.CheapLiveCapture?.applyCaptureFeatures?.(${snap.faceCaptureEnabled},${snap.poseCaptureEnabled})",
+                        null,
+                    )
+                }
 
                 // 面部追踪配置变更 → 持久化 + 推送给 WebView（capture 页面应用新参数）
                 val currentRev = appState?.faceTrackingConfig?.revision ?: 0L
