@@ -934,6 +934,16 @@
         currentRendererType = 'sphere';
       }
 
+      // Renderer modules load asynchronously. If app mode was selected before
+      // the module callback creates this renderer, carry the active mode into
+      // the new instance instead of falling back to an opaque first frame.
+      if (typeof procRenderer.setAppMode === 'function') {
+        procRenderer.setAppMode(appMode === true);
+      }
+      if (typeof procRenderer.setTransparentMode === 'function') {
+        procRenderer.setTransparentMode(appMode === true);
+      }
+
       currentRendererAvatar = avatarName;
       rendererReady = true;
       window.__cheapLiveReceiverDiag.rendererReady = true;
@@ -1878,10 +1888,12 @@
         try {
           var data = JSON.parse(e.data);
           applyState(data);
+          // A valid state event is authoritative even when another transport
+          // changed the shared diagnostic state while SSE remained active.
+          transportController.transition('connected-sse');
           if (!useSSE) {
             useSSE = true;
             transportController.reset('sse');
-            transportController.transition('connected-sse');
             pollRetryMs = 2000;
             log('SSE 已连接，停止轮询', 'success');
             if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
@@ -2607,6 +2619,12 @@
 
   // 绑定控制按钮
   if (typeof bindControlButtons === 'function') bindControlButtons();
+
+  // Native floating-browser integrations cannot reliably reach controls that are
+  // outside a small overlay viewport. An explicit query keeps normal browser
+  // behavior unchanged while allowing a receiver to boot directly into the
+  // transparent, avatar-only application mode.
+  if (query.get('app') === '1') toggleAppMode(true);
 
   function pauseTransports() {
     if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }

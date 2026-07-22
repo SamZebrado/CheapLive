@@ -272,10 +272,12 @@ export class ProceduralQuadrupedAvatar {
 
   setAppMode(enabled) {
     this._appMode = !!enabled;
+    this.draw();
   }
 
   setTransparentMode(enabled) {
     this._transparentMode = !!enabled;
+    this.draw();
   }
 
   updateParams(params) {

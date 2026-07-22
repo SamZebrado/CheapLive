@@ -88,6 +88,20 @@ test.describe('CheapLive canonical web runtime gate', () => {
     expect(diagnostics.brokenCoreAssets).toEqual([]);
   });
 
+  test('receiver app query boots directly into transparent avatar-only mode', async ({ page }) => {
+    await page.goto('/receiver/?app=1');
+    await expect(page.locator('body')).toHaveClass(/app-mode/);
+    await expect(page.locator('#stage')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(page.locator('.hero')).toBeHidden();
+    await expect.poll(() => page.evaluate(() => window.__cheapLiveReceiverDiag.rendererReady)).toBe(true);
+    const cornerAlphaAfterReinit = await page.evaluate(() => {
+      window.__cheapLiveInitRenderer('cat');
+      const canvas = document.getElementById('stage');
+      return canvas.getContext('2d').getImageData(0, 0, 1, 1).data[3];
+    });
+    expect(cornerAlphaAfterReinit).toBe(0);
+  });
+
   test('receiver retries preferred SSE while keeping only one polling fallback', async ({ page }) => {
     await page.addInitScript(() => {
       const nativeFetch = window.fetch.bind(window);
