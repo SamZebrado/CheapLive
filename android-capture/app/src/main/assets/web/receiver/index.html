@@ -658,6 +658,7 @@
 
   if (window._onRendererReady) window._onRendererReady();
 </script>
+<script src="./receiver-transport-controller.js"></script>
 <script>
 (function() {
   'use strict';
@@ -789,16 +790,13 @@
   var ws = null;
   var wsRetryCount = 0;
   var wsMaxRetries = 20;
-  var wsReconnectMs = 1000;
-  var wsRetryTimer = null;
   var transportStopped = false;
 
   // SSE
   var eventSource = null;
   var useSSE = false;
   var pollTimer = null;
-  var sseRetryTimer = null;
-  var sseRetryMs = 2000;
+  var pollRetryMs = 2000;
 
   // Animation
   var animTime = 0;
@@ -819,6 +817,15 @@
   if (showcaseMode) {
     document.body.classList.add('showcase');
   }
+
+  var transportController = new window.ReceiverTransportController({
+    baseDelayMs: 1000,
+    maxDelayMs: 30000,
+    onState: function(state) {
+      window.__cheapLiveReceiverDiag.transportState = state;
+    }
+  });
+  window.__cheapLiveReceiverDiag.transportState = 'idle';
 
   // 3D Procedural Renderer
   var procRenderer = null;
@@ -1841,24 +1848,30 @@
 
   // ===== API: fetch status =====
   function fetchStatus() {
-    fetch('/api/status?token=' + encodeURIComponent(token))
+    return fetch('/api/status?token=' + encodeURIComponent(token))
       .then(function(r) {
+        if (r.status === 401 || r.status === 403) {
+          transportController.unauthorized();
+          throw new Error('unauthorized');
+        }
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
       })
       .then(function(data) {
         applyState(data);
         log('状态已刷新: avatar=' + data.avatar + ' faceCapture=' + data.faceCaptureEnabled, 'info');
+        return true;
       })
       .catch(function(e) {
         log('fetchStatus 错误: ' + e.message, 'error');
+        return false;
       });
   }
 
   // ===== SSE =====
   function initSSE() {
-    if (transportStopped || eventSource) return;
-    if (sseRetryTimer) { clearTimeout(sseRetryTimer); sseRetryTimer = null; }
+    if (transportStopped || eventSource || !transportController.canRun()) return;
+    transportController.transition('connecting-sse');
     try {
       eventSource = new EventSource('/events?token=' + encodeURIComponent(token));
       eventSource.addEventListener('state', function(e) {
@@ -1867,9 +1880,11 @@
           applyState(data);
           if (!useSSE) {
             useSSE = true;
-            sseRetryMs = 2000;
+            transportController.reset('sse');
+            transportController.transition('connected-sse');
+            pollRetryMs = 2000;
             log('SSE 已连接，停止轮询', 'success');
-            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+            if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
           }
         } catch (err) {
           log('SSE 解析错误: ' + err.message, 'error');
@@ -1891,20 +1906,29 @@
   }
 
   function scheduleSSERetry() {
-    if (transportStopped || sseRetryTimer) return;
-    var delay = sseRetryMs;
-    sseRetryMs = Math.min(Math.round(sseRetryMs * 1.5), 30000);
-    sseRetryTimer = setTimeout(function() {
-      sseRetryTimer = null;
-      initSSE();
-    }, delay);
+    if (transportStopped || !transportController.canRun()) return;
+    transportController.transition('retrying-sse');
+    var delay = transportController.schedule('sse', initSSE, 2000);
+    if (delay) log(delay + 'ms 后重试 SSE', 'info');
   }
 
   function startPolling() {
-    if (pollTimer) return;
-    pollTimer = setInterval(fetchStatus, 2000);
-    fetchStatus();
-    log('轮询已启动（2s 间隔）', 'info');
+    if (pollTimer || !transportController.canRun()) return;
+    transportController.transition('fallback-polling');
+    schedulePoll(0);
+    log('轮询已启动（失败时指数退避）', 'info');
+  }
+
+  function schedulePoll(delay) {
+    if (pollTimer || useSSE || !transportController.canRun()) return;
+    pollTimer = setTimeout(function() {
+      pollTimer = null;
+      fetchStatus().then(function(ok) {
+        if (useSSE || !transportController.canRun()) return;
+        pollRetryMs = ok ? 2000 : Math.min(Math.round(pollRetryMs * 1.5), 30000);
+        schedulePoll(pollRetryMs);
+      });
+    }, delay);
   }
 
   // ===== Audio playback (MediaSource + SourceBuffer 流式播放) =====
@@ -2222,12 +2246,13 @@
 
   // ===== WebSocket (for real face frames) =====
   function connectWS() {
-    if (transportStopped) return;
+    if (transportStopped || ws || !transportController.canRun()) return;
     if (!token) {
       log('缺少 token，跳过 WebSocket 连接（仅模拟预览）', 'warn');
       return;
     }
     var wsUrl = 'ws://' + location.host + '/ws?token=' + encodeURIComponent(token);
+    transportController.transition('connecting-websocket');
     log('WebSocket 连接中（凭据已隐藏）', 'info');
     try {
       ws = new WebSocket(wsUrl);
@@ -2237,8 +2262,9 @@
     }
     ws.onopen = function() {
       log('WebSocket 已连接，等待面捕帧', 'success');
-      wsReconnectMs = 1000;
       wsRetryCount = 0;
+      transportController.reset('ws');
+      transportController.transition('connected-websocket');
       window.__cheapLiveReceiverDiag.connected = true;
     };
     ws.onmessage = function(ev) {
@@ -2267,15 +2293,17 @@
         updateUI();
       } catch (_) {}
     };
-    ws.onclose = function() {
+    ws.onclose = function(event) {
+      ws = null;
       log('WebSocket 断开', 'warn');
       window.__cheapLiveReceiverDiag.connected = false;
-      if (!transportStopped && wsRetryCount < wsMaxRetries) {
+      if (event && (event.code === 1008 || event.code === 4001)) {
+        transportController.unauthorized();
+        log('WebSocket 鉴权失败，停止重试', 'error');
+      } else if (!transportStopped && transportController.canRun() && wsRetryCount < wsMaxRetries) {
         wsRetryCount++;
-        wsReconnectMs = Math.min(wsReconnectMs * 1.5, 10000);
-        log(wsReconnectMs + 'ms 后第 ' + wsRetryCount + ' 次重连', 'info');
-        if (wsRetryTimer) clearTimeout(wsRetryTimer);
-        wsRetryTimer = setTimeout(function() { wsRetryTimer = null; connectWS(); }, wsReconnectMs);
+        var delay = transportController.schedule('ws', connectWS, 1000);
+        log(delay + 'ms 后第 ' + wsRetryCount + ' 次重连', 'info');
       } else {
         log('已达最大重连次数，请手动重连', 'error');
       }
@@ -2292,7 +2320,8 @@
   // ===== Event handlers =====
   document.getElementById('reconnect').addEventListener('click', function() {
     wsRetryCount = 0;
-    try { ws.close(); } catch (_) {}
+    transportController.reset('ws');
+    if (ws) { try { ws.onclose = null; ws.close(); } catch (_) {} ws = null; }
     connectWS();
   });
 
@@ -2579,6 +2608,39 @@
   // 绑定控制按钮
   if (typeof bindControlButtons === 'function') bindControlButtons();
 
+  function pauseTransports() {
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+    if (eventSource) { try { eventSource.close(); } catch (_) {} eventSource = null; }
+    useSSE = false;
+    if (ws) {
+      try { ws.onclose = null; ws.close(); } catch (_) {}
+      ws = null;
+    }
+    window.__cheapLiveReceiverDiag.connected = false;
+    transportController.cancelAll();
+  }
+
+  function resumeTransports() {
+    if (!transportController.canRun()) return;
+    startPolling();
+    initSSE();
+    connectWS();
+  }
+
+  window.addEventListener('offline', function() {
+    transportController.setOnline(false);
+    pauseTransports();
+  });
+  window.addEventListener('online', function() {
+    transportController.setOnline(true);
+    resumeTransports();
+  });
+  document.addEventListener('visibilitychange', function() {
+    var visible = document.visibilityState !== 'hidden';
+    transportController.setVisible(visible);
+    if (visible) resumeTransports(); else pauseTransports();
+  });
+
   // 先获取一次状态
   fetchStatus();
 
@@ -2590,14 +2652,8 @@
 
   window.addEventListener('pagehide', function() {
     transportStopped = true;
-    if (sseRetryTimer) { clearTimeout(sseRetryTimer); sseRetryTimer = null; }
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-    if (eventSource) { try { eventSource.close(); } catch (_) {} eventSource = null; }
-    if (wsRetryTimer) { clearTimeout(wsRetryTimer); wsRetryTimer = null; }
-    if (ws) {
-      try { ws.onclose = null; ws.close(); } catch (_) {}
-      ws = null;
-    }
+    transportController.stop();
+    pauseTransports();
     if (audioUnlocked) disableAudio();
   }, { once: true });
 

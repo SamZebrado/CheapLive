@@ -102,6 +102,15 @@
       ]
     },
     {
+      "feature": "receiver-transport-controller",
+      "source": "src/shared/runtime/receiver-transport-controller.js",
+      "sha256": "ab5a5cec9d6fafb7d4f1052446e037ca44ebf7efc656e4c6a14ffef877c8d3c1",
+      "size": 2818,
+      "targets": [
+        "android-capture/app/src/main/assets/web/receiver/receiver-transport-controller.js"
+      ]
+    },
+    {
       "feature": "soundtouch-runtime",
       "source": "src/face-tracking/lib/soundtouch.min.js",
       "sha256": "44509e71d37d75e808261f4eb977c4c5acba3ae6874ec1f3b1c97c90ae5d31ac",

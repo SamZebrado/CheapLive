@@ -133,6 +133,28 @@ test.describe('CheapLive canonical web runtime gate', () => {
     expect(state.firstClosed).toBe(true);
     expect(state.secondClosed).toBe(false);
     expect(state.statusFetches).toBeLessThan(5);
+
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+    await expect.poll(() => page.evaluate(() => window.__cheapLiveReceiverDiag.transportState)).toBe('offline');
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await expect.poll(() => page.evaluate(() => window.__sseTest.instances.length)).toBe(3);
+    await expect.poll(() => page.evaluate(() => window.__cheapLiveReceiverDiag.transportState)).toBe('connected-sse');
+  });
+
+  test('receiver stops transport retries after an unauthorized status', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.__unauthorizedTransport = { eventSources: 0 };
+      window.fetch = () => Promise.resolve(new Response('forbidden', { status: 403 }));
+      window.EventSource = class FakeEventSource {
+        constructor() { window.__unauthorizedTransport.eventSources++; }
+        addEventListener() {}
+        close() {}
+      };
+    });
+    await page.goto('/receiver/?token=invalid');
+    await expect.poll(() => page.evaluate(() => window.__cheapLiveReceiverDiag.transportState)).toBe('unauthorized');
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => window.__unauthorizedTransport.eventSources)).toBe(0);
   });
 
   test('capture camera start/stop and page exit are idempotent', async ({ page }) => {

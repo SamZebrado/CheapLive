@@ -15,6 +15,13 @@ export const MANIFEST_PATH = 'docs/architecture/WEB_ASSET_SYNC_MANIFEST.json';
 // in docs/architecture/WEB_ASSET_SYNC.md and are not copied by this script.
 export const ASSET_GROUPS = [
   {
+    feature: 'receiver-transport-controller',
+    source: 'src/shared/runtime/receiver-transport-controller.js',
+    targets: [
+      'android-capture/app/src/main/assets/web/receiver/receiver-transport-controller.js',
+    ],
+  },
+  {
     feature: 'android-receiver-procedural-renderer',
     source: 'android-capture/app/src/main/assets/web/receiver/procedural-mesh-renderer.js',
     targets: [
