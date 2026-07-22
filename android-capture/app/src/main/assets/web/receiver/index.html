@@ -650,10 +650,12 @@
 <script type="module">
   import { ProceduralSphereAvatar, ProceduralSpindleWhaleAvatar } from './procedural-mesh-renderer.js?v=receiver-transparent-1';
   import { ProceduralQuadrupedAvatar } from './quadruped-renderer.js?v=receiver-transparent-1';
+  import { PoseState } from '/web/shared/motion/pose-state.js';
 
   window._ProceduralSphereAvatar = ProceduralSphereAvatar;
   window._ProceduralSpindleWhaleAvatar = ProceduralSpindleWhaleAvatar;
   window._ProceduralQuadrupedAvatar = ProceduralQuadrupedAvatar;
+  window._PoseState = PoseState;
   window._rendererReady = true;
 
   if (window._onRendererReady) window._onRendererReady();
@@ -718,6 +720,14 @@
     bodyPose: 'idle',
     poseQuality: 'none',
     poseLandmarkCount: 0,
+    posePerformanceProfile: 'low',
+    poseSmoothing: 0.35,
+    poseMirrored: true,
+    poseDebugSkeleton: false,
+    poseFps: 0,
+    poseInferenceMs: 0,
+    poseTrackingConfidence: 0,
+    poseModelStatus: 'off',
     poseLastUpdatedAt: 0,
     poseError: '',
     // 接收端本地控制选项（不依赖服务器）
@@ -746,6 +756,16 @@
   var localFrameCount = 0;
   var lastAppliedSeq = -1;
   var lastAppliedSource = null;
+  var poseState = null;
+  var poseRig = null;
+  var lastPoseFrameTime = 0;
+  function ensurePoseState() {
+    if (!poseState && window._PoseState) {
+      poseState = new window._PoseState({ aspectRatio: stage && stage.height ? stage.width / stage.height : 600 / 320 });
+      poseRig = poseState.rigFor('debug-puppet');
+    }
+    return poseState;
+  }
 
   // 位置追踪平滑
   var smoothPosX = 0.5;
@@ -783,7 +803,8 @@
       rawFaceY: 0,
       appliedX: 0.5,
       appliedY: 0.5
-    }
+    },
+    pose: { accepted: 0, rejected: 0, reason: 'idle', tracking: false, sequence: -1, confidence: 0 }
   };
 
   // WebSocket
@@ -853,6 +874,7 @@
     var h = 320;
     stage.width = Math.min(600, w);
     stage.height = h;
+    if (ensurePoseState()) poseState.setAspectRatio(stage.width / stage.height);
     if (ctx && stage.width > 0 && stage.height > 0) {
       ctx.fillStyle = '#11111f';
       ctx.fillRect(0, 0, stage.width, stage.height);
@@ -1038,6 +1060,7 @@
 
   // 当 module script 加载完成后初始化
   window._onRendererReady = function() {
+    ensurePoseState();
     log('3D 渲染模块已加载，初始化中...', 'info');
     var result = initProcRenderer(appState.avatar || 'sacabambaspis3d');
     document.title = 'RDR:' + (result ? 'OK' : 'FAIL') + ':' + appState.avatar;
@@ -1499,7 +1522,75 @@
         stageOverlay.className = 'stage-overlay simulated';
       }
     }
+    if (poseState && lastPoseFrameTime && performance.now() - lastPoseFrameTime > 500) {
+      poseRig = poseState.tick(performance.now());
+      window.__cheapLiveReceiverDiag.pose.tracking = poseRig.tracking;
+    }
+    drawPoseOverlay();
     animTime++;
+  }
+
+  function receivePoseFrame(frame) {
+    if (!ensurePoseState()) return false;
+    var result = poseState.apply(frame, frame && frame.timestampMs);
+    var diag = window.__cheapLiveReceiverDiag.pose;
+    diag.reason = result.reason;
+    diag.sequence = frame && Number.isSafeInteger(frame.sequence) ? frame.sequence : diag.sequence;
+    diag.confidence = frame && Number.isFinite(frame.confidence) ? frame.confidence : 0;
+    if (!result.accepted) { diag.rejected++; return false; }
+    diag.accepted++;
+    poseRig = result.state;
+    lastPoseFrameTime = performance.now();
+    diag.tracking = poseRig.tracking;
+    diag.torsoLean = poseRig.torsoLean;
+    diag.leftWrist = poseRig.leftWrist;
+    diag.rightWrist = poseRig.rightWrist;
+    return true;
+  }
+
+  window.__cheapLiveReceivePoseFrame = receivePoseFrame;
+  window.__cheapLiveMotionTest = {
+    configure: function(options) {
+      options = options || {};
+      appState.poseCaptureEnabled = options.enabled !== false;
+      appState.poseDebugSkeleton = options.debugSkeleton !== false;
+      if (Number.isFinite(options.smoothing)) {
+        appState.poseSmoothing = clamp(options.smoothing, 0, 1);
+        if (ensurePoseState()) poseState.smoother.alpha = appState.poseSmoothing;
+      }
+    },
+    receive: receivePoseFrame,
+    getRig: function() { return poseRig; }
+  };
+
+  function drawPoseOverlay() {
+    if (!ctx || !stage || !appState.poseCaptureEnabled || !appState.poseDebugSkeleton || !poseRig) return;
+    var p = poseRig.landmarks;
+    if (!p) return;
+    var edges = [
+      ['leftShoulder','rightShoulder'], ['leftShoulder','leftHip'], ['rightShoulder','rightHip'], ['leftHip','rightHip'],
+      ['leftShoulder','leftElbow'], ['leftElbow','leftWrist'], ['rightShoulder','rightElbow'], ['rightElbow','rightWrist'],
+      ['nose','leftShoulder'], ['nose','rightShoulder']
+    ];
+    function xy(point) { return [point.x * stage.width, point.y * stage.height]; }
+    ctx.save();
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    for (var i = 0; i < edges.length; i++) {
+      var a = p[edges[i][0]], b = p[edges[i][1]];
+      if (!a || !b) continue;
+      var confidence = Math.min(a.visibility || 0, b.visibility || 0);
+      ctx.strokeStyle = confidence >= 0.65 ? '#69db7c' : confidence >= 0.35 ? '#ffd43b' : '#ff6b6b';
+      ctx.globalAlpha = poseRig.tracking ? 0.9 : 0.35;
+      var pa = xy(a), pb = xy(b);
+      ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
+    }
+    for (var name in p) {
+      var point = p[name], pos = xy(point);
+      ctx.fillStyle = (point.visibility || 0) >= 0.65 ? '#4fc3f7' : '#ffd43b';
+      ctx.beginPath(); ctx.arc(pos[0], pos[1], 4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
   }
 
   // ===== UI update =====
@@ -1643,6 +1734,15 @@
     appState.poseLandmarkCount = data.poseLandmarkCount || 0;
     appState.poseLastUpdatedAt = data.poseLastUpdatedAt || 0;
     appState.poseError = data.poseError || '';
+    appState.posePerformanceProfile = data.posePerformanceProfile || 'low';
+    appState.poseSmoothing = Number.isFinite(data.poseSmoothing) ? clamp(data.poseSmoothing, 0, 1) : 0.35;
+    appState.poseMirrored = data.poseMirrored !== false;
+    appState.poseDebugSkeleton = !!data.poseDebugSkeleton;
+    appState.poseFps = Number.isFinite(data.poseFps) ? data.poseFps : 0;
+    appState.poseInferenceMs = Number.isFinite(data.poseInferenceMs) ? data.poseInferenceMs : 0;
+    appState.poseTrackingConfidence = Number.isFinite(data.poseTrackingConfidence) ? data.poseTrackingConfidence : 0;
+    appState.poseModelStatus = data.poseModelStatus || 'off';
+    if (ensurePoseState()) poseState.smoother.alpha = appState.poseSmoothing;
     // 面捕个体化配置（从 Capture App 同步）
     // 兼容两种格式：早期版本用 faceTrackingConfigJson（字符串），当前 /api/status 直接返回 faceTrackingConfig（对象）
     var cfg = null;
@@ -2296,6 +2396,11 @@
             appState.voicePreset = msg.effectMode;
             updateUI();
           }
+          return;
+        }
+
+        if (msg.type === 'pose-frame') {
+          receivePoseFrame(msg);
           return;
         }
 
