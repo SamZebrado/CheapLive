@@ -16,7 +16,11 @@ class CaptureBridgeTest {
     private fun makeBridge(token: String = "t1", sessionId: String = "s1"): Pair<CaptureBridge, StubBroadcast> {
         val stub = StubBroadcast()
         val fakeSession = Session(sessionId = sessionId, token = token, port = 8766, privateIp = "192.168.1.2")
-        return CaptureBridge(fakeSession, stub) { _, _ -> } to stub
+        return CaptureBridge(
+            session = fakeSession,
+            broadcast = stub,
+            onStateChange = { _, _ -> },
+        ) to stub
     }
 
     @Test

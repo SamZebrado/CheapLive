@@ -12,6 +12,22 @@ class CaptureBridge(
 ) {
     private val validAvatarTypes = setOf("mesh-spindle-whale", "mesh-sphere", "sacabambaspis", "sacabambaspis3d")
 
+    private fun logDebug(tag: String, message: String) {
+        runCatching { android.util.Log.d(tag, message) }
+    }
+
+    private fun logInfo(tag: String, message: String) {
+        runCatching { android.util.Log.i(tag, message) }
+    }
+
+    private fun logWarn(tag: String, message: String) {
+        runCatching { android.util.Log.w(tag, message) }
+    }
+
+    private fun logError(tag: String, message: String) {
+        runCatching { android.util.Log.e(tag, message) }
+    }
+
     @JavascriptInterface fun getSessionInfo(): String = JSONObject().apply {
         put("sessionId", session.sessionId)
         put("token", session.token)
@@ -32,25 +48,25 @@ class CaptureBridge(
     }
 
     @JavascriptInterface fun publishFaceFrame(json: String): String {
-        android.util.Log.d("CheapLiveCapture", "publishFaceFrame received: ${json.take(120)}...")
+        logDebug("CheapLiveCapture", "publishFaceFrame received: ${json.take(120)}...")
         if (json.length > FaceFrameValidator.MAX_MESSAGE_BYTES) {
-            android.util.Log.w("CheapLiveCapture", "publishFaceFrame rejected: too large (${json.length} bytes)")
+            logWarn("CheapLiveCapture", "publishFaceFrame rejected: too large (${json.length} bytes)")
             return "{\"ok\":false,\"reason\":\"too large\"}"
         }
         return try {
             val obj = JSONObject(json)
             val type = obj.optString("type", "")
             if (type != "face-frame") {
-                android.util.Log.w("CheapLiveCapture", "publishFaceFrame rejected: wrong type=$type")
+                logWarn("CheapLiveCapture", "publishFaceFrame rejected: wrong type=$type")
                 return "{\"ok\":false,\"reason\":\"wrong type\"}"
             }
             val ver = obj.optInt("version", 0)
             if (ver != FaceFrameValidator.VERSION) {
-                android.util.Log.w("CheapLiveCapture", "publishFaceFrame rejected: wrong version=$ver")
+                logWarn("CheapLiveCapture", "publishFaceFrame rejected: wrong version=$ver")
                 return "{\"ok\":false,\"reason\":\"wrong version\"}"
             }
             val source = obj.optString("source", "unknown")
-            android.util.Log.i("CheapLiveCapture", "publishFaceFrame: source=$source, seq=${obj.optLong("seq")}, avatar=${obj.optString("avatar")}")
+            logInfo("CheapLiveCapture", "publishFaceFrame: source=$source, seq=${obj.optLong("seq")}, avatar=${obj.optString("avatar")}")
 
             val p = obj.getJSONObject("params")
             val frame = FaceFrame(
@@ -165,7 +181,7 @@ class CaptureBridge(
             if (data.isEmpty()) {
                 return "{\"ok\":false,\"reason\":\"empty data\"}"
             }
-            android.util.Log.i("CheapLiveAudio", "publishAudioChunk: seq=$seq, effectMode=$effectMode, mimeType=$mimeType, dataSize=${data.length}")
+            logInfo("CheapLiveAudio", "publishAudioChunk: seq=$seq, effectMode=$effectMode, mimeType=$mimeType, dataSize=${data.length}")
             val frameJson = JSONObject().apply {
                 put("type", "audio-chunk")
                 put("version", 1)
@@ -180,7 +196,7 @@ class CaptureBridge(
             broadcast.broadcastFrame(frameJson)
             "{\"ok\":true,\"seq\":$seq}"
         } catch (e: Exception) {
-            android.util.Log.e("CheapLiveAudio", "publishAudioChunk error: ${e.message}")
+            logError("CheapLiveAudio", "publishAudioChunk error: ${e.message}")
             "{\"ok\":false,\"reason\":\"parse\"}"
         }
     }
