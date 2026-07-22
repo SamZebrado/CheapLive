@@ -183,10 +183,19 @@
       ]
     },
     {
+      "feature": "pose-runtime-pose-worker-bootstrap.js",
+      "source": "src/shared/motion/pose-worker-bootstrap.js",
+      "sha256": "734b45f2fc89fc025427720fca60f8f602efba9d453f2fa13ca8aa97dc61ad31",
+      "size": 626,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/motion/pose-worker-bootstrap.js"
+      ]
+    },
+    {
       "feature": "pose-runtime-pose-worker-client.js",
       "source": "src/shared/motion/pose-worker-client.js",
-      "sha256": "cec315f2782edd7e8737dc045cb67e0507628fa38f34d165bad5d09a49a76201",
-      "size": 3530,
+      "sha256": "9428c788e1812ae133ddc8cd7244a41617abbdc67369f4b604c86722ced04508",
+      "size": 3745,
       "targets": [
         "android-capture/app/src/main/assets/web/shared/motion/pose-worker-client.js"
       ]

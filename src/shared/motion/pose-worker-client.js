@@ -22,6 +22,8 @@ export class PoseWorkerClient {
     this.profile = 'low';
     this.timer = null;
     this.droppedMessages = 0;
+    this.status = 'off';
+    this.lastError = '';
   }
 
   enable({ profile = 'low', mirrored = true } = {}) {
@@ -34,6 +36,8 @@ export class PoseWorkerClient {
     this.worker.onmessage = (event) => this.handleMessage(event.data);
     this.worker.onerror = (event) => this.fail(event?.message || 'pose worker error');
     this.onStatus('loading');
+    this.status = 'loading';
+    this.lastError = '';
     this.worker.postMessage({ type: 'init', profile, mirrored });
   }
 
@@ -49,6 +53,7 @@ export class PoseWorkerClient {
       this.worker = null;
     }
     this.onStatus('off');
+    this.status = 'off';
   }
 
   configure({ profile = this.profile, mirrored = this.mirrored } = {}) {
@@ -87,6 +92,7 @@ export class PoseWorkerClient {
   handleMessage(message) {
     if (message?.type === 'ready') {
       this.ready = true;
+      this.status = 'ready';
       this.onStatus('ready');
       return;
     }
@@ -106,6 +112,8 @@ export class PoseWorkerClient {
     this.timer = null;
     this.busy = false;
     this.ready = false;
+    this.status = 'error';
+    this.lastError = message;
     this.onStatus('error', message);
     if (this.worker) this.worker.terminate();
     this.worker = null;

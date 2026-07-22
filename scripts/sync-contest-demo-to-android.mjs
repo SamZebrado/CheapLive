@@ -33,6 +33,7 @@ export const ASSET_GROUPS = [
     'pose-state.js',
     'pose-worker-client.js',
     'pose-worker.js',
+    'pose-worker-bootstrap.js',
   ].map((name) => ({
     feature: `pose-runtime-${name}`,
     source: `src/shared/motion/${name}`,
