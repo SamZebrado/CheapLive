@@ -13,16 +13,6 @@
       ]
     },
     {
-      "feature": "android-receiver-spindle-mesh",
-      "source": "android-capture/app/src/main/assets/web/receiver/mesh-spindle-whale.js",
-      "sha256": "901a377cea469b8bff4400982f8a1d77becf42668587360078548585e0f132dc",
-      "size": 29462,
-      "targets": [
-        "android-capture/app/src/main/assets/web/contest-demo/mesh-spindle-whale.js",
-        "android-capture/app/src/main/assets/web/demo/mesh-spindle-whale.js"
-      ]
-    },
-    {
       "feature": "android-receiver-sphere-mesh",
       "source": "android-capture/app/src/main/assets/web/receiver/mesh-sphere.js",
       "sha256": "4ddbcf9b54badf8e57af6838d72a6a3dd12e7c829b83df0ef901b05208ae086e",
@@ -32,22 +22,13 @@
       ]
     },
     {
-      "feature": "soundtouch-runtime",
-      "source": "src/face-tracking/lib/soundtouch.min.js",
-      "sha256": "44509e71d37d75e808261f4eb977c4c5acba3ae6874ec1f3b1c97c90ae5d31ac",
-      "size": 14610,
+      "feature": "android-receiver-spindle-mesh",
+      "source": "android-capture/app/src/main/assets/web/receiver/mesh-spindle-whale.js",
+      "sha256": "901a377cea469b8bff4400982f8a1d77becf42668587360078548585e0f132dc",
+      "size": 29462,
       "targets": [
-        "android-capture/app/src/main/assets/web/contest-demo/lib/soundtouch.min.js"
-      ]
-    },
-    {
-      "feature": "mediapipe-license",
-      "source": "src/face-tracking/mediapipe/LICENSE",
-      "sha256": "c3840564f53c7cfd8f7ce2d8d42f0e3ecc61bcb8d4bbe2329569e8a4a5fb1b14",
-      "size": 11027,
-      "targets": [
-        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/LICENSE",
-        "android-capture/app/src/main/assets/web/mediapipe/LICENSE"
+        "android-capture/app/src/main/assets/web/contest-demo/mesh-spindle-whale.js",
+        "android-capture/app/src/main/assets/web/demo/mesh-spindle-whale.js"
       ]
     },
     {
@@ -61,13 +42,13 @@
       ]
     },
     {
-      "feature": "mediapipe-vision-bundle",
-      "source": "src/face-tracking/mediapipe/vision_bundle.mjs",
-      "sha256": "a229ff5bd4b6cf330e87b3ce63b84610767c5521d365b9b4a2cadb011f885b0c",
-      "size": 881037,
+      "feature": "mediapipe-license",
+      "source": "src/face-tracking/mediapipe/LICENSE",
+      "sha256": "c3840564f53c7cfd8f7ce2d8d42f0e3ecc61bcb8d4bbe2329569e8a4a5fb1b14",
+      "size": 11027,
       "targets": [
-        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/vision_bundle.mjs",
-        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/vision_bundle.mjs"
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/LICENSE",
+        "android-capture/app/src/main/assets/web/mediapipe/LICENSE"
       ]
     },
     {
@@ -108,6 +89,25 @@
       "targets": [
         "android-capture/app/src/main/assets/web/contest-demo/mediapipe/wasm/vision_wasm_nosimd_internal.wasm",
         "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/wasm/vision_wasm_nosimd_internal.wasm"
+      ]
+    },
+    {
+      "feature": "mediapipe-vision-bundle",
+      "source": "src/face-tracking/mediapipe/vision_bundle.mjs",
+      "sha256": "a229ff5bd4b6cf330e87b3ce63b84610767c5521d365b9b4a2cadb011f885b0c",
+      "size": 881037,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/vision_bundle.mjs",
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/vision_bundle.mjs"
+      ]
+    },
+    {
+      "feature": "soundtouch-runtime",
+      "source": "src/face-tracking/lib/soundtouch.min.js",
+      "sha256": "44509e71d37d75e808261f4eb977c4c5acba3ae6874ec1f3b1c97c90ae5d31ac",
+      "size": 14610,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/lib/soundtouch.min.js"
       ]
     }
   ]

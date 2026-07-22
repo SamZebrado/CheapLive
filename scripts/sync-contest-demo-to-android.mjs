@@ -83,33 +83,72 @@ export const ASSET_GROUPS = [
   })),
 ];
 
-function resolveRepoPath(relativePath) {
-  const resolved = path.resolve(REPO_ROOT, relativePath);
-  const prefix = `${REPO_ROOT}${path.sep}`;
+function normalizeOptions(options = {}) {
+  return {
+    repoRoot: fs.realpathSync(options.repoRoot ?? REPO_ROOT),
+    assetGroups: options.assetGroups ?? ASSET_GROUPS,
+    manifestPath: options.manifestPath ?? MANIFEST_PATH,
+  };
+}
+
+export function resolveRepoPath(relativePath, repoRoot = REPO_ROOT) {
+  if (typeof relativePath !== 'string' || relativePath.length === 0 || path.isAbsolute(relativePath)) {
+    throw new Error(`Asset path must be a non-empty repository-relative path: ${relativePath}`);
+  }
+  const canonicalRoot = fs.realpathSync(repoRoot);
+  const resolved = path.resolve(canonicalRoot, relativePath);
+  const prefix = `${canonicalRoot}${path.sep}`;
   if (!resolved.startsWith(prefix)) {
     throw new Error(`Asset path escapes repository: ${relativePath}`);
   }
   return resolved;
 }
 
-export function sha256File(relativePath) {
-  const bytes = fs.readFileSync(resolveRepoPath(relativePath));
+export function assertSafeRepoPath(relativePath, options = {}) {
+  const { repoRoot } = normalizeOptions(options);
+  const resolved = resolveRepoPath(relativePath, repoRoot);
+  const relativeParts = path.relative(repoRoot, resolved).split(path.sep);
+  let cursor = repoRoot;
+  for (const part of relativeParts) {
+    cursor = path.join(cursor, part);
+    if (!fs.existsSync(cursor)) break;
+    if (fs.lstatSync(cursor).isSymbolicLink()) {
+      throw new Error(`Asset path contains a symbolic link: ${relativePath}`);
+    }
+  }
+  return resolved;
+}
+
+function requireRegularFile(relativePath, options, label) {
+  const resolved = assertSafeRepoPath(relativePath, options);
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`${label} missing: ${relativePath}`);
+  }
+  if (!fs.lstatSync(resolved).isFile()) {
+    throw new Error(`${label} is not a regular file: ${relativePath}`);
+  }
+  return resolved;
+}
+
+export function sha256File(relativePath, options = {}) {
+  const bytes = fs.readFileSync(requireRegularFile(relativePath, options, 'Asset file'));
   return crypto.createHash('sha256').update(bytes).digest('hex');
 }
 
-export function buildManifest() {
+export function buildManifest(options = {}) {
+  const normalized = normalizeOptions(options);
+  const groups = [...normalized.assetGroups]
+    .map((group) => ({ ...group, targets: [...group.targets].sort() }))
+    .sort((left, right) => left.feature.localeCompare(right.feature));
   return {
     schemaVersion: 1,
     generatedBy: 'node scripts/sync-contest-demo-to-android.mjs --write',
-    entries: ASSET_GROUPS.map((group) => {
-      const sourcePath = resolveRepoPath(group.source);
-      if (!fs.existsSync(sourcePath)) {
-        throw new Error(`Canonical source missing: ${group.source}`);
-      }
+    entries: groups.map((group) => {
+      const sourcePath = requireRegularFile(group.source, normalized, 'Canonical source');
       return {
         feature: group.feature,
         source: group.source,
-        sha256: sha256File(group.source),
+        sha256: sha256File(group.source, normalized),
         size: fs.statSync(sourcePath).size,
         targets: [...group.targets],
       };
@@ -117,18 +156,29 @@ export function buildManifest() {
   };
 }
 
-export function checkAssetSync() {
-  const manifest = buildManifest();
+export function checkAssetSync(options = {}) {
+  const normalized = normalizeOptions(options);
+  const manifest = buildManifest(normalized);
   const failures = [];
 
   for (const entry of manifest.entries) {
     for (const target of entry.targets) {
-      const targetPath = resolveRepoPath(target);
+      let targetPath;
+      try {
+        targetPath = assertSafeRepoPath(target, normalized);
+      } catch (error) {
+        failures.push(`${target}: ${error.message}`);
+        continue;
+      }
       if (!fs.existsSync(targetPath)) {
         failures.push(`${target}: missing (source ${entry.source})`);
         continue;
       }
-      const actualHash = sha256File(target);
+      if (!fs.lstatSync(targetPath).isFile()) {
+        failures.push(`${target}: not a regular file (source ${entry.source})`);
+        continue;
+      }
+      const actualHash = sha256File(target, normalized);
       if (actualHash !== entry.sha256) {
         failures.push(`${target}: ${actualHash} != ${entry.sha256} (source ${entry.source})`);
       }
@@ -136,34 +186,49 @@ export function checkAssetSync() {
   }
 
   const expectedManifest = `${JSON.stringify(manifest, null, 2)}\n`;
-  const manifestPath = resolveRepoPath(MANIFEST_PATH);
+  let manifestPath;
+  try {
+    manifestPath = assertSafeRepoPath(normalized.manifestPath, normalized);
+  } catch (error) {
+    failures.push(`${normalized.manifestPath}: ${error.message}`);
+    return { failures, manifest };
+  }
   if (!fs.existsSync(manifestPath)) {
-    failures.push(`${MANIFEST_PATH}: missing`);
+    failures.push(`${normalized.manifestPath}: missing`);
   } else if (fs.readFileSync(manifestPath, 'utf8') !== expectedManifest) {
-    failures.push(`${MANIFEST_PATH}: stale`);
+    failures.push(`${normalized.manifestPath}: stale`);
   }
 
   return { failures, manifest };
 }
 
-export function writeAssetSync() {
-  const manifest = buildManifest();
+export function writeAssetSync(options = {}) {
+  const normalized = normalizeOptions(options);
+  const manifest = buildManifest(normalized);
   let copied = 0;
 
   for (const entry of manifest.entries) {
-    const sourcePath = resolveRepoPath(entry.source);
+    const sourcePath = requireRegularFile(entry.source, normalized, 'Canonical source');
     for (const target of entry.targets) {
-      const targetPath = resolveRepoPath(target);
+      let targetPath = assertSafeRepoPath(target, normalized);
       fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-      if (!fs.existsSync(targetPath) || sha256File(target) !== entry.sha256) {
+      targetPath = assertSafeRepoPath(target, normalized);
+      if (fs.existsSync(targetPath) && !fs.lstatSync(targetPath).isFile()) {
+        throw new Error(`Mirror target is not a regular file: ${target}`);
+      }
+      if (!fs.existsSync(targetPath) || sha256File(target, normalized) !== entry.sha256) {
         fs.copyFileSync(sourcePath, targetPath);
         copied += 1;
       }
     }
   }
 
-  const manifestPath = resolveRepoPath(MANIFEST_PATH);
+  let manifestPath = assertSafeRepoPath(normalized.manifestPath, normalized);
   fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+  manifestPath = assertSafeRepoPath(normalized.manifestPath, normalized);
+  if (fs.existsSync(manifestPath) && !fs.lstatSync(manifestPath).isFile()) {
+    throw new Error(`Manifest target is not a regular file: ${normalized.manifestPath}`);
+  }
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   return { copied, manifest };
 }
