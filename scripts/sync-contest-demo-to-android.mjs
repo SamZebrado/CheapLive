@@ -14,6 +14,39 @@ export const MANIFEST_PATH = 'docs/architecture/WEB_ASSET_SYNC_MANIFEST.json';
 // contract. Same-named files that have intentionally diverged are documented
 // in docs/architecture/WEB_ASSET_SYNC.md and are not copied by this script.
 export const ASSET_GROUPS = [
+  ...[
+    'pose-frame.js',
+    'pose-validator.js',
+    'pose-simulator.js',
+    'pose-smoothing.js',
+    'pose-calibration.js',
+  ].map((name) => ({
+    feature: `pose-protocol-${name}`,
+    source: `src/shared/protocol/${name}`,
+    targets: [
+      `android-capture/app/src/main/assets/web/shared/protocol/${name}`,
+    ],
+  })),
+  ...[
+    'pose-model-provider.js',
+    'pose-scheduler.js',
+    'pose-state.js',
+    'pose-worker-client.js',
+    'pose-worker.js',
+  ].map((name) => ({
+    feature: `pose-runtime-${name}`,
+    source: `src/shared/motion/${name}`,
+    targets: [
+      `android-capture/app/src/main/assets/web/shared/motion/${name}`,
+    ],
+  })),
+  {
+    feature: 'pose-landmarker-lite-model-v1',
+    source: 'src/shared/models/pose_landmarker_lite.task',
+    targets: [
+      'android-capture/app/src/main/assets/web/mediapipe/tasks-vision/pose_landmarker_lite.task',
+    ],
+  },
   {
     feature: 'receiver-transport-controller',
     source: 'src/shared/runtime/receiver-transport-controller.js',

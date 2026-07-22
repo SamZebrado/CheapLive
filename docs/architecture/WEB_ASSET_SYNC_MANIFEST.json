@@ -102,6 +102,105 @@
       ]
     },
     {
+      "feature": "pose-landmarker-lite-model-v1",
+      "source": "src/shared/models/pose_landmarker_lite.task",
+      "sha256": "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a",
+      "size": 5777746,
+      "targets": [
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/pose_landmarker_lite.task"
+      ]
+    },
+    {
+      "feature": "pose-protocol-pose-calibration.js",
+      "source": "src/shared/protocol/pose-calibration.js",
+      "sha256": "ea65a55a7bc1216c31d4d7edb4c927d887377081eb4d312e6f855f6cdaf1a303",
+      "size": 1301,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/protocol/pose-calibration.js"
+      ]
+    },
+    {
+      "feature": "pose-protocol-pose-frame.js",
+      "source": "src/shared/protocol/pose-frame.js",
+      "sha256": "c3871ff697d7c2a68e3de86c0cf5e47799d81b7c50be11de45cf1ac9adafc145",
+      "size": 2739,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/protocol/pose-frame.js"
+      ]
+    },
+    {
+      "feature": "pose-protocol-pose-simulator.js",
+      "source": "src/shared/protocol/pose-simulator.js",
+      "sha256": "84f20d81b7473a6c994aabfe9fe65bc3a34639928a644829d71bbcb43c7c488e",
+      "size": 2648,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/protocol/pose-simulator.js"
+      ]
+    },
+    {
+      "feature": "pose-protocol-pose-smoothing.js",
+      "source": "src/shared/protocol/pose-smoothing.js",
+      "sha256": "f62a7482627cab91b0bbc654f5029f228c6e0304cc9fb3afca93011adf8b96c8",
+      "size": 2014,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/protocol/pose-smoothing.js"
+      ]
+    },
+    {
+      "feature": "pose-protocol-pose-validator.js",
+      "source": "src/shared/protocol/pose-validator.js",
+      "sha256": "a6237d2b8a9a161afacdb21e9ae5e335b25522abfaeff383325e37fb326ac20c",
+      "size": 3943,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/protocol/pose-validator.js"
+      ]
+    },
+    {
+      "feature": "pose-runtime-pose-model-provider.js",
+      "source": "src/shared/motion/pose-model-provider.js",
+      "sha256": "21ca5f8c3a02a7236f4dc10c462a325baa797d3e7e6c73f383ee1ba6d2400979",
+      "size": 3037,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/motion/pose-model-provider.js"
+      ]
+    },
+    {
+      "feature": "pose-runtime-pose-scheduler.js",
+      "source": "src/shared/motion/pose-scheduler.js",
+      "sha256": "64844e252f666ac2d29285dc3e56922ec72851632082c3d4a65d13b5d6ae0d35",
+      "size": 2568,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/motion/pose-scheduler.js"
+      ]
+    },
+    {
+      "feature": "pose-runtime-pose-state.js",
+      "source": "src/shared/motion/pose-state.js",
+      "sha256": "0138567aadc9244cc9a9cd71f12ae772b99efc8fa30343cf0ada35ec8cb41832",
+      "size": 2990,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/motion/pose-state.js"
+      ]
+    },
+    {
+      "feature": "pose-runtime-pose-worker-client.js",
+      "source": "src/shared/motion/pose-worker-client.js",
+      "sha256": "cec315f2782edd7e8737dc045cb67e0507628fa38f34d165bad5d09a49a76201",
+      "size": 3530,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/motion/pose-worker-client.js"
+      ]
+    },
+    {
+      "feature": "pose-runtime-pose-worker.js",
+      "source": "src/shared/motion/pose-worker.js",
+      "sha256": "bf27fb6e6b1894a26befcb7aaf3bd34548b18a1c274156969714f0b55469674f",
+      "size": 2296,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/motion/pose-worker.js"
+      ]
+    },
+    {
       "feature": "receiver-transport-controller",
       "source": "src/shared/runtime/receiver-transport-controller.js",
       "sha256": "ab5a5cec9d6fafb7d4f1052446e037ca44ebf7efc656e4c6a14ffef877c8d3c1",
