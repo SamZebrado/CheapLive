@@ -34,4 +34,21 @@ class IdempotentResourceTest {
         assertEquals(2, owner.getOrStart { ++starts })
         assertEquals(2, starts)
     }
+
+    @Test
+    fun `failed start is not retained and a later start can recover`() {
+        val owner = IdempotentResource<Int> { }
+        var failed = false
+
+        try {
+            owner.getOrStart { throw IllegalStateException("occupied") }
+        } catch (_: IllegalStateException) {
+            // Expected: a bind failure must not poison the lifetime owner.
+            failed = true
+        }
+
+        assertTrue(failed)
+        assertNull(owner.peek())
+        assertEquals(7, owner.getOrStart { 7 })
+    }
 }

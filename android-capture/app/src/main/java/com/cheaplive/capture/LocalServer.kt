@@ -367,6 +367,7 @@ class LocalServer(
         val header = "HTTP/1.1 $status $reason\r\n" +
             "Content-Type: $contentType\r\n" +
             "Content-Length: ${body.size}\r\n" +
+            "Cache-Control: no-store\r\n" +
             "Connection: close\r\n" +
             "\r\n"
         out.write(header.toByteArray(StandardCharsets.UTF_8))

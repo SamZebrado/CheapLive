@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -50,8 +51,14 @@ class CaptureServerService : Service() {
             CaptureServerRuntime.stop()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
+            return START_NOT_STICKY
         }
-        return START_NOT_STICKY
+        if (!ensureServerRuntime()) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        return START_STICKY
     }
 
     override fun onDestroy() {
@@ -61,9 +68,34 @@ class CaptureServerService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /** Rebuilds the process-local server after Android recreates this sticky service. */
+    private fun ensureServerRuntime(): Boolean {
+        if (CaptureServerRuntime.current() != null) return true
+        return try {
+            val identityStore = ConnectionIdentityStore(this)
+            val identity = identityStore.load() ?: identityStore.reset()
+            val state = AppState().apply {
+                faceTrackingConfig = FaceTrackingConfigStore(this@CaptureServerService).load()
+            }
+            val session = Session(
+                sessionId = identity.sessionId,
+                token = identity.token,
+                port = identity.port,
+                privateIp = PrivateIpPicker.pick() ?: "127.0.0.1",
+            )
+            CaptureServerRuntime.ensureStarted(this, session, state)
+            Log.i(TAG, "Local receiver runtime active")
+            true
+        } catch (error: Throwable) {
+            Log.e(TAG, "Local receiver runtime start failed: ${error.javaClass.simpleName}")
+            false
+        }
+    }
+
     companion object {
         private const val CHANNEL_ID = "cheaplive_receiver_server"
         private const val NOTIFICATION_ID = 8765
+        private const val TAG = "CaptureServerService"
         private const val ACTION_START = "com.cheaplive.capture.action.START_SERVER"
         private const val ACTION_STOP = "com.cheaplive.capture.action.STOP_SERVER"
 

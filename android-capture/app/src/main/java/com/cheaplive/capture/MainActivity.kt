@@ -1873,6 +1873,14 @@ class MainActivity : AppCompatActivity() {
         appState?.onResetConnectionIdentity = { resetConnectionIdentity() }
         android.util.Log.i("CheapLiveCapture", "LocalServer foreground owner active")
 
+        if (!isMinFaceTestMode && !isMinAudioTestMode) {
+            tvServerStatus.text = "本地服务器运行中"
+            tvSessionInfo.text = "链接与二维码可用；点击「开始多端会话」同步会话状态"
+            tvServerBadge.text = "ONLINE"
+            tvServerBadge.setTextColor(cAccent2)
+            tvServerBadge.setBackgroundColor(Color.argb(30, 105, 219, 124))
+        }
+
         val b = bridge ?: CaptureBridge(
             session = session!!,
             broadcast = handle.server,
@@ -2150,10 +2158,9 @@ class MainActivity : AppCompatActivity() {
                 tvSessionInfo.text = "使用新二维码重新连接接收端"
             }
         }
-        Thread {
-            Thread.sleep(500)
-            ensureServerStarted()
-        }.start()
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (!isFinishing && !isDestroyed) ensureServerStarted()
+        }, 500L)
     }
 
     private fun stopSession() {
