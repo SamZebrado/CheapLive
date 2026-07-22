@@ -14,6 +14,8 @@ The rule is explicit ownership, not filename similarity. A target is generated o
 | Face landmarker model | `src/face-tracking/mediapipe/face_landmarker.task` | Android contest and shared task copies | Same | Same plus SHA-256 manifest |
 | MediaPipe vision bundle | `src/face-tracking/mediapipe/vision_bundle.mjs` | Android contest and shared task copies | Same | Same |
 | MediaPipe vision WASM files | `src/face-tracking/mediapipe/wasm/*` for the four listed runtime files | Android contest and shared task WASM copies | Same | Same |
+| Pose schema/protocol/runtime | `src/shared/protocol/` and `src/shared/motion/` | Android `web/shared/` copies | Same | Asset manifest plus protocol/runtime tests |
+| Pose Landmarker Lite model | `src/shared/models/pose_landmarker_lite.task` | Android tasks-vision model copy | Same | Size and SHA-256 manifest plus `MODEL_LICENSES.md` |
 | Public face experience | `src/face-tracking/` | None | Direct edit and test | Unit and browser suites |
 | Public contest experience | `src/contest-demo/` | None | Direct edit and test | Contest unit/browser suites |
 | Android capture UI | `android-capture/app/src/main/assets/web/capture/` | None | Direct edit and Android test | Android/WebView runtime evidence |

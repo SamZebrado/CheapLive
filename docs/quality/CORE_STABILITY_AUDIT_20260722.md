@@ -54,3 +54,7 @@ The historical blocked result above is preserved as the recovery starting point.
 - The unattended real-camera sample contained no detectable face. Video pixels and the inference loop were live at approximately 10 FPS; human-face publish FPS is therefore recorded as unavailable rather than inferred. Face-frame ordering, stale rejection, tracking-lost/recovery, and transport recovery are covered by the deterministic E2E gate.
 
 Core stability is no longer the blocker for motion protocol work. Motion capture remains a separate Beta with independent protocol, model, performance, privacy, and device gates.
+
+## 2026-07-23 motion follow-up
+
+The separate upper-body Motion Beta is now implemented without changing the closed core verdict. Its schema/runtime/model/Worker/Receiver/UI are documented in `docs/MOTION_CAPTURE_BETA.md`; privacy and LAN boundaries are documented in `docs/PRIVACY_SECURITY.md`. Software gates and device lifecycle/transport/inference passed. The device scene was unattended, so live human-body acquisition and calibration quality remain explicitly unclaimed rather than inferred from simulator evidence.

@@ -24,4 +24,4 @@ This minimizes a second rewrite while preserving native control where mobile ope
 4. Prototype an iOS shell that loads the same portable receiver/capture core and implements native permission/lifecycle adapters.
 5. Move only clearly stable, typed domain logic into a shared native layer if duplication becomes measurable.
 
-Upper-body motion should enter through the same versioned protocol rather than an Android-only UI shortcut. A pose model, its license, size, performance envelope, and offline packaging must be approved before it becomes a repository dependency.
+Upper-body motion now enters through the platform-neutral schema v1 and `PoseState`, with Android acting as the permission/lifecycle/bridge shell. The audited MediaPipe Pose Landmarker Lite artifact is offline-packaged and opt-in. A future iOS/Capacitor shell should reuse the same protocol, validator, scheduler profiles, simulator, and Receiver rig while implementing its own camera/Worker lifecycle adapter; it must not reuse Android persistence or foreground-service assumptions.
