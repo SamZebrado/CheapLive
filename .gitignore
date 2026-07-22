@@ -22,3 +22,34 @@ artifacts/**/page@*.webm
 android-capture/app/build/
 android-capture/.gradle/
 android-capture/local.properties
+android-capture/.idea/
+android-capture/app/*.iml
+android-capture/*.iml
+
+# Agent runtime and automation files
+.agent-runtime/
+.automation/
+
+# APK and binary outputs
+*.apk
+*.aab
+
+# macOS cache
+*.swp
+*.swo
+
+# Test result JSON and screenshots
+tests/e2e/test_manifest.json
+tests/e2e/*.test.cjs
+tests/e2e/*.spec.mjs
+tests/e2e/*.mjs
+
+# Receiver sync records
+android-capture/app/src/main/assets/web/receiver/sync-record.json
+
+# Development logs
+android-capture/DEVELOPMENT_LOG.md
+
+# Chrome screenshots and recordings
+screenshot-*.png
+recording-*.webm

@@ -1829,7 +1829,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun ensureServerStarted() {
-        if (isServerRunning) return
+        android.util.Log.i("CheapLiveCapture", "ensureServerStarted: entering, isServerRunning=$isServerRunning")
+        if (isServerRunning) {
+            android.util.Log.i("CheapLiveCapture", "ensureServerStarted: already running, returning")
+            return
+        }
         val ip = PrivateIpPicker.pick() ?: "127.0.0.1"
         // 使用持久化的稳定连接身份，不重新生成 token/sessionId
         if (connectionStore == null) {
@@ -1843,24 +1847,33 @@ class MainActivity : AppCompatActivity() {
             privateIp = ip,
         ).also { session = it }
         val srv = LocalServer(this, baseSession, appState ?: AppState())
-        val actualPort = try {
-            srv.start()
-        } catch (t: Throwable) {
-            android.util.Log.e("CheapLiveCapture", "ensureServerStarted failed: ${t.message}")
-            // 端口冲突时短暂等待旧实例释放后重试一次（不静默切换端口）
-            Thread.sleep(500)
+        var actualPort = -1
+        var lastError: Throwable? = null
+        for (retry in 0..5) {
             try {
-                srv.start()
-            } catch (t2: Throwable) {
-                android.util.Log.e("CheapLiveCapture", "ensureServerStarted retry failed: ${t2.message}")
-                tvServerStatus?.text = "服务器启动失败：端口 ${identity.port} 被占用"
-                return
+                actualPort = srv.start()
+                break
+            } catch (t: Throwable) {
+                lastError = t
+                android.util.Log.e("CheapLiveCapture", "ensureServerStarted attempt ${retry + 1} failed: ${t.message}")
+                if (retry < 5) {
+                    Thread.sleep((300 + retry * 200).toLong())
+                }
             }
+        }
+        if (actualPort < 0) {
+            android.util.Log.e("CheapLiveCapture", "ensureServerStarted all retries failed: ${lastError?.message}")
+            runOnUiThread {
+                tvServerStatus?.text = "服务器启动失败：端口 ${identity.port} 被占用"
+            }
+            return
         }
         val finalSession = baseSession.copy(port = actualPort, privateIp = ip)
         session = finalSession
         server = srv
         isServerRunning = true
+        appState?.setField("serverRunning", true)
+        appState?.onResetConnectionIdentity = { resetConnectionIdentity() }
         android.util.Log.i("CheapLiveCapture", "ensureServerStarted: port=$actualPort")
 
         val b = bridge ?: CaptureBridge(
@@ -1870,7 +1883,9 @@ class MainActivity : AppCompatActivity() {
             appState = appState,
             configStore = configStore,
         ).also { bridge = it }
-        webView?.addJavascriptInterface(b, "CheapLiveBridge")
+        runOnUiThread {
+            webView?.addJavascriptInterface(b, "CheapLiveBridge")
+        }
     }
 
     private fun showCapturePage() {
@@ -2040,6 +2055,7 @@ class MainActivity : AppCompatActivity() {
             val srv = server!!
             appState?.setField("serverRunning", true)
             appState?.setField("viewerConnected", true)
+            appState?.onResetConnectionIdentity = { resetConnectionIdentity() }
             val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
             appState?.setField("voicePermission", if (hasAudio) "granted" else "denied")
 
@@ -2135,6 +2151,8 @@ class MainActivity : AppCompatActivity() {
         }
         appState?.setField("serverRunning", true)
         appState?.setField("viewerConnected", true)
+        appState?.onResetConnectionIdentity = { resetConnectionIdentity() }
+        android.util.Log.i("CheapLiveCapture", "onResetConnectionIdentity callback registered, appState=$appState")
         // set voice permission based on current state
         val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         appState?.setField("voicePermission", if (hasAudio) "granted" else "denied")
@@ -2182,6 +2200,7 @@ class MainActivity : AppCompatActivity() {
      * 需要二次确认（由调用方在 UI 层处理）。
      */
     private fun resetConnectionIdentity() {
+        android.util.Log.i("CheapLiveCapture", "resetConnectionIdentity called")
         try { server?.stop() } catch (_: Throwable) {}
         server = null
         isServerRunning = false
@@ -2191,7 +2210,6 @@ class MainActivity : AppCompatActivity() {
         }
         val newIdentity = connectionStore!!.reset()
         android.util.Log.i("CheapLiveCapture", "Connection identity reset: new token/sessionId generated, port kept=${newIdentity.port}")
-        // 立即用新身份重建 session 和 URL
         val ip = PrivateIpPicker.pick()
         if (ip != null) {
             val s = Session(
@@ -2203,15 +2221,24 @@ class MainActivity : AppCompatActivity() {
             session = s
             val link = "http://${s.privateIp}:${s.port}/receiver/?token=${s.token}&v=${BuildConfig.VERSION_NAME}"
             currentSessionUrl = link
-            qrImageView?.apply {
-                visibility = View.VISIBLE
-                setImageBitmap(generateQRCode(link, 600))
+            runOnUiThread {
+                qrImageView?.apply {
+                    visibility = View.VISIBLE
+                    setImageBitmap(generateQRCode(link, 600))
+                }
+                tvServerStatus.text = "连接已重置（旧二维码已失效）"
+                tvSessionInfo.text = "使用新二维码重新连接接收端"
+            }
+        } else {
+            runOnUiThread {
+                tvServerStatus.text = "连接已重置（旧二维码已失效）"
+                tvSessionInfo.text = "使用新二维码重新连接接收端"
             }
         }
-        tvServerStatus.text = "连接已重置（旧二维码已失效）"
-        tvSessionInfo.text = "使用新二维码重新连接接收端"
-        // 重置身份后必须用新身份重启 LocalServer，否则新二维码显示但端口不可访问
-        ensureServerStarted()
+        Thread {
+            Thread.sleep(500)
+            ensureServerStarted()
+        }.start()
     }
 
     private fun stopSession() {

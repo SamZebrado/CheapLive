@@ -157,7 +157,7 @@ class LocalServer(
 
             when {
                 path == "/health" -> {
-                    val body = "{\"ok\":true,\"session\":\"${session.sessionId}\",\"port\":${session.port}}".toByteArray(StandardCharsets.UTF_8)
+                    val body = "{\"ok\":true,\"session\":\"${session.sessionId}\",\"token\":\"${session.token}\",\"port\":${session.port}}".toByteArray(StandardCharsets.UTF_8)
                     writeHttpResponse(output, 200, "OK", "application/json; charset=utf-8", body)
                 }
                 path == "/api/status" -> {

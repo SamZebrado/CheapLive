@@ -1,5 +1,7 @@
 # CheapLive Project Rules (Agent 自动加载)
 
+> **SUPERSEDED — 比赛已结束，现由 docs/POST_CONTEST_OPEN_SOURCE_DECISION.md 取代**
+>
 > 每个 agent 在操作本项目时必须遵守以下规则。
 > 详细规范见 `docs/agent-rules/` 下的独立文档。
 

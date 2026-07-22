@@ -1,5 +1,7 @@
 # CheapLive 项目专用规则｜public main / Android 私有分支 / contest demo 隔离
 
+> **SUPERSEDED — 比赛已结束，现由 docs/POST_CONTEST_OPEN_SOURCE_DECISION.md 取代**
+>
 > CheapLive 项目的 public main、contest demo、Android 私有开发分支、audio 分支必须严格隔离。
 > 违反隔离规则可能导致私有代码泄露到公开仓库。
 

@@ -58,6 +58,20 @@ body {
 .top-bar .links a { color: var(--cl-blue); text-decoration: none; }
 .top-bar .links a:hover { text-decoration: underline; }
 
+/* ====== Contest Banner ====== */
+.contest-banner {
+  background: linear-gradient(135deg, #ff6b4a, #ff8c42);
+  color: white;
+  padding: 8px 24px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+}
+.contest-banner .contest-badge {
+  margin-right: 8px;
+  font-size: 16px;
+}
+
 /* ====== Hero Section ====== */
 .hero {
   text-align: center;

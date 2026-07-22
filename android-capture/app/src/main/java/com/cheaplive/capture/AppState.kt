@@ -80,6 +80,7 @@ class AppState {
      * "App 本地修改不触发 Receiver 同步" 的问题。
      */
     @Volatile var onStateChange: (() -> Unit)? = null
+    @Volatile var onResetConnectionIdentity: (() -> Unit)? = null
 
     private val listeners = CopyOnWriteArrayList<(AppStateSnapshot) -> Unit>()
 
@@ -380,6 +381,11 @@ class AppState {
                 lastCommand = "resetFaceTrackingConfig(keepCalib=$keepCalibration)"
                 lastError = ""
                 CommandResult(true, "config reset (keepCalibration=$keepCalibration)")
+            }
+            "resetConnectionIdentity" -> {
+                android.util.Log.i("CheapLiveCapture", "AppState: resetConnectionIdentity command received, callback=${if (onResetConnectionIdentity != null) "registered" else "null"}")
+                onResetConnectionIdentity?.invoke()
+                CommandResult(true, "Connection identity reset requested")
             }
             else -> {
                 lastError = "unknown command: $type"

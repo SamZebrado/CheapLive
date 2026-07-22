@@ -6,7 +6,7 @@
 // ====== STATE ======
 const state = {
   currentAvatar: 'sacabambaspis-3d',
-  showcaseMode: false,
+  showcaseMode: true,
   drawMode: false,
   captureOn: true,
   voiceOn: false,
@@ -156,6 +156,11 @@ document.addEventListener('DOMContentLoaded', () => {
   initLinksDiag();
   init2DAvatarDiag();
   initMocapDiag();
+  // 应用模式默认开启
+  if (state.showcaseMode) {
+    const body = document.getElementById('avatarPanelBody');
+    if (body) body.classList.add('showcase-mode');
+  }
   if (state.currentAvatar === 'sacabambaspis-3d') {
     ensure3DRenderers().catch(() => {});
   }
@@ -458,6 +463,10 @@ function ensure3DRenderers() {
       _3dReady = true;
       if (typeof window.setContestFishAvatarTransparentMode === 'function') {
         window.setContestFishAvatarTransparentMode('fwAvatarCanvas', true);
+        // 应用模式默认开启：主 canvas 也设为透明
+        if (state.showcaseMode) {
+          window.setContestFishAvatarTransparentMode('avatarCanvas', true);
+        }
       }
     })
     .catch((err) => {
@@ -2626,6 +2635,12 @@ function toggleShowcase() {
   state.showcaseMode = !state.showcaseMode;
   const body = document.getElementById('avatarPanelBody');
   body.classList.toggle('showcase-mode', state.showcaseMode);
+  // 应用模式下让 canvas 内部跳过背景绘制，实现真正透明
+  if (typeof window.setContestFishAvatarTransparentMode === 'function') {
+    window.setContestFishAvatarTransparentMode('avatarCanvas', state.showcaseMode);
+    const fw = document.getElementById('fwAvatarCanvas');
+    if (fw) window.setContestFishAvatarTransparentMode('fwAvatarCanvas', state.showcaseMode);
+  }
 }
 
 function toggleDrawMode() {

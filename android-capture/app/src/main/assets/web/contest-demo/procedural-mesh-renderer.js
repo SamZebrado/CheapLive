@@ -801,7 +801,7 @@ export class ProceduralSphereAvatar extends ProceduralMeshRenderer {
           ctx.fillRect(-localRx - 2, -localRy - 2, localRx * 2 + 4, eyelidY - (-localRy) + 2);
 
           ctx.strokeStyle = '#555';
-          ctx.lineWidth = Math.max(1, 1.8 * scale);
+          ctx.lineWidth = Math.max(0.5, 1.0 * scale);
           ctx.beginPath();
           ctx.moveTo(-localRx, eyelidY);
           ctx.lineTo(localRx, eyelidY);
@@ -1561,43 +1561,60 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
 
     const eyeBase = Math.max(8, mesh.headX * 0.25);
 
+    const beginFaceLocalTransform = (ctx, anchor, scale) => {
+      const a = anchor.rightVec.x * scale;
+      const b = anchor.rightVec.y * scale;
+      const c = anchor.downVec.x * scale;
+      const d = anchor.downVec.y * scale;
+      ctx.save();
+      ctx.translate(anchor.screenX, anchor.screenY);
+      ctx.transform(a, b, c, d, 0, 0);
+      return { a, b, c, d, determinant: a * d - b * c };
+    };
+
     const drawEye = (anchor, openness, eyeWide, eyeSquint, gazeX, gazeY, isLeftEye) => {
       const local = computeFaceAnchorXYZ(mesh, anchor.bodyT, anchor.horizOffset, anchor.vertOffset, anchor.surfaceOffset);
       const t = this._transformAnchor(local, rot, originX, originY, scale);
-      // 表面三角形绑定：眼睛中心严格贴在已变形 mesh 的实际面部三角面上
-      // （解决 pitch 改变时眼睛向上抬起、与头部曲面脱开的视觉问题）
-      // 注意：t.nz 仍使用解析表面法线（保证 yaw-based 远眼淡出仍能生效），
-      // 仅覆盖 screenX/Y/worldX/Y/Z 与 surface normal 诊断值。
-      const binding = isLeftEye ? leftBinding : rightBinding;
-      const bindingNormalZ = binding ? binding.worldNormal.z : null;
-      if (binding) {
-        t.screenX = binding.screenX;
-        t.screenY = binding.screenY;
-        t.worldX = binding.offsetWorld.x;
-        t.worldY = binding.offsetWorld.y;
-        t.worldZ = binding.offsetWorld.z;
-      }
 
       const normalFacing = t.nz;
 
       if (normalFacing <= 0.02) return;
 
-      const angleDeg = Math.abs(np.headYaw);
-      const fadeStart = 40;
-      const fadeEnd = 85;
+      const matrix = beginFaceLocalTransform(ctx, t, scale);
+      const areaScale = Math.abs(matrix.determinant) / Math.max(scale * scale, 1e-6);
+      const visibility = smoothstep(0.06, 0.25, Math.min(normalFacing, areaScale));
 
-      let occlusionOpacity = 1;
+      const eyeHalfWLocal = Math.max(8, mesh.headX * 0.25);
+      const eyeHalfHLocal = eyeHalfWLocal;
 
-      const isFarEye = (isLeftEye && np.headYaw > 0) || (!isLeftEye && np.headYaw < 0);
+      const wideScale = 1 + (eyeWide || 0) * 0.47;
+      const squintScaleY = 1 - (eyeSquint || 0) * 0.55;
+      const squintScaleX = 1 + (eyeSquint || 0) * 0.08;
 
-      if (angleDeg > fadeStart && isFarEye) {
-        const tFade = (angleDeg - fadeStart) / (fadeEnd - fadeStart);
-        occlusionOpacity = 1 - smoothstep(0, 1, tFade);
-      }
+      const irisRLocal = eyeHalfWLocal * 0.50 * wideScale;
+      const pupilRLocal = irisRLocal * 0.56;
 
-      const finalOpacity = Math.max(0, Math.min(1, occlusionOpacity));
+      const maxGazeX = eyeHalfWLocal - irisRLocal;
+      const maxGazeY = eyeHalfHLocal - irisRLocal;
+      const gazeOffsetXLocal = (gazeX || 0) * maxGazeX * 0.55;
+      const gazeOffsetYLocal = (gazeY || 0) * maxGazeY * 0.55;
 
-      if (finalOpacity <= 0.02) {
+      const tOpen = Math.max(0, Math.min(1, openness));
+      const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
+      const easedClosed = 1 - easedOpen;
+
+      ctx.globalAlpha = visibility;
+
+      if (easedOpen < 0.05) {
+        const closedDip = eyeHalfHLocal * 0.15;
+        ctx.beginPath();
+        ctx.moveTo(-eyeHalfWLocal * 0.9, 0);
+        ctx.quadraticCurveTo(0, closedDip, eyeHalfWLocal * 0.9, 0);
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = Math.max(1.5, 2.5 * scale);
+        ctx.stroke();
+
+        ctx.restore();
         return {
           centerX: t.screenX,
           centerY: t.screenY,
@@ -1610,269 +1627,111 @@ export class ProceduralSpindleWhaleAvatar extends ProceduralMeshRenderer {
           gazeX: gazeX || 0,
           gazeY: gazeY || 0,
           visible: false,
-          clippedByEyelid: false,
-          eyeRx: 0,
-          eyeRy: 0,
-          rightLen: 0,
-          downLen: 0,
+          clippedByEyelid: true,
+          eyeRx: eyeHalfWLocal * scale,
+          eyeRy: eyeHalfHLocal * scale,
           facing: normalFacing,
-          finalOpacity: 0,
+          finalOpacity: visibility,
           anchorNz: t.nz,
         };
       }
 
-      const eyeHalfW = eyeBase * scale;
-      const eyeHalfH = eyeBase * scale;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, eyeHalfWLocal * squintScaleX, eyeHalfHLocal * squintScaleY, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.lineWidth = Math.max(0.5, 1.0 * scale);
+      ctx.strokeStyle = '#222';
+      ctx.stroke();
 
-      // eye-local coordinate system:
-      // eyeAngle = rotation of eye horizontal axis (rightVec) in screen space
-      // localRx/localRy = eye radii in screen pixels along rightVec/downVec
-      const rLen = t.rightLen || Math.sqrt(t.rightVec.x * t.rightVec.x + t.rightVec.y * t.rightVec.y);
-      const dLen = t.downLen || Math.sqrt(t.downVec.x * t.downVec.x + t.downVec.y * t.downVec.y);
-      let rawRightX = t.rightVec.x;
-      let rawRightY = t.rightVec.y;
-      let rawDownX = t.downVec.x;
-      let rawDownY = t.downVec.y;
-      if (rLen > 0.001) {
-        rawRightX /= rLen;
-        rawRightY /= rLen;
-      }
-      if (dLen > 0.001) {
-        rawDownX /= dLen;
-        rawDownY /= dLen;
-      }
-      const rawEyeAngle = Math.atan2(rawRightY, rawRightX);
-
-      // Profile basis stabilization:
-      // When head yaws far to the side, the projected right vector degenerates
-      // and eyeAngle becomes unstable (eyes look like they fall forward).
-      // Blend from the true projected basis toward a roll-aligned stable basis
-      // as yaw increases past a threshold. No hard switch, no freezing at
-      // screen-horizontal; roll rotation is preserved throughout.
-      const yawAbs = Math.abs(np.headYaw);
-      const fadeBasisStartYaw = 50;
-      const fadeBasisEndYaw = 78;
-      let basisBlend = 0;
-      if (yawAbs > fadeBasisStartYaw && yawAbs < fadeBasisEndYaw) {
-        basisBlend = smoothstep(0, 1, (yawAbs - fadeBasisStartYaw) / (fadeBasisEndYaw - fadeBasisStartYaw));
-      } else if (yawAbs >= fadeBasisEndYaw) {
-        basisBlend = 1;
-      }
-
-      // Stable basis aligned to head roll in screen space
-      const headRollRad = np.headRoll * Math.PI / 180;
-      const stableRightX = Math.cos(headRollRad);
-      const stableRightY = Math.sin(headRollRad);
-      const stableDownX = -Math.sin(headRollRad);
-      const stableDownY = Math.cos(headRollRad);
-
-      // Smoothly interpolate basis vectors
-      const finalRightX = rawRightX * (1 - basisBlend) + stableRightX * basisBlend;
-      const finalRightY = rawRightY * (1 - basisBlend) + stableRightY * basisBlend;
-      const finalDownX = rawDownX * (1 - basisBlend) + stableDownX * basisBlend;
-      const finalDownY = rawDownY * (1 - basisBlend) + stableDownY * basisBlend;
-      const finalFRlen = Math.sqrt(finalRightX * finalRightX + finalRightY * finalRightY);
-      const finalFDlen = Math.sqrt(finalDownX * finalDownX + finalDownY * finalDownY);
-      const nfRightX = finalFRlen > 0.001 ? finalRightX / finalFRlen : 1;
-      const nfRightY = finalFRlen > 0.001 ? finalRightY / finalFRlen : 0;
-      const nfDownX = finalFDlen > 0.001 ? finalDownX / finalFDlen : 0;
-      const nfDownY = finalFDlen > 0.001 ? finalDownY / finalFDlen : 1;
-      const finalEyeAngle = Math.atan2(nfRightY, nfRightX);
-
-      // eyeWide: only enlarge eye white, not iris
-      const wideScale = 1 + (eyeWide || 0) * 0.47;
-      // eyeSquint: squint
-      const squintScaleY = 1 - (eyeSquint || 0) * 0.55;
-      const squintScaleX = 1 + (eyeSquint || 0) * 0.08;
-
-      let localRx = Math.max(0.1, eyeHalfW * rLen * wideScale * squintScaleX);
-      let localRy = Math.max(0.1, eyeHalfH * dLen * wideScale * squintScaleY);
-
-      // Cartoon eye aspect-ratio clamp: prevent eye from collapsing into a
-      // vertical slit when head yaws (rightVec foreshortens).  Without this,
-      // the far eye at ~60° yaw becomes a 1:3.7 vertical oval with the iris
-      // clipped into a bar — visually reads as "eye falling forward off the
-      // face".  Keep minimum width at 55% of height (and vice-versa) so the
-      // eye always looks like an eye.
-      const minAspectVertical = 0.30;
-      const minAspectHorizontal = 0.55;
-      if (localRx < localRy * minAspectHorizontal) localRx = localRy * minAspectHorizontal;
-      if (localRy < localRx * minAspectVertical) localRy = localRx * minAspectVertical;
-
-      // Linear mapping: openness 0=closed, 1=fully open
-      const tOpen = Math.max(0, Math.min(1, openness));
-      const easedOpen = tOpen * tOpen * (3 - 2 * tOpen);
-      const easedClosed = 1 - easedOpen;
-
-      // Iris/pupil: fixed screen-space size derived from the avatar's base eye scale
-      // (eyeBase * scale), NOT from the projected eye ellipse. The projection changes
-      // with yaw (rightVec foreshortens), so anchoring iris size to the ellipse made
-      // the iris/pupil visibly shrink/grow with head rotation. Anchoring to the base
-      // eye size keeps the iris visually stable across the full yaw range; the far eye
-      // fades out via opacity rather than collapsing into a dot.
-      //
-      // - eyeWide lightly enlarges the iris (wide eyes reveal more iris).
-      // - squint/blink never shrinks the iris; the upper eyelid covers it instead.
-      // - pupil stays at a fixed ratio of the iris.
-      const irisBaseR = eyeBase * 0.50;
-      const pupilBaseR = irisBaseR * 0.56;
-      const wideBoost = 1 + Math.max(0, (eyeWide || 0)) * 0.10;
-      const irisR = irisBaseR * wideBoost;
-      const pupilR2 = pupilBaseR * wideBoost;
-
-      // Gaze offset in eye-local coordinates. Use the *visible* eye ellipse so the
-      // iris stays inside the eye white; but the iris/pupil themselves are
-      // screen-stable, so only position changes with gaze, not size.
-      const gazeContainerRx = Math.max(0.5, localRx);
-      const gazeContainerRy = Math.max(0.5, localRy);
-      const maxOffsetX = Math.max(0, gazeContainerRx - irisR) * 0.55;
-      const maxOffsetY = Math.max(0, gazeContainerRy - irisR) * 0.55;
-      const gazeOffsetX = (gazeX || 0) * maxOffsetX;
-      const gazeOffsetY = (gazeY || 0) * maxOffsetY;
-
-      // Enter eye-local coordinate system
       ctx.save();
-      ctx.globalAlpha = finalOpacity;
-      ctx.translate(t.screenX, t.screenY);
-      ctx.rotate(finalEyeAngle);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, eyeHalfWLocal * squintScaleX - 1, eyeHalfHLocal * squintScaleY - 1, 0, 0, Math.PI * 2);
+      ctx.clip();
 
-      if (easedOpen < 0.05) {
-        // Fully closed: draw natural closed-eye curve (downward dip), no eye white
-        const closedDip = localRy * 0.15;
+      ctx.beginPath();
+      ctx.ellipse(gazeOffsetXLocal, gazeOffsetYLocal, irisRLocal, irisRLocal, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#7a6b5c';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.ellipse(gazeOffsetXLocal, gazeOffsetYLocal, pupilRLocal, pupilRLocal, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#2a2420';
+      ctx.fill();
+
+      if (easedOpen > 0.3) {
+        const hlX = gazeOffsetXLocal + irisRLocal * 0.3;
+        const hlY = gazeOffsetYLocal - irisRLocal * 0.3;
         ctx.beginPath();
-        ctx.moveTo(-localRx * 0.9, 0);
-        ctx.quadraticCurveTo(0, closedDip, localRx * 0.9, 0);
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = Math.max(1.5, 2.5 * scale);
-        ctx.stroke();
-        const closedDiag = {
-          centerX: t.screenX,
-          centerY: t.screenY,
-          radius: 0,
-          area: 0,
-          eyeCenterX: t.screenX,
-          eyeCenterY: t.screenY,
-          localOffsetX: 0,
-          localOffsetY: 0,
-          gazeX: gazeX || 0,
-          gazeY: gazeY || 0,
-          visible: false,
-          clippedByEyelid: true,
-          eyeRx: localRx,
-          eyeRy: localRy,
-        };
-        ctx.restore();
-        return closedDiag;
-      } else {
-        // Open eye (including half-closed): draw full eye white + iris/pupil, then upper eyelid covers from top
-        // 1. Eye white ellipse (full circle, not squashed)
-        ctx.beginPath();
-        ctx.ellipse(0, 0, localRx, localRy, 0, 0, Math.PI * 2);
+        ctx.arc(hlX, hlY, Math.max(1, irisRLocal * 0.15), 0, Math.PI * 2);
         ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = visibility * 0.7;
         ctx.fill();
-        ctx.lineWidth = Math.max(1, 2.0 * scale);
-        ctx.strokeStyle = '#222';
-        ctx.stroke();
+      }
 
-        // 2. Iris + pupil (fixed size, clipped to eye white)
+      ctx.restore();
+      ctx.globalAlpha = visibility;
+
+      if (easedClosed > 0.02) {
         ctx.save();
         ctx.beginPath();
-        ctx.ellipse(0, 0, localRx - 1, localRy - 1, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, 0, eyeHalfWLocal * squintScaleX, eyeHalfHLocal * squintScaleY, 0, 0, Math.PI * 2);
         ctx.clip();
 
-        // Iris: fixed-size circle
-        ctx.beginPath();
-        ctx.ellipse(gazeOffsetX, gazeOffsetY, irisR, irisR, 0, 0, Math.PI * 2);
-        ctx.fillStyle = '#7a6b5c';
-        ctx.globalAlpha = Math.max(0.4, finalOpacity);
-        ctx.fill();
+        const eyelidY = -eyeHalfHLocal + eyeHalfHLocal * 2 * easedClosed;
 
-        // Pupil: fixed-size circle
-        ctx.beginPath();
-        ctx.ellipse(gazeOffsetX, gazeOffsetY, pupilR2, pupilR2, 0, 0, Math.PI * 2);
-        ctx.fillStyle = '#2a2420';
-        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = mesh.faceTopColor || mesh.bodyColor || '#d9d2be';
+        ctx.fillRect(-eyeHalfWLocal * squintScaleX - 2, -eyeHalfHLocal * squintScaleY - 2, eyeHalfWLocal * squintScaleX * 2 + 4, eyelidY - (-eyeHalfHLocal * squintScaleY) + 2);
 
-        // Highlight: small white dot
-        if (easedOpen > 0.3) {
-          const hlX = gazeOffsetX + irisR * 0.3;
-          const hlY = gazeOffsetY - irisR * 0.3;
-          ctx.beginPath();
-          ctx.arc(hlX, hlY, Math.max(1, irisR * 0.15), 0, Math.PI * 2);
-          ctx.fillStyle = '#ffffff';
-          ctx.globalAlpha = Math.max(0.3, finalOpacity) * 0.7;
-          ctx.fill();
-        }
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = Math.max(0.5, 1.0 * scale);
+        ctx.beginPath();
+        ctx.moveTo(-eyeHalfWLocal * squintScaleX, eyelidY);
+        ctx.lineTo(eyeHalfWLocal * squintScaleX, eyelidY);
+        ctx.stroke();
 
         ctx.restore();
-        ctx.globalAlpha = finalOpacity;
-
-        // 3. Upper eyelid: cover from top down to eyelidY, clipped to eye white ellipse
-        // In eye-local coords: eyelidY goes from -localRy (top) to +localRy (bottom)
-        // easedClosed=0 → no cover, easedClosed=1 → full cover
-        if (easedClosed > 0.02) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.ellipse(0, 0, localRx, localRy, 0, 0, Math.PI * 2);
-          ctx.clip();
-
-          const eyelidY = -localRy + localRy * 2 * easedClosed;
-
-          ctx.globalAlpha = 1;
-          ctx.fillStyle = mesh.faceTopColor || mesh.bodyColor || '#d9d2be';
-          ctx.fillRect(-localRx - 2, -localRy - 2, localRx * 2 + 4, eyelidY - (-localRy) + 2);
-
-          ctx.strokeStyle = '#555';
-          ctx.lineWidth = Math.max(1, 1.8 * scale);
-          ctx.beginPath();
-          ctx.moveTo(-localRx, eyelidY);
-          ctx.lineTo(localRx, eyelidY);
-          ctx.stroke();
-
-          ctx.restore();
-          ctx.globalAlpha = finalOpacity;
-        }
+        ctx.globalAlpha = visibility;
       }
 
+      ctx.restore();
+
       const diagData = {
-        centerX: t.screenX + gazeOffsetX * Math.cos(finalEyeAngle) - gazeOffsetY * Math.sin(finalEyeAngle),
-        centerY: t.screenY + gazeOffsetX * Math.sin(finalEyeAngle) + gazeOffsetY * Math.cos(finalEyeAngle),
-        radius: irisR,
-        area: Math.PI * irisR * irisR,
+        centerX: t.screenX + matrix.a * gazeOffsetXLocal + matrix.c * gazeOffsetYLocal,
+        centerY: t.screenY + matrix.b * gazeOffsetXLocal + matrix.d * gazeOffsetYLocal,
+        radius: irisRLocal * Math.sqrt(Math.abs(matrix.determinant)) / scale,
+        area: Math.PI * irisRLocal * irisRLocal * Math.abs(matrix.determinant),
         eyeCenterX: t.screenX,
         eyeCenterY: t.screenY,
-        localOffsetX: gazeOffsetX,
-        localOffsetY: gazeOffsetY,
+        localOffsetX: gazeOffsetXLocal,
+        localOffsetY: gazeOffsetYLocal,
         gazeX: gazeX || 0,
         gazeY: gazeY || 0,
         visible: true,
         clippedByEyelid: easedClosed > 0.02,
-        eyeRx: localRx,
-        eyeRy: localRy,
-        eyeAngle: finalEyeAngle,
-        rawEyeAngle: rawEyeAngle,
-        basisBlend: basisBlend,
-        irisRadius: irisR,
-        pupilRadius: pupilR2,
-        // Stable-size iris/pupil (anchored to base eye scale, not projected ellipse).
-        // We expose these ratios so the existing tests can still read them:
-        //   - irisToEyeMinorRatio ≈ 0.50 across yaw (iris = 0.50 * eyeBase * wideBoost)
-        //   - pupilToIrisRatio = 0.56 across yaw (pupil = 0.56 * iris)
-        irisToEyeMinorRatio: wideBoost > 0 ? 0.50 : 0,
+        eyeRx: eyeHalfWLocal * scale,
+        eyeRy: eyeHalfHLocal * scale,
+        eyeAngle: Math.atan2(t.rightVec.y, t.rightVec.x),
+        rawEyeAngle: Math.atan2(t.rightVec.y, t.rightVec.x),
+        basisBlend: 0,
+        irisRadius: irisRLocal,
+        pupilRadius: pupilRLocal,
+        irisToEyeMinorRatio: 0.50,
         pupilToIrisRatio: 0.56,
-        // Kept as stable reference values for back-compat with existing tests:
-        // (pupilToIrisRatio of 0.56 indicates a properly anchored, fixed-ratio design.)
-        irisBaseR: irisBaseR,
-        pupilBaseR: pupilBaseR,
-        wideBoost: wideBoost,
-        rightLen: rLen,
-        downLen: dLen,
+        irisBaseR: eyeHalfWLocal * 0.50,
+        pupilBaseR: eyeHalfWLocal * 0.50 * 0.56,
+        wideBoost: wideScale,
+        rightLen: Math.sqrt(t.rightVec.x * t.rightVec.x + t.rightVec.y * t.rightVec.y),
+        downLen: Math.sqrt(t.downVec.x * t.downVec.x + t.downVec.y * t.downVec.y),
         facing: normalFacing,
-        finalOpacity: finalOpacity,
+        finalOpacity: visibility,
         anchorNz: t.nz,
+        matrix,
+        visibility,
+        areaScale,
       };
 
-      ctx.restore();
       return diagData;
     };
 
