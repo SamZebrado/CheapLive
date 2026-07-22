@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "node scripts/sync-contest-demo-to-android.mjs --write",
+  "entries": [
+    {
+      "feature": "android-receiver-procedural-renderer",
+      "source": "android-capture/app/src/main/assets/web/receiver/procedural-mesh-renderer.js",
+      "sha256": "0d841d44af9400b9c22a529a7e248e95a90d59153f91209c6cbdcf8ba6b6814f",
+      "size": 75719,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/procedural-mesh-renderer.js",
+        "android-capture/app/src/main/assets/web/demo/procedural-mesh-renderer.js"
+      ]
+    },
+    {
+      "feature": "android-receiver-spindle-mesh",
+      "source": "android-capture/app/src/main/assets/web/receiver/mesh-spindle-whale.js",
+      "sha256": "901a377cea469b8bff4400982f8a1d77becf42668587360078548585e0f132dc",
+      "size": 29462,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mesh-spindle-whale.js",
+        "android-capture/app/src/main/assets/web/demo/mesh-spindle-whale.js"
+      ]
+    },
+    {
+      "feature": "android-receiver-sphere-mesh",
+      "source": "android-capture/app/src/main/assets/web/receiver/mesh-sphere.js",
+      "sha256": "4ddbcf9b54badf8e57af6838d72a6a3dd12e7c829b83df0ef901b05208ae086e",
+      "size": 7702,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mesh-sphere.js"
+      ]
+    },
+    {
+      "feature": "soundtouch-runtime",
+      "source": "src/face-tracking/lib/soundtouch.min.js",
+      "sha256": "44509e71d37d75e808261f4eb977c4c5acba3ae6874ec1f3b1c97c90ae5d31ac",
+      "size": 14610,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/lib/soundtouch.min.js"
+      ]
+    },
+    {
+      "feature": "mediapipe-license",
+      "source": "src/face-tracking/mediapipe/LICENSE",
+      "sha256": "c3840564f53c7cfd8f7ce2d8d42f0e3ecc61bcb8d4bbe2329569e8a4a5fb1b14",
+      "size": 11027,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/LICENSE",
+        "android-capture/app/src/main/assets/web/mediapipe/LICENSE"
+      ]
+    },
+    {
+      "feature": "face-landmarker-model",
+      "source": "src/face-tracking/mediapipe/face_landmarker.task",
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+      "size": 3758596,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/face_landmarker.task",
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/face_landmarker.task"
+      ]
+    },
+    {
+      "feature": "mediapipe-vision-bundle",
+      "source": "src/face-tracking/mediapipe/vision_bundle.mjs",
+      "sha256": "a229ff5bd4b6cf330e87b3ce63b84610767c5521d365b9b4a2cadb011f885b0c",
+      "size": 881037,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/vision_bundle.mjs",
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/vision_bundle.mjs"
+      ]
+    },
+    {
+      "feature": "mediapipe-vision_wasm_internal.js",
+      "source": "src/face-tracking/mediapipe/wasm/vision_wasm_internal.js",
+      "sha256": "6a73602a14484297690e69d716e683341b62a5fde8f5debde78de2651cb69bbe",
+      "size": 205745,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/wasm/vision_wasm_internal.js",
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/wasm/vision_wasm_internal.js"
+      ]
+    },
+    {
+      "feature": "mediapipe-vision_wasm_internal.wasm",
+      "source": "src/face-tracking/mediapipe/wasm/vision_wasm_internal.wasm",
+      "sha256": "3431f70071f3980bf13e638551e9bb333335223e35542ee768db06501f7a26f2",
+      "size": 8689767,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/wasm/vision_wasm_internal.wasm",
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/wasm/vision_wasm_internal.wasm"
+      ]
+    },
+    {
+      "feature": "mediapipe-vision_wasm_nosimd_internal.js",
+      "source": "src/face-tracking/mediapipe/wasm/vision_wasm_nosimd_internal.js",
+      "sha256": "ece9ac1f41b93340b08682514ca291431ff7084c858caf6455e65b0c6c3eb717",
+      "size": 205752,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/wasm/vision_wasm_nosimd_internal.js",
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/wasm/vision_wasm_nosimd_internal.js"
+      ]
+    },
+    {
+      "feature": "mediapipe-vision_wasm_nosimd_internal.wasm",
+      "source": "src/face-tracking/mediapipe/wasm/vision_wasm_nosimd_internal.wasm",
+      "sha256": "4d54739714db6b3d0fbdd0608c2824c4ccceaaf279aa4ba160f2eab2663b30f2",
+      "size": 8554370,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/wasm/vision_wasm_nosimd_internal.wasm",
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/wasm/vision_wasm_nosimd_internal.wasm"
+      ]
+    }
+  ]
+}

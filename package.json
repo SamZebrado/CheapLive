@@ -19,6 +19,8 @@
     "test:gate": "node --test tests/unit/*.test.js && npx playwright test tests/e2e/playwright-smoke.test.cjs tests/public-status --project=chromium-desktop --reporter=list",
     "test:gate-verify": "node tests/unit/gate-exit-code.test.js",
     "test:all": "node --test tests/unit/*.test.js && npx playwright test tests/e2e --project=chromium-desktop --reporter=list",
+    "assets:check": "node scripts/sync-contest-demo-to-android.mjs --check",
+    "assets:sync": "node scripts/sync-contest-demo-to-android.mjs --write",
     "license:audit": "node scripts/audit-third-party-licenses.mjs"
   },
   "repository": {
