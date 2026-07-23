@@ -508,6 +508,14 @@
     stopCamera: function(reason, stopHardware) {
       console.error('[CheapLiveCaptureDiag] stop_camera reason=' + (reason || 'unknown') + ' stopHardware=' + (stopHardware ? 'true' : 'false'));
       publishEnabled = false;
+      // Face and pose intentionally share one MediaStream. When only face is
+      // disabled, retain both the stream and frame loop so pose inference does
+      // not silently stall while Android still reports pose as enabled.
+      if (!stopHardware && cameraStream) {
+        cameraStarted = true;
+        if (!frameLoopRunning) startFrameLoop();
+        return JSON.stringify({ ok: true, stopped: false, stopHardware: false, hasStream: true, retainedForSharedCapture: true });
+      }
       cameraStarted = false;
       cameraStarting = false;
       cameraRequestGeneration++;

@@ -199,6 +199,11 @@ test.describe('CheapLive canonical web runtime gate', () => {
 
     await page.evaluate(() => window.__cameraTest.resolve());
     await expect.poll(() => page.evaluate(() => JSON.parse(window.CheapLiveCapture.getState()).hasStream)).toBe(true);
+    const retained = await page.evaluate(() => JSON.parse(window.CheapLiveCapture.stopCamera('face-disabled-pose-active', false)));
+    expect(retained.retainedForSharedCapture).toBe(true);
+    expect(retained.hasStream).toBe(true);
+    expect(await page.evaluate(() => JSON.parse(window.CheapLiveCapture.getState()).cameraStarted)).toBe(true);
+    expect(await page.evaluate(() => window.__cameraTest.stops)).toBe(0);
     await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
     expect(await page.evaluate(() => window.__cameraTest.stops)).toBe(1);
     const stopped = await page.evaluate(() => JSON.parse(window.CheapLiveCapture.stopCamera('gate-repeat', true)));
