@@ -12,7 +12,7 @@
     "test:unit": "node tests/run-unit-tests.mjs",
     "test:signaling": "node --test tests/unit/signaling-server.test.js",
     "test:assets": "npm run assets:check && node --test tests/unit/web-asset-sync.test.mjs",
-    "test:e2e": "node tests/run-e2e.mjs tests/e2e/runtime-gate.test.js tests/e2e/playwright-smoke.test.cjs tests/e2e/face-capture-smoke.test.cjs tests/e2e/receiver-face-frame.test.cjs tests/e2e/voice-changer-ui.test.cjs tests/e2e/subtitle-broadcast.spec.mjs --project=chromium-desktop",
+    "test:e2e": "node tests/run-e2e.mjs tests/e2e/runtime-gate.test.js tests/e2e/motion-capture-beta.spec.mjs tests/e2e/playwright-smoke.test.cjs tests/e2e/face-capture-smoke.test.cjs tests/e2e/receiver-face-frame.test.cjs tests/e2e/voice-changer-ui.test.cjs tests/e2e/subtitle-broadcast.spec.mjs --project=chromium-desktop",
     "test:e2e:legacy": "node tests/run-e2e.mjs tests/e2e --project=chromium-desktop",
     "test:motion-video": "node scripts/run-motion-video-tests.mjs",
     "test:status": "npx playwright test tests/public-status --project=chromium-desktop",
@@ -25,6 +25,8 @@
     "test:all": "npm run test:unit && npm run test:assets && npm run test:signaling && npm run test:e2e",
     "assets:check": "node scripts/sync-contest-demo-to-android.mjs --check",
     "assets:sync": "node scripts/sync-contest-demo-to-android.mjs --write",
+    "model:check": "node scripts/verify-pose-model.mjs",
+    "security:check": "node scripts/security-consistency-check.mjs --include-worktree",
     "license:audit": "node scripts/audit-third-party-licenses.mjs"
   },
   "repository": {

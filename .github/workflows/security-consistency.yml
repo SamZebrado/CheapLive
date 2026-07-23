@@ -1,0 +1,36 @@
+name: Security and Consistency
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, 'codex/**']
+
+permissions:
+  contents: read
+
+jobs:
+  security-consistency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Resolve comparison base
+        id: base
+        shell: bash
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          base="${PR_BASE:-$PUSH_BASE}"
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then base="HEAD^"; fi
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+      - run: git diff --check "${{ steps.base.outputs.sha }}...HEAD"
+      - run: node scripts/security-consistency-check.mjs --base "${{ steps.base.outputs.sha }}"
+      - run: npm run assets:check
+      - run: npm run model:check
