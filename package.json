@@ -14,6 +14,7 @@
     "test:assets": "npm run assets:check && node --test tests/unit/web-asset-sync.test.mjs",
     "test:e2e": "node tests/run-e2e.mjs tests/e2e/runtime-gate.test.js tests/e2e/playwright-smoke.test.cjs tests/e2e/face-capture-smoke.test.cjs tests/e2e/receiver-face-frame.test.cjs tests/e2e/voice-changer-ui.test.cjs tests/e2e/subtitle-broadcast.spec.mjs --project=chromium-desktop",
     "test:e2e:legacy": "node tests/run-e2e.mjs tests/e2e --project=chromium-desktop",
+    "test:motion-video": "node scripts/run-motion-video-tests.mjs",
     "test:status": "npx playwright test tests/public-status --project=chromium-desktop",
     "test:smoke": "npx playwright test tests/e2e/smoke.test.cjs tests/e2e/playwright-smoke.test.cjs --project=chromium-desktop",
     "test:visual": "node tests/e2e/generate-screenshots.js",

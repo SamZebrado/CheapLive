@@ -54,3 +54,11 @@ android-capture/DEVELOPMENT_LOG.md
 # Chrome screenshots and recordings
 screenshot-*.png
 recording-*.webm
+
+# Defensive guards for local motion-video acceptance data
+.local-testdata/
+.tmp/motion-video-fixtures/
+test-videos/
+*.motion-test.mp4
+*.motion-test.mov
+*.motion-test.webm
