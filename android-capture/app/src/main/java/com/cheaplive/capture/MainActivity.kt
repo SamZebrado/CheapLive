@@ -30,6 +30,7 @@ import android.widget.SeekBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -71,6 +72,11 @@ class MainActivity : AppCompatActivity() {
     private var connectionStore: ConnectionIdentityStore? = null
     private var motionSettingsStore: MotionCaptureSettingsStore? = null
     @Volatile private var lastPersistedConfigRevision: Long = -1L
+
+    // === Black Screen Capture ===
+    private var blackScreenController: BlackScreenCaptureController? = null
+    private lateinit var btnBlackScreenCapture: Button
+    private lateinit var brightnessTierButtons: List<Button>
 
     // === Design Tokens (对齐 demo) ===
     private val cBg = Color.parseColor("#0a0e1a")
@@ -125,6 +131,22 @@ class MainActivity : AppCompatActivity() {
         isMinFaceTestMode = intent.getStringExtra("MODE") == "MIN_FACE_TEST"
         isMinAudioTestMode = intent.getStringExtra("MODE") == "MIN_AUDIO_TEST"
 
+        val blackScreenAvailable = !isMinFaceTestMode && !isMinAudioTestMode
+        if (blackScreenAvailable) {
+            blackScreenController = BlackScreenCaptureController(this)
+            blackScreenController?.setOnActiveChangedListener { updateBlackScreenButton() }
+            onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    val consumed = blackScreenController?.handleBackPress() ?: false
+                    if (!consumed) {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
+                }
+            })
+        }
+        val wasBlackScreenActive = savedInstanceState?.getBoolean(KEY_BLACK_SCREEN_ACTIVE, false) ?: false
+
         val scroll = ScrollView(this).apply {
             setBackgroundColor(cBg)
             isFillViewport = true
@@ -146,6 +168,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             buildTopBar(root)
             buildServerCard(root)
+            buildBlackScreenCard(root)
             buildAvatarCard(root)
             buildFaceCaptureCard(root)
             buildPoseCaptureCard(root)
@@ -169,6 +192,12 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(scroll)
         setupWebView()
+
+        // Restore black-screen active state after configuration recreation.
+        // Cold start passes false, which marks the state inactive (no auto-enter).
+        if (blackScreenAvailable) {
+            blackScreenController?.restoreOnCreate(wasBlackScreenActive)
+        }
 
         if (isMinFaceTestMode) {
             setupMinFaceMode()
@@ -850,6 +879,72 @@ class MainActivity : AppCompatActivity() {
             btnMinAudioStop.alpha = 0.5f
             tvMinAudioStatus.text = "已停止"
         }
+    }
+
+    // ============================================================
+    // Black Screen Capture 模块
+    // ============================================================
+    private fun buildBlackScreenCard(root: LinearLayout) {
+        val card = makeCard()
+        addCardTitle(card, "⚫ 黑屏采集", "Black Screen Capture")
+
+        val desc = TextView(this).apply {
+            text = "保持 App 在前台、阻止自动锁屏、屏幕显示纯黑、摄像头/面捕/姿态继续运行。\n长按屏幕或按返回键退出。"
+            setTextColor(cTextSec)
+            textSize = 11f
+            setPadding(0, 4, 0, 12)
+            lineHeight = (16 * resources.displayMetrics.density).toInt()
+        }
+        card.addView(desc)
+
+        btnBlackScreenCapture = makeButton("黑屏采集 / Black Screen Capture", cBgSecondary, cText)
+        btnBlackScreenCapture.setOnClickListener {
+            blackScreenController?.enter()
+        }
+        card.addView(btnBlackScreenCapture)
+
+        // Brightness tier selector
+        addSectionLabel(card, "亮度档位 / Brightness")
+        val tierRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val tiers = listOf(
+            BlackScreenCaptureState.BrightnessLevel.EXTRA_DIM to "极暗",
+            BlackScreenCaptureState.BrightnessLevel.LOW to "低亮",
+            BlackScreenCaptureState.BrightnessLevel.SYSTEM to "跟随系统",
+        )
+        val tierBtns = mutableListOf<Button>()
+        for ((level, label) in tiers) {
+            val btn = makeChipButton(label).apply {
+                tag = level
+                setOnClickListener {
+                    blackScreenController?.setBrightnessLevel(level)
+                    refreshBrightnessTierButtons()
+                }
+            }
+            tierBtns.add(btn)
+            tierRow.addView(btn)
+        }
+        brightnessTierButtons = tierBtns.toList()
+        card.addView(tierRow)
+        refreshBrightnessTierButtons()
+
+        root.addView(card)
+    }
+
+    private fun refreshBrightnessTierButtons() {
+        if (!::brightnessTierButtons.isInitialized) return
+        val current = blackScreenController?.currentBrightnessLevel()
+            ?: BlackScreenCaptureState.BrightnessLevel.EXTRA_DIM
+        for (btn in brightnessTierButtons) {
+            val active = btn.tag == current
+            btn.setBackgroundColor(if (active) cAccent2 else cBgSecondary)
+            btn.setTextColor(if (active) cBg else cTextSec)
+        }
+    }
+
+    private fun updateBlackScreenButton() {
+        if (!::btnBlackScreenCapture.isInitialized) return
+        btnBlackScreenCapture.isEnabled = blackScreenController?.isActive() != true
+        btnBlackScreenCapture.text = "黑屏采集 / Black Screen Capture"
     }
 
     // ============================================================
@@ -2170,7 +2265,14 @@ class MainActivity : AppCompatActivity() {
     private var appStateListenerRegistered = false
     private var appStateListener: ((AppStateSnapshot) -> Unit)? = null
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        blackScreenController?.onWindowFocusChanged(hasFocus)
+    }
+
     override fun onDestroy() {
+        blackScreenController?.destroy()
+        blackScreenController = null
         appStateListener?.let { listener -> appState?.removeListener(listener) }
         appStateListener = null
         appStateListenerRegistered = false
@@ -2182,6 +2284,11 @@ class MainActivity : AppCompatActivity() {
         webView?.destroy()
         webView = null
         super.onDestroy()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean(KEY_BLACK_SCREEN_ACTIVE, blackScreenController?.isActive() ?: false)
+        super.onSaveInstanceState(outState)
     }
 
     private fun startSession() {
@@ -2401,5 +2508,6 @@ class MainActivity : AppCompatActivity() {
         private const val REQ_PERMISSIONS = 1001
         private const val REQ_CAMERA = 1002
         private const val REQ_AUDIO = 1003
+        private const val KEY_BLACK_SCREEN_ACTIVE = "cheaplive_black_screen_active"
     }
 }

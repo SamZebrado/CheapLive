@@ -348,6 +348,8 @@
   let lastFaceInferenceAt = -Infinity;
   let lastPoseSubmitAt = -Infinity;
   let lastPoseStatsAt = 0;
+  let poseInferenceCount = 0;
+  let lastPoseSequence = -1;
   let poseCalibration = null;
   let poseCalibrationFrames = [];
   let poseCalibrationActive = false;
@@ -357,6 +359,8 @@
     createBitmap: (video, options) => createImageBitmap(video, options),
     onFrame: (frame) => {
       if (!poseSettings.enabled || poseSettings.mode !== 'real-camera' || !frame) return;
+      poseInferenceCount++;
+      if (Number.isSafeInteger(frame.sequence)) lastPoseSequence = frame.sequence;
       if (poseCalibrationActive && frame.tracking && frame.confidence >= 0.6) {
         poseCalibrationFrames.push(frame);
         if (poseCalibrationFrames.length >= 24) {
@@ -548,7 +552,11 @@
         cameraStarting: cameraStarting,
         faceLandmarkerReady: faceLandmarkerReady,
         frameLoopRunning: frameLoopRunning,
-        seq: seq
+        captureFrameCount: frameLoopDiagCount,
+        faceInferenceCount: onResultsCount,
+        facePublishSequence: seq,
+        poseInferenceCount: poseInferenceCount,
+        posePublishSequence: lastPoseSequence
         ,poseEnabled: poseSettings.enabled
         ,poseMode: poseSettings.mode
         ,poseWorkerReady: poseWorkerClient.ready
