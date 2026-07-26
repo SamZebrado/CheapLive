@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cheaplive.local/schema/pose-frame-v1.json",
+  "title": "CheapLive upper-body pose frame",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "schemaVersion",
+    "sequence",
+    "timestampMs",
+    "revision",
+    "sourceId",
+    "tracking",
+    "confidence",
+    "coordinateSpace",
+    "mirrored",
+    "landmarks"
+  ],
+  "properties": {
+    "type": { "const": "pose-frame" },
+    "schemaVersion": { "const": 1 },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "timestampMs": { "type": "number", "minimum": 0 },
+    "revision": { "type": "integer", "minimum": 0 },
+    "sourceId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "tracking": { "type": "boolean" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "coordinateSpace": { "const": "normalized-camera" },
+    "mirrored": { "type": "boolean" },
+    "landmarks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nose": { "$ref": "#/$defs/landmark" },
+        "leftShoulder": { "$ref": "#/$defs/landmark" },
+        "rightShoulder": { "$ref": "#/$defs/landmark" },
+        "leftElbow": { "$ref": "#/$defs/landmark" },
+        "rightElbow": { "$ref": "#/$defs/landmark" },
+        "leftWrist": { "$ref": "#/$defs/landmark" },
+        "rightWrist": { "$ref": "#/$defs/landmark" },
+        "leftHip": { "$ref": "#/$defs/landmark" },
+        "rightHip": { "$ref": "#/$defs/landmark" }
+      }
+    }
+  },
+  "$defs": {
+    "landmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z", "visibility"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 1 },
+        "y": { "type": "number", "minimum": 0, "maximum": 1 },
+        "z": { "type": "number", "minimum": -2, "maximum": 2 },
+        "visibility": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}

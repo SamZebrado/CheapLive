@@ -25,6 +25,8 @@ CheapLive 在 TRAE AI 创造力大赛初赛中获得**专业评分 TOP 2000**，
 | 多设备信令服务器 | 扩展玩法/待开发 | 局域网内多设备协作，需手动搭建 Node.js 服务 |
 | 网页旧多端模式 | 实验性 | 当前部署和真实跨设备连接仍有限制 |
 | CheapLive Capture Android App | ✅ 开源可用 | 源码已公开，支持构建和安装 |
+| Android 黑屏采集 | 前台模式 | 防止自动超时并以纯黑 overlay 降低屏幕发光；不支持后台摄像头 |
+| 上半身动作捕捉 | Beta（默认关闭） | Android Capture 本地 Worker 推理；上半身九关键点与调试骨架 |
 | 参赛演示 Demo | 公开演示 | [3D 萨卡班甲鱼互动 Demo](src/contest-demo/contest-interactive-demo.html) |
 | Live2D Cubism | 规划中 | Demo 阶段冻结，当前不能实际渲染 Live2D 模型 |
 | 透明悬浮浏览器 | 规划中 | 当前尚未实现 |
@@ -96,6 +98,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 详细构建指南见 [android-capture/README.md](android-capture/README.md)。
+
+Android 主采集页提供 **黑屏采集 / Black Screen Capture**：保持 Activity 和现有 WebView 在前台，通过窗口级防超时、沉浸式系统栏和纯黑 overlay 降低屏幕发光。长按约 1.5 秒或按一次返回键退出。它不会绕过用户主动锁屏，也不支持后台持续摄像头；使用方式、亮度档位、OLED/LCD 差异及温度建议见 [docs/BLACK_SCREEN_CAPTURE.md](docs/BLACK_SCREEN_CAPTURE.md)。
 
 ---
 
@@ -199,6 +203,9 @@ node src/multi-device/signaling-server.js
 - **摄像头画面**：仅在本地显示；单机模式不主动上传摄像头画面
 - **实验性功能**（变声、旧多端模式）可能触发额外的浏览器内处理，但不会向云端上传原始音频或视频流
 - **Android Capture** 在局域网内仅传输少量面捕参数，不传输摄像头视频
+- **动作捕捉 Beta** 与面捕复用同一摄像头；模型仅在用户显式启用后从 APK 本地资产加载，仅传输经过校验的九个上半身关键点，不保存原始画面或关键点历史
+
+动作捕捉范围、性能档位、协议与验证证据见 [docs/MOTION_CAPTURE_BETA.md](docs/MOTION_CAPTURE_BETA.md)，隐私/局域网边界见 [docs/PRIVACY_SECURITY.md](docs/PRIVACY_SECURITY.md)，模型来源与哈希见 [MODEL_LICENSES.md](MODEL_LICENSES.md)。
 
 ---
 

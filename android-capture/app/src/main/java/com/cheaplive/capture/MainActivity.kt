@@ -22,12 +22,15 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -67,7 +70,13 @@ class MainActivity : AppCompatActivity() {
     private var appState: AppState? = null
     private var configStore: FaceTrackingConfigStore? = null
     private var connectionStore: ConnectionIdentityStore? = null
+    private var motionSettingsStore: MotionCaptureSettingsStore? = null
     @Volatile private var lastPersistedConfigRevision: Long = -1L
+
+    // === Black Screen Capture ===
+    private var blackScreenController: BlackScreenCaptureController? = null
+    private lateinit var btnBlackScreenCapture: Button
+    private lateinit var brightnessTierButtons: List<Button>
 
     // === Design Tokens (对齐 demo) ===
     private val cBg = Color.parseColor("#0a0e1a")
@@ -122,6 +131,22 @@ class MainActivity : AppCompatActivity() {
         isMinFaceTestMode = intent.getStringExtra("MODE") == "MIN_FACE_TEST"
         isMinAudioTestMode = intent.getStringExtra("MODE") == "MIN_AUDIO_TEST"
 
+        val blackScreenAvailable = !isMinFaceTestMode && !isMinAudioTestMode
+        if (blackScreenAvailable) {
+            blackScreenController = BlackScreenCaptureController(this)
+            blackScreenController?.setOnActiveChangedListener { updateBlackScreenButton() }
+            onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    val consumed = blackScreenController?.handleBackPress() ?: false
+                    if (!consumed) {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
+                }
+            })
+        }
+        val wasBlackScreenActive = savedInstanceState?.getBoolean(KEY_BLACK_SCREEN_ACTIVE, false) ?: false
+
         val scroll = ScrollView(this).apply {
             setBackgroundColor(cBg)
             isFillViewport = true
@@ -143,6 +168,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             buildTopBar(root)
             buildServerCard(root)
+            buildBlackScreenCard(root)
             buildAvatarCard(root)
             buildFaceCaptureCard(root)
             buildPoseCaptureCard(root)
@@ -167,6 +193,12 @@ class MainActivity : AppCompatActivity() {
         setContentView(scroll)
         setupWebView()
 
+        // Restore black-screen active state after configuration recreation.
+        // Cold start passes false, which marks the state inactive (no auto-enter).
+        if (blackScreenAvailable) {
+            blackScreenController?.restoreOnCreate(wasBlackScreenActive)
+        }
+
         if (isMinFaceTestMode) {
             setupMinFaceMode()
         } else if (isMinAudioTestMode) {
@@ -186,6 +218,10 @@ class MainActivity : AppCompatActivity() {
             // 加载持久化的稳定连接身份（token/sessionId/port 不随重启变化）
             if (connectionStore == null) {
                 connectionStore = ConnectionIdentityStore(this)
+            }
+            if (motionSettingsStore == null) {
+                motionSettingsStore = MotionCaptureSettingsStore(this)
+                appState?.let { motionSettingsStore!!.applyTo(it) }
             }
             appState?.let { s ->
                 if (s.faceTrackingConfig.revision == 0L) {
@@ -485,6 +521,14 @@ class MainActivity : AppCompatActivity() {
         // 启动服务器
         ensureServerStarted()
 
+        session?.let { active ->
+            val receiverLink = "http://127.0.0.1:${active.port}/min-face-receiver?token=${active.token}"
+            currentSessionUrl = receiverLink
+            tvMinFaceToken.text = "token: ${active.token.take(12)}..."
+            tvMinFaceReceiverUrl.text = "receiver URL: $receiverLink"
+            qrImageView?.setImageBitmap(generateQRCode(receiverLink, 500))
+        }
+
         // 加载 min-face-send 页面
         showMinFaceSendPage()
 
@@ -500,7 +544,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             "file:///android_asset/web/min-face-send.html"
         }
-        android.util.Log.i("CheapLiveCapture", "showMinFaceSendPage: loading $url")
+        android.util.Log.i("CheapLiveCapture", "showMinFaceSendPage: loading local test route")
         webView?.loadUrl(url)
     }
 
@@ -779,6 +823,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         ensureServerStarted()
+        session?.let { active ->
+            val debugLink = "http://127.0.0.1:${active.port}/min-audio-receiver?token=${active.token}"
+            val lanLink = "http://${active.privateIp}:${active.port}/min-audio-receiver?token=${active.token}"
+            currentSessionUrl = lanLink
+            tvMinAudioToken.text = "token: ${active.token.take(12)}..."
+            tvMinAudioReceiverUrl.text = "LAN: $lanLink\nDebug: $debugLink (requires adb forward)"
+            qrImageView?.setImageBitmap(generateQRCode(lanLink, 500))
+        }
         showMinAudioSendPage()
 
         tvMinAudioServerStatus.text = "服务器状态: 运行中 ✓"
@@ -793,7 +845,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             "file:///android_asset/web/min-audio-send.html"
         }
-        android.util.Log.i("CheapLiveCapture", "showMinAudioSendPage: loading $url")
+        android.util.Log.i("CheapLiveCapture", "showMinAudioSendPage: loading local test route")
         webView?.loadUrl(url)
     }
 
@@ -827,6 +879,72 @@ class MainActivity : AppCompatActivity() {
             btnMinAudioStop.alpha = 0.5f
             tvMinAudioStatus.text = "已停止"
         }
+    }
+
+    // ============================================================
+    // Black Screen Capture 模块
+    // ============================================================
+    private fun buildBlackScreenCard(root: LinearLayout) {
+        val card = makeCard()
+        addCardTitle(card, "⚫ 黑屏采集", "Black Screen Capture")
+
+        val desc = TextView(this).apply {
+            text = "保持 App 在前台、阻止自动锁屏、屏幕显示纯黑、摄像头/面捕/姿态继续运行。\n长按屏幕或按返回键退出。"
+            setTextColor(cTextSec)
+            textSize = 11f
+            setPadding(0, 4, 0, 12)
+            lineHeight = (16 * resources.displayMetrics.density).toInt()
+        }
+        card.addView(desc)
+
+        btnBlackScreenCapture = makeButton("黑屏采集 / Black Screen Capture", cBgSecondary, cText)
+        btnBlackScreenCapture.setOnClickListener {
+            blackScreenController?.enter()
+        }
+        card.addView(btnBlackScreenCapture)
+
+        // Brightness tier selector
+        addSectionLabel(card, "亮度档位 / Brightness")
+        val tierRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val tiers = listOf(
+            BlackScreenCaptureState.BrightnessLevel.EXTRA_DIM to "极暗",
+            BlackScreenCaptureState.BrightnessLevel.LOW to "低亮",
+            BlackScreenCaptureState.BrightnessLevel.SYSTEM to "跟随系统",
+        )
+        val tierBtns = mutableListOf<Button>()
+        for ((level, label) in tiers) {
+            val btn = makeChipButton(label).apply {
+                tag = level
+                setOnClickListener {
+                    blackScreenController?.setBrightnessLevel(level)
+                    refreshBrightnessTierButtons()
+                }
+            }
+            tierBtns.add(btn)
+            tierRow.addView(btn)
+        }
+        brightnessTierButtons = tierBtns.toList()
+        card.addView(tierRow)
+        refreshBrightnessTierButtons()
+
+        root.addView(card)
+    }
+
+    private fun refreshBrightnessTierButtons() {
+        if (!::brightnessTierButtons.isInitialized) return
+        val current = blackScreenController?.currentBrightnessLevel()
+            ?: BlackScreenCaptureState.BrightnessLevel.EXTRA_DIM
+        for (btn in brightnessTierButtons) {
+            val active = btn.tag == current
+            btn.setBackgroundColor(if (active) cAccent2 else cBgSecondary)
+            btn.setTextColor(if (active) cBg else cTextSec)
+        }
+    }
+
+    private fun updateBlackScreenButton() {
+        if (!::btnBlackScreenCapture.isInitialized) return
+        btnBlackScreenCapture.isEnabled = blackScreenController?.isActive() != true
+        btnBlackScreenCapture.text = "黑屏采集 / Black Screen Capture"
     }
 
     // ============================================================
@@ -1041,6 +1159,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnPoseToggle: Button
     private lateinit var poseModeButtons: MutableList<Button>
     private lateinit var bodyPoseButtons: MutableList<Button>
+    private lateinit var poseProfileButtons: MutableList<Button>
+    private lateinit var poseSmoothingSeek: SeekBar
+    private lateinit var poseSmoothingValue: TextView
+    private lateinit var poseMirrorCheck: CheckBox
+    private lateinit var poseDebugCheck: CheckBox
 
     private fun buildFaceCaptureCard(root: LinearLayout) {
         val card = makeCard()
@@ -1139,10 +1262,10 @@ class MainActivity : AppCompatActivity() {
     // ============================================================
     private fun buildPoseCaptureCard(root: LinearLayout) {
         val card = makeCard()
-        addCardTitle(card, "🏃 姿态捕捉", "Body Pose")
+        addCardTitle(card, "🏃 上半身动作捕捉 Beta", "Upper-body Motion Beta")
 
         val desc = TextView(this).apply {
-            text = "模拟姿态可用，真实姿态捕捉待接入。"
+            text = "默认关闭；显式启用后复用面捕摄像头，并在隔离 Worker 中加载本地模型。"
             textSize = 11f
             setTextColor(cTextSec)
             val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
@@ -1187,6 +1310,60 @@ class MainActivity : AppCompatActivity() {
             modeRow.addView(btn)
         }
         card.addView(modeRow)
+
+        addSectionLabel(card, "性能档位 / Performance")
+        poseProfileButtons = mutableListOf()
+        val profileRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for ((profile, label) in listOf("low" to "低功耗", "balanced" to "均衡", "high" to "高质量")) {
+            val btn = makeChipButton(label).apply {
+                tag = profile
+                setOnClickListener { appState?.applyCommand("setPosePerformanceProfile", mapOf("profile" to profile)) }
+            }
+            poseProfileButtons.add(btn)
+            profileRow.addView(btn)
+        }
+        card.addView(profileRow)
+
+        val smoothingRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        smoothingRow.addView(TextView(this).apply { text = "平滑 / Smoothing"; setTextColor(cTextSec); textSize = 11f })
+        poseSmoothingSeek = SeekBar(this).apply {
+            max = 100
+            progress = 35
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    poseSmoothingValue.text = String.format(java.util.Locale.US, "%.2f", progress / 100.0)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    appState?.applyCommand("setPoseSmoothing", mapOf("smoothing" to ((seekBar?.progress ?: 35) / 100.0)))
+                }
+            })
+        }
+        smoothingRow.addView(poseSmoothingSeek)
+        poseSmoothingValue = TextView(this).apply { text = "0.35"; setTextColor(cAccent); textSize = 11f }
+        smoothingRow.addView(poseSmoothingValue)
+        card.addView(smoothingRow)
+
+        poseMirrorCheck = CheckBox(this).apply {
+            text = "镜像语义 / Mirror"
+            setTextColor(cText)
+            isChecked = true
+            setOnCheckedChangeListener { _, checked -> appState?.applyCommand("setPoseMirror", mapOf("mirrored" to checked)) }
+        }
+        card.addView(poseMirrorCheck)
+        poseDebugCheck = CheckBox(this).apply {
+            text = "调试骨架 / Debug skeleton"
+            setTextColor(cText)
+            setOnCheckedChangeListener { _, checked -> appState?.applyCommand("setPoseDebugSkeleton", mapOf("enabled" to checked)) }
+        }
+        card.addView(poseDebugCheck)
+
+        card.addView(makeButton("中性校准 / Calibrate neutral", cPurple, cBg).apply {
+            setOnClickListener {
+                webView?.evaluateJavascript("(function(){return window.CheapLiveCapture?.beginPoseCalibration?.() || {ok:false,error:'not ready'};})()", null)
+            }
+        })
 
         addSectionLabel(card, "身体姿态")
         bodyPoseButtons = mutableListOf()
@@ -1262,6 +1439,18 @@ class MainActivity : AppCompatActivity() {
         val modeText = snap.poseMode
         val poseText = snap.bodyPose
         tvPoseCaptureStatus.text = "状态: $stateText | 模式: $modeText | 姿态: $poseText"
+        if (::poseProfileButtons.isInitialized) {
+            for (btn in poseProfileButtons) {
+                val active = btn.tag == snap.posePerformanceProfile
+                btn.setBackgroundColor(if (active) cAccent2 else cBgSecondary)
+                btn.setTextColor(if (active) cBg else cText)
+            }
+        }
+        if (::poseSmoothingSeek.isInitialized && !poseSmoothingSeek.isPressed) poseSmoothingSeek.progress = (snap.poseSmoothing * 100).toInt()
+        if (::poseSmoothingValue.isInitialized) poseSmoothingValue.text = String.format(java.util.Locale.US, "%.2f", snap.poseSmoothing)
+        if (::poseMirrorCheck.isInitialized && poseMirrorCheck.isChecked != snap.poseMirrored) poseMirrorCheck.isChecked = snap.poseMirrored
+        if (::poseDebugCheck.isInitialized && poseDebugCheck.isChecked != snap.poseDebugSkeleton) poseDebugCheck.isChecked = snap.poseDebugSkeleton
+        tvPoseCaptureStatus.text = "状态: $stateText/${snap.poseCaptureStatus} | 模式: $modeText | ${snap.posePerformanceProfile} | ${String.format(java.util.Locale.US, "%.1f", snap.poseFps)} FPS | 模型: ${snap.poseModelStatus}"
         refreshPoseModeButtons()
         refreshBodyPoseButtons()
     }
@@ -1749,6 +1938,7 @@ class MainActivity : AppCompatActivity() {
                 // capture 页面加载完成后立即初始化 AppState listener（不需要等待 viewer 连接）
                 if (url?.contains("capture") == true || url?.startsWith("file:///android_asset/") == true) {
                     setupAppStateListener()
+                    pushMotionStateToCaptureWebView()
                 }
             }
 
@@ -1829,16 +2019,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun ensureServerStarted() {
-        android.util.Log.i("CheapLiveCapture", "ensureServerStarted: entering, isServerRunning=$isServerRunning")
-        if (isServerRunning) {
-            android.util.Log.i("CheapLiveCapture", "ensureServerStarted: already running, returning")
-            return
-        }
         val ip = PrivateIpPicker.pick() ?: "127.0.0.1"
-        // 使用持久化的稳定连接身份，不重新生成 token/sessionId
-        if (connectionStore == null) {
-            connectionStore = ConnectionIdentityStore(this)
-        }
+        if (connectionStore == null) connectionStore = ConnectionIdentityStore(this)
         val identity = connectionStore!!.load() ?: connectionStore!!.reset()
         val baseSession = session ?: Session(
             sessionId = identity.sessionId,
@@ -1846,39 +2028,36 @@ class MainActivity : AppCompatActivity() {
             port = identity.port,
             privateIp = ip,
         ).also { session = it }
-        val srv = LocalServer(this, baseSession, appState ?: AppState())
-        var actualPort = -1
-        var lastError: Throwable? = null
-        for (retry in 0..5) {
-            try {
-                actualPort = srv.start()
-                break
-            } catch (t: Throwable) {
-                lastError = t
-                android.util.Log.e("CheapLiveCapture", "ensureServerStarted attempt ${retry + 1} failed: ${t.message}")
-                if (retry < 5) {
-                    Thread.sleep((300 + retry * 200).toLong())
-                }
-            }
-        }
-        if (actualPort < 0) {
-            android.util.Log.e("CheapLiveCapture", "ensureServerStarted all retries failed: ${lastError?.message}")
+        val requestedState = appState ?: AppState()
+        val handle = try {
+            CaptureServerRuntime.ensureStarted(this, baseSession, requestedState)
+        } catch (error: Throwable) {
+            android.util.Log.e("CheapLiveCapture", "LocalServer start failed: ${error.javaClass.simpleName}")
             runOnUiThread {
                 tvServerStatus?.text = "服务器启动失败：端口 ${identity.port} 被占用"
             }
             return
         }
-        val finalSession = baseSession.copy(port = actualPort, privateIp = ip)
-        session = finalSession
-        server = srv
+        CaptureServerService.start(this)
+        session = handle.session.copy(privateIp = ip)
+        server = handle.server
+        appState = handle.appState
         isServerRunning = true
         appState?.setField("serverRunning", true)
         appState?.onResetConnectionIdentity = { resetConnectionIdentity() }
-        android.util.Log.i("CheapLiveCapture", "ensureServerStarted: port=$actualPort")
+        android.util.Log.i("CheapLiveCapture", "LocalServer foreground owner active")
+
+        if (!isMinFaceTestMode && !isMinAudioTestMode) {
+            tvServerStatus.text = "本地服务器运行中"
+            tvSessionInfo.text = "链接与二维码可用；点击「开始多端会话」同步会话状态"
+            tvServerBadge.text = "ONLINE"
+            tvServerBadge.setTextColor(cAccent2)
+            tvServerBadge.setBackgroundColor(Color.argb(30, 105, 219, 124))
+        }
 
         val b = bridge ?: CaptureBridge(
-            session = finalSession,
-            broadcast = srv,
+            session = session!!,
+            broadcast = handle.server,
             onStateChange = { _, _ -> },
             appState = appState,
             configStore = configStore,
@@ -1897,8 +2076,19 @@ class MainActivity : AppCompatActivity() {
         } else {
             "file:///android_asset/web/capture/index.html"
         }
-        android.util.Log.i("CheapLiveCapture", "showCapturePage: loading $url")
+        android.util.Log.i("CheapLiveCapture", "showCapturePage: loading local capture route")
         webView?.loadUrl(url)
+    }
+
+    private fun pushMotionStateToCaptureWebView() {
+        val state = appState ?: return
+        val settingsJson = MotionCaptureSettings.fromState(state).toJson()
+        webView?.evaluateJavascript(
+            "(function(){if(!window.CheapLiveCapture)return {ok:false,error:'not ready'};" +
+                "window.CheapLiveCapture.applyCaptureFeatures(${state.faceCaptureEnabled},${state.poseCaptureEnabled});" +
+                "return window.CheapLiveCapture.applyPoseSettings(${org.json.JSONObject.quote(settingsJson)});})()",
+            null,
+        )
     }
 
     private fun setupAppStateListener() {
@@ -1907,10 +2097,12 @@ class MainActivity : AppCompatActivity() {
         appStateListenerRegistered = true
 
         // 追踪上一次的 camera 需要状态，避免重复调用
-        var lastCameraNeeded = (appState?.faceCaptureEnabled ?: false) || (appState?.poseCaptureEnabled ?: false)
-        var lastVoiceEnabled = appState?.voiceChangerEnabled ?: false
-        var lastVoicePreset = appState?.voicePreset ?: "original"
+        var lastCameraNeeded = false
+        var lastVoiceEnabled = false
+        var lastVoicePreset = ""
         var lastConfigRevision = appState?.faceTrackingConfig?.revision ?: 0L
+        var lastMotionSettingsJson = ""
+        var lastCaptureFeatures = ""
         // 注册前补漏：如果 /api/control 在 listener 注册前调用了 resetFaceTrackingConfig，
         // appState.faceTrackingConfig 已是 reset 后的新值，但 prefs 仍是旧值。
         // 通过 lastPersistedConfigRevision（onCreate 中加载后设置）对比当前 rev，发现差异立即同步 save。
@@ -1932,12 +2124,13 @@ class MainActivity : AppCompatActivity() {
         var lastCalibrationInProgress = appState?.calibrationStatus?.inProgress ?: false
         var lastCalibrationSampleCount = 0
 
-        appState?.addListener { snap ->
+        val listener: (AppStateSnapshot) -> Unit = { snap ->
             runOnUiThread {
                 updateStatePanel(snap)
                 updateAvatarDisplay()
                 updateVoiceStatus()
                 updateFaceCaptureStatus()
+                updatePoseCaptureStatus()
                 refreshAvatarButtons()
                 refreshExprButtons()
                 refreshActionButtons()
@@ -1946,6 +2139,27 @@ class MainActivity : AppCompatActivity() {
                 tvServerBadge.text = if (snap.serverRunning) "ONLINE" else "OFFLINE"
                 tvServerBadge.setTextColor(if (snap.serverRunning) cAccent2 else cDanger)
                 tvServerBadge.setBackgroundColor(if (snap.serverRunning) Color.argb(30, 105, 219, 124) else Color.argb(30, 255, 107, 107))
+
+                val motionSettings = appState?.let { MotionCaptureSettings.fromState(it) } ?: MotionCaptureSettings()
+                val motionSettingsJson = motionSettings.toJson()
+                if (motionSettingsJson != lastMotionSettingsJson) {
+                    lastMotionSettingsJson = motionSettingsJson
+                    motionSettingsStore?.save(motionSettings)
+                    webView?.evaluateJavascript(
+                        "(function(){if(!window.CheapLiveCapture)return {ok:false,error:'not ready'};" +
+                            "window.CheapLiveCapture.applyCaptureFeatures(${snap.faceCaptureEnabled},${snap.poseCaptureEnabled});" +
+                            "return window.CheapLiveCapture.applyPoseSettings(${org.json.JSONObject.quote(motionSettingsJson)});})()",
+                        null,
+                    )
+                }
+                val captureFeatures = "${snap.faceCaptureEnabled}:${snap.poseCaptureEnabled}"
+                if (captureFeatures != lastCaptureFeatures) {
+                    lastCaptureFeatures = captureFeatures
+                    webView?.evaluateJavascript(
+                        "window.CheapLiveCapture?.applyCaptureFeatures?.(${snap.faceCaptureEnabled},${snap.poseCaptureEnabled})",
+                        null,
+                    )
+                }
 
                 // 面部追踪配置变更 → 持久化 + 推送给 WebView（capture 页面应用新参数）
                 val currentRev = appState?.faceTrackingConfig?.revision ?: 0L
@@ -2043,134 +2257,64 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        appStateListener = listener
+        appState?.addListener(listener)
         android.util.Log.i("CheapLiveCapture", "AppState listener registered")
     }
 
     private var appStateListenerRegistered = false
+    private var appStateListener: ((AppStateSnapshot) -> Unit)? = null
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        blackScreenController?.onWindowFocusChanged(hasFocus)
+    }
+
+    override fun onDestroy() {
+        blackScreenController?.destroy()
+        blackScreenController = null
+        appStateListener?.let { listener -> appState?.removeListener(listener) }
+        appStateListener = null
+        appStateListenerRegistered = false
+        webView?.evaluateJavascript(
+            "(function(){if(window.CheapLiveCapture){window.CheapLiveCapture.stopCamera('activity-destroy',true);window.CheapLiveCapture.stopVoiceCapture('activity-destroy');}})()",
+            null,
+        )
+        webView?.removeJavascriptInterface("CheapLiveBridge")
+        webView?.destroy()
+        webView = null
+        super.onDestroy()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean(KEY_BLACK_SCREEN_ACTIVE, blackScreenController?.isActive() ?: false)
+        super.onSaveInstanceState(outState)
+    }
 
     private fun startSession() {
-        if (isServerRunning && server != null && appState != null && session != null) {
-            // server 已由 ensureServerStarted 提前启动，补全 UI 和监听器
-            val finalSession = session!!
-            val srv = server!!
-            appState?.setField("serverRunning", true)
-            appState?.setField("viewerConnected", true)
-            appState?.onResetConnectionIdentity = { resetConnectionIdentity() }
-            val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-            appState?.setField("voicePermission", if (hasAudio) "granted" else "denied")
-
-            // listener 已在 onPageFinished 中通过 setupAppStateListener() 注册，无需重复
-
-            val b = bridge ?: CaptureBridge(
-                session = finalSession,
-                broadcast = srv,
-                onStateChange = { _, _ -> },
-                appState = appState,
-                configStore = configStore,
-            ).also { bridge = it }
-            webView?.addJavascriptInterface(b, "CheapLiveBridge")
-            val link = "http://${finalSession.privateIp}:${finalSession.port}/receiver/?token=${finalSession.token}&v=${BuildConfig.VERSION_NAME}"
-            currentSessionUrl = link
-            tvServerStatus.text = "会话已启动"
-            tvSessionInfo.text = "扫描二维码在接收端打开（电脑/展示设备浏览器）"
-            qrImageView?.apply {
-                visibility = View.VISIBLE
-                setImageBitmap(generateQRCode(link, 600))
-            }
+        ensureServerStarted()
+        val finalSession = session
+        val activeServer = server
+        if (!isServerRunning || finalSession == null || activeServer == null || appState == null) {
+            tvServerStatus.text = "服务器启动失败，请检查端口状态"
             return
-        }
-        if (isServerRunning) {
-            tvServerStatus.text = "服务器已在运行中（链接与二维码不变）"
-            return
-        }
-        val ip = PrivateIpPicker.pick()
-        if (ip == null) {
-            tvServerStatus.text = "无法获取局域网 IP，请检查 Wi-Fi"
-            return
-        }
-        // 使用持久化的稳定连接身份，不重新生成 token/sessionId
-        if (connectionStore == null) {
-            connectionStore = ConnectionIdentityStore(this)
-        }
-        val identity = connectionStore!!.load() ?: connectionStore!!.reset()
-        val existingSession = session
-        val baseSession = existingSession ?: Session(
-            sessionId = identity.sessionId,
-            token = identity.token,
-            port = identity.port,
-            privateIp = ip,
-        ).also { session = it }
-        val srv = LocalServer(this, baseSession)
-        val actualPort = try { srv.start() } catch (t: Throwable) {
-            // 端口冲突时短暂等待旧实例释放后重试一次（不静默切换端口）
-            Thread.sleep(500)
-            try { srv.start() } catch (t2: Throwable) {
-                tvServerStatus.text = "服务器启动失败：端口 ${identity.port} 被占用（${t2.message}）"
-                return
-            }
-        }
-        val finalSession = baseSession.copy(port = actualPort, privateIp = ip)
-        session = finalSession
-        server = srv
-        // 保存本地已设置的状态，替换到新 AppState 中
-        val prevSnap = appState?.snapshot()
-        val prevConfig = appState?.faceTrackingConfig
-        val prevCalibration = appState?.calibrationStatus
-        appState = srv.getAppState()
-        if (prevSnap != null) {
-            appState?.let { s ->
-                s.avatar = prevSnap.avatar
-                s.avatarExpression = prevSnap.avatarExpression
-                s.avatarAction = prevSnap.avatarAction
-                s.voicePreset = prevSnap.voicePreset
-                s.voiceChangerEnabled = prevSnap.voiceChangerEnabled
-                s.faceCaptureEnabled = prevSnap.faceCaptureEnabled
-                s.subtitleEnabled = prevSnap.subtitleEnabled
-                s.captureMode = prevSnap.captureMode
-                s.voicePermission = prevSnap.voicePermission
-                s.cameraPermission = prevSnap.cameraPermission
-                // 恢复面部追踪配置（如果之前已加载）
-                if (prevConfig != null) {
-                    s.faceTrackingConfig = prevConfig
-                }
-                if (prevCalibration != null) {
-                    s.calibrationStatus = prevCalibration
-                }
-            }
-        } else {
-            // 没有先前状态，从持久化加载
-            if (configStore == null) {
-                configStore = FaceTrackingConfigStore(this)
-            }
-            appState?.let { s ->
-                if (s.faceTrackingConfig.revision == 0L) {
-                    s.faceTrackingConfig = configStore!!.load()
-                    lastPersistedConfigRevision = s.faceTrackingConfig.revision
-                }
-            }
         }
         appState?.setField("serverRunning", true)
         appState?.setField("viewerConnected", true)
         appState?.onResetConnectionIdentity = { resetConnectionIdentity() }
-        android.util.Log.i("CheapLiveCapture", "onResetConnectionIdentity callback registered, appState=$appState")
-        // set voice permission based on current state
         val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         appState?.setField("voicePermission", if (hasAudio) "granted" else "denied")
-        isServerRunning = true
-
-        // listener 已在 onPageFinished 中通过 setupAppStateListener() 注册，无需重复
-
         val b = bridge ?: CaptureBridge(
             session = finalSession,
-            broadcast = srv,
+            broadcast = activeServer,
             onStateChange = { _, _ -> },
             appState = appState,
             configStore = configStore,
         ).also { bridge = it }
         webView?.addJavascriptInterface(b, "CheapLiveBridge")
-        val link = "http://${finalSession.privateIp}:$actualPort/receiver/?token=${finalSession.token}&v=${BuildConfig.VERSION_NAME}"
+        val link = "http://${finalSession.privateIp}:${finalSession.port}/receiver/?token=${finalSession.token}&v=${BuildConfig.VERSION_NAME}"
         currentSessionUrl = link
-        tvServerStatus.text = if (existingSession == null) "会话已启动" else "会话已重启（链接与二维码不变）"
+        tvServerStatus.text = "会话已启动"
         tvSessionInfo.text = "扫描二维码在接收端打开（电脑/展示设备浏览器）"
         qrImageView?.apply {
             visibility = View.VISIBLE
@@ -2181,7 +2325,7 @@ class MainActivity : AppCompatActivity() {
     private fun resetSession() {
         // 停止服务器，但保留持久化连接身份（token/sessionId/port）
         // 用户重新点击"开始"会复用同一身份生成相同 URL
-        try { server?.stop() } catch (_: Throwable) {}
+        CaptureServerService.stop(this)
         server = null
         isServerRunning = false
         // 不清 session：保留 token/sessionId/port，仅清运行时状态
@@ -2201,7 +2345,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun resetConnectionIdentity() {
         android.util.Log.i("CheapLiveCapture", "resetConnectionIdentity called")
-        try { server?.stop() } catch (_: Throwable) {}
+        CaptureServerService.stop(this)
         server = null
         isServerRunning = false
         bridge = null
@@ -2235,14 +2379,13 @@ class MainActivity : AppCompatActivity() {
                 tvSessionInfo.text = "使用新二维码重新连接接收端"
             }
         }
-        Thread {
-            Thread.sleep(500)
-            ensureServerStarted()
-        }.start()
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (!isFinishing && !isDestroyed) ensureServerStarted()
+        }, 500L)
     }
 
     private fun stopSession() {
-        try { server?.stop() } catch (_: Throwable) {}
+        CaptureServerService.stop(this)
         appState?.setField("serverRunning", false)
         appState?.setField("viewerConnected", false)
         server = null
@@ -2365,5 +2508,6 @@ class MainActivity : AppCompatActivity() {
         private const val REQ_PERMISSIONS = 1001
         private const val REQ_CAMERA = 1002
         private const val REQ_AUDIO = 1003
+        private const val KEY_BLACK_SCREEN_ACTIVE = "cheaplive_black_screen_active"
     }
 }

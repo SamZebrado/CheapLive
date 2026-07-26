@@ -6,21 +6,32 @@
 
 import { defineConfig, devices } from '@playwright/test';
 
+const testPort = Number(process.env.CHEAPLIVE_TEST_PORT || 8769);
+const baseURL = `http://127.0.0.1:${testPort}/`;
+
 export default defineConfig({
   testDir: 'tests',
   fullyParallel: true,
   retries: 0,
-  reporter: 'line',
+  reporter: [
+    ['line'],
+    ['json', { outputFile: '.tmp/test-evidence/20260723/playwright-results.json' }],
+  ],
   timeout: 30000,
   webServer: {
-    command: 'npx http-server -p 8769 -s',
-    url: 'http://127.0.0.1:8769/',
+    command: 'node tests/support/static-server.mjs',
+    env: { ...process.env, CHEAPLIVE_TEST_PORT: String(testPort) },
+    url: baseURL,
     timeout: 30000,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
   },
   use: {
-    baseURL: 'http://127.0.0.1:8769/',
+    baseURL,
+    screenshot: 'only-on-failure',
+    trace: 'retain-on-failure',
+    video: 'off',
   },
+  outputDir: '.tmp/test-evidence/20260723/playwright-output',
   projects: [
     {
       name: 'chromium-desktop',

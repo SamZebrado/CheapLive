@@ -1,0 +1,231 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "node scripts/sync-contest-demo-to-android.mjs --write",
+  "entries": [
+    {
+      "feature": "android-receiver-procedural-renderer",
+      "source": "android-capture/app/src/main/assets/web/receiver/procedural-mesh-renderer.js",
+      "sha256": "0d841d44af9400b9c22a529a7e248e95a90d59153f91209c6cbdcf8ba6b6814f",
+      "size": 75719,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/procedural-mesh-renderer.js",
+        "android-capture/app/src/main/assets/web/demo/procedural-mesh-renderer.js"
+      ]
+    },
+    {
+      "feature": "android-receiver-sphere-mesh",
+      "source": "android-capture/app/src/main/assets/web/receiver/mesh-sphere.js",
+      "sha256": "4ddbcf9b54badf8e57af6838d72a6a3dd12e7c829b83df0ef901b05208ae086e",
+      "size": 7702,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mesh-sphere.js"
+      ]
+    },
+    {
+      "feature": "android-receiver-spindle-mesh",
+      "source": "android-capture/app/src/main/assets/web/receiver/mesh-spindle-whale.js",
+      "sha256": "901a377cea469b8bff4400982f8a1d77becf42668587360078548585e0f132dc",
+      "size": 29462,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mesh-spindle-whale.js",
+        "android-capture/app/src/main/assets/web/demo/mesh-spindle-whale.js"
+      ]
+    },
+    {
+      "feature": "face-landmarker-model",
+      "source": "src/face-tracking/mediapipe/face_landmarker.task",
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+      "size": 3758596,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/face_landmarker.task",
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/face_landmarker.task"
+      ]
+    },
+    {
+      "feature": "mediapipe-license",
+      "source": "src/face-tracking/mediapipe/LICENSE",
+      "sha256": "c3840564f53c7cfd8f7ce2d8d42f0e3ecc61bcb8d4bbe2329569e8a4a5fb1b14",
+      "size": 11027,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/LICENSE",
+        "android-capture/app/src/main/assets/web/mediapipe/LICENSE"
+      ]
+    },
+    {
+      "feature": "mediapipe-vision_wasm_internal.js",
+      "source": "src/face-tracking/mediapipe/wasm/vision_wasm_internal.js",
+      "sha256": "6a73602a14484297690e69d716e683341b62a5fde8f5debde78de2651cb69bbe",
+      "size": 205745,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/wasm/vision_wasm_internal.js",
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/wasm/vision_wasm_internal.js"
+      ]
+    },
+    {
+      "feature": "mediapipe-vision_wasm_internal.wasm",
+      "source": "src/face-tracking/mediapipe/wasm/vision_wasm_internal.wasm",
+      "sha256": "3431f70071f3980bf13e638551e9bb333335223e35542ee768db06501f7a26f2",
+      "size": 8689767,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/wasm/vision_wasm_internal.wasm",
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/wasm/vision_wasm_internal.wasm"
+      ]
+    },
+    {
+      "feature": "mediapipe-vision_wasm_nosimd_internal.js",
+      "source": "src/face-tracking/mediapipe/wasm/vision_wasm_nosimd_internal.js",
+      "sha256": "ece9ac1f41b93340b08682514ca291431ff7084c858caf6455e65b0c6c3eb717",
+      "size": 205752,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/wasm/vision_wasm_nosimd_internal.js",
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/wasm/vision_wasm_nosimd_internal.js"
+      ]
+    },
+    {
+      "feature": "mediapipe-vision_wasm_nosimd_internal.wasm",
+      "source": "src/face-tracking/mediapipe/wasm/vision_wasm_nosimd_internal.wasm",
+      "sha256": "4d54739714db6b3d0fbdd0608c2824c4ccceaaf279aa4ba160f2eab2663b30f2",
+      "size": 8554370,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/wasm/vision_wasm_nosimd_internal.wasm",
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/wasm/vision_wasm_nosimd_internal.wasm"
+      ]
+    },
+    {
+      "feature": "mediapipe-vision-bundle",
+      "source": "src/face-tracking/mediapipe/vision_bundle.mjs",
+      "sha256": "a229ff5bd4b6cf330e87b3ce63b84610767c5521d365b9b4a2cadb011f885b0c",
+      "size": 881037,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/mediapipe/vision_bundle.mjs",
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/vision_bundle.mjs"
+      ]
+    },
+    {
+      "feature": "pose-landmarker-lite-model-v1",
+      "source": "src/shared/models/pose_landmarker_lite.task",
+      "sha256": "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a",
+      "size": 5777746,
+      "targets": [
+        "android-capture/app/src/main/assets/web/mediapipe/tasks-vision/pose_landmarker_lite.task"
+      ]
+    },
+    {
+      "feature": "pose-protocol-pose-calibration.js",
+      "source": "src/shared/protocol/pose-calibration.js",
+      "sha256": "ea65a55a7bc1216c31d4d7edb4c927d887377081eb4d312e6f855f6cdaf1a303",
+      "size": 1301,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/protocol/pose-calibration.js"
+      ]
+    },
+    {
+      "feature": "pose-protocol-pose-frame.js",
+      "source": "src/shared/protocol/pose-frame.js",
+      "sha256": "c3871ff697d7c2a68e3de86c0cf5e47799d81b7c50be11de45cf1ac9adafc145",
+      "size": 2739,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/protocol/pose-frame.js"
+      ]
+    },
+    {
+      "feature": "pose-protocol-pose-simulator.js",
+      "source": "src/shared/protocol/pose-simulator.js",
+      "sha256": "84f20d81b7473a6c994aabfe9fe65bc3a34639928a644829d71bbcb43c7c488e",
+      "size": 2648,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/protocol/pose-simulator.js"
+      ]
+    },
+    {
+      "feature": "pose-protocol-pose-smoothing.js",
+      "source": "src/shared/protocol/pose-smoothing.js",
+      "sha256": "f62a7482627cab91b0bbc654f5029f228c6e0304cc9fb3afca93011adf8b96c8",
+      "size": 2014,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/protocol/pose-smoothing.js"
+      ]
+    },
+    {
+      "feature": "pose-protocol-pose-validator.js",
+      "source": "src/shared/protocol/pose-validator.js",
+      "sha256": "a6237d2b8a9a161afacdb21e9ae5e335b25522abfaeff383325e37fb326ac20c",
+      "size": 3943,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/protocol/pose-validator.js"
+      ]
+    },
+    {
+      "feature": "pose-runtime-pose-model-provider.js",
+      "source": "src/shared/motion/pose-model-provider.js",
+      "sha256": "21ca5f8c3a02a7236f4dc10c462a325baa797d3e7e6c73f383ee1ba6d2400979",
+      "size": 3037,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/motion/pose-model-provider.js"
+      ]
+    },
+    {
+      "feature": "pose-runtime-pose-scheduler.js",
+      "source": "src/shared/motion/pose-scheduler.js",
+      "sha256": "64844e252f666ac2d29285dc3e56922ec72851632082c3d4a65d13b5d6ae0d35",
+      "size": 2568,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/motion/pose-scheduler.js"
+      ]
+    },
+    {
+      "feature": "pose-runtime-pose-state.js",
+      "source": "src/shared/motion/pose-state.js",
+      "sha256": "0138567aadc9244cc9a9cd71f12ae772b99efc8fa30343cf0ada35ec8cb41832",
+      "size": 2990,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/motion/pose-state.js"
+      ]
+    },
+    {
+      "feature": "pose-runtime-pose-worker-bootstrap.js",
+      "source": "src/shared/motion/pose-worker-bootstrap.js",
+      "sha256": "734b45f2fc89fc025427720fca60f8f602efba9d453f2fa13ca8aa97dc61ad31",
+      "size": 626,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/motion/pose-worker-bootstrap.js"
+      ]
+    },
+    {
+      "feature": "pose-runtime-pose-worker-client.js",
+      "source": "src/shared/motion/pose-worker-client.js",
+      "sha256": "9428c788e1812ae133ddc8cd7244a41617abbdc67369f4b604c86722ced04508",
+      "size": 3745,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/motion/pose-worker-client.js"
+      ]
+    },
+    {
+      "feature": "pose-runtime-pose-worker.js",
+      "source": "src/shared/motion/pose-worker.js",
+      "sha256": "bf27fb6e6b1894a26befcb7aaf3bd34548b18a1c274156969714f0b55469674f",
+      "size": 2296,
+      "targets": [
+        "android-capture/app/src/main/assets/web/shared/motion/pose-worker.js"
+      ]
+    },
+    {
+      "feature": "receiver-transport-controller",
+      "source": "src/shared/runtime/receiver-transport-controller.js",
+      "sha256": "ab5a5cec9d6fafb7d4f1052446e037ca44ebf7efc656e4c6a14ffef877c8d3c1",
+      "size": 2818,
+      "targets": [
+        "android-capture/app/src/main/assets/web/receiver/receiver-transport-controller.js"
+      ]
+    },
+    {
+      "feature": "soundtouch-runtime",
+      "source": "src/face-tracking/lib/soundtouch.min.js",
+      "sha256": "44509e71d37d75e808261f4eb977c4c5acba3ae6874ec1f3b1c97c90ae5d31ac",
+      "size": 14610,
+      "targets": [
+        "android-capture/app/src/main/assets/web/contest-demo/lib/soundtouch.min.js"
+      ]
+    }
+  ]
+}

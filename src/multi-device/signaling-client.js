@@ -6,15 +6,29 @@
  */
 
 class SignalingClient {
-  constructor(deviceId, serverUrl) {
+  constructor(deviceId, serverUrl, options = {}) {
+    if (serverUrl && typeof serverUrl === 'object') {
+      options = serverUrl;
+      serverUrl = options.serverUrl;
+    }
     this.deviceId = deviceId;
     this.serverUrl = serverUrl || this.detectServerUrl();
+    this.token = options.token || '';
+    this.room = options.room || 'default';
+    this.signalSequence = 0;
     this.eventSource = null;
     this.heartbeatTimer = null;
     this.onDeviceList = null;
     this.onSignal = null;
     this.onError = null;
     this.connected = false;
+  }
+
+  authHeaders(includeJson = false) {
+    const headers = {};
+    if (includeJson) headers['Content-Type'] = 'application/json';
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    return headers;
   }
 
   detectServerUrl() {
@@ -31,13 +45,14 @@ class SignalingClient {
     try {
       const res = await fetch(`${this.serverUrl}/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders(true),
         body: JSON.stringify({
           id: this.deviceId,
           name: name || 'CheapLive Device',
           ip: ip || 'unknown',
           port: port || 8765,
           role,
+          room: this.room,
         }),
       });
       const data = await res.json();
@@ -55,7 +70,10 @@ class SignalingClient {
   startHeartbeat() {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = setInterval(() => {
-      fetch(`${this.serverUrl}/heartbeat/${this.deviceId}`, { method: 'POST' })
+      fetch(`${this.serverUrl}/heartbeat/${encodeURIComponent(this.deviceId)}`, {
+        method: 'POST',
+        headers: this.authHeaders(),
+      })
         .catch(err => {
           console.warn('[Heartbeat] Failed:', err.message);
           if (this.onError) this.onError('heartbeat', err.message);
@@ -69,7 +87,10 @@ class SignalingClient {
     }
 
     try {
-      this.eventSource = new EventSource(`${this.serverUrl}/events/${this.deviceId}`);
+      const tokenQuery = this.token ? `?token=${encodeURIComponent(this.token)}` : '';
+      this.eventSource = new EventSource(
+        `${this.serverUrl}/events/${encodeURIComponent(this.deviceId)}${tokenQuery}`,
+      );
       this.connected = true;
 
       this.eventSource.onmessage = (e) => {
@@ -101,8 +122,12 @@ class SignalingClient {
     try {
       const res = await fetch(`${this.serverUrl}/signal/${targetId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: this.deviceId, payload }),
+        headers: this.authHeaders(true),
+        body: JSON.stringify({
+          from: this.deviceId,
+          sequence: ++this.signalSequence,
+          payload,
+        }),
       });
       return await res.json();
     } catch (err) {
@@ -123,7 +148,10 @@ class SignalingClient {
     this.connected = false;
 
     try {
-      await fetch(`${this.serverUrl}/unregister/${this.deviceId}`, { method: 'DELETE' });
+      await fetch(`${this.serverUrl}/unregister/${encodeURIComponent(this.deviceId)}`, {
+        method: 'DELETE',
+        headers: this.authHeaders(),
+      });
     } catch (err) {
       console.warn('[Unregister] Failed:', err.message);
     }
@@ -133,7 +161,11 @@ class SignalingClient {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
-      const res = await fetch(`${this.serverUrl}/devices`, { signal: controller.signal });
+      const roomQuery = `?room=${encodeURIComponent(this.room)}`;
+      const res = await fetch(`${this.serverUrl}/devices${roomQuery}`, {
+        signal: controller.signal,
+        headers: this.authHeaders(),
+      });
       clearTimeout(timeoutId);
       const data = await res.json();
       return data.devices || [];

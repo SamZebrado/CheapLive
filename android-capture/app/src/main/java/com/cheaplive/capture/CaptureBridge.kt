@@ -11,6 +11,27 @@ class CaptureBridge(
     private val configStore: FaceTrackingConfigStore? = null,
 ) {
     private val validAvatarTypes = setOf("mesh-spindle-whale", "mesh-sphere", "sacabambaspis", "sacabambaspis3d")
+    private val poseLandmarkNames = setOf(
+        "nose", "leftShoulder", "rightShoulder", "leftElbow", "rightElbow",
+        "leftWrist", "rightWrist", "leftHip", "rightHip",
+    )
+    @Volatile private var lastPoseTelemetryAtMs: Long = 0L
+
+    private fun logDebug(tag: String, message: String) {
+        runCatching { android.util.Log.d(tag, message) }
+    }
+
+    private fun logInfo(tag: String, message: String) {
+        runCatching { android.util.Log.i(tag, message) }
+    }
+
+    private fun logWarn(tag: String, message: String) {
+        runCatching { android.util.Log.w(tag, message) }
+    }
+
+    private fun logError(tag: String, message: String) {
+        runCatching { android.util.Log.e(tag, message) }
+    }
 
     @JavascriptInterface fun getSessionInfo(): String = JSONObject().apply {
         put("sessionId", session.sessionId)
@@ -32,25 +53,25 @@ class CaptureBridge(
     }
 
     @JavascriptInterface fun publishFaceFrame(json: String): String {
-        android.util.Log.d("CheapLiveCapture", "publishFaceFrame received: ${json.take(120)}...")
+        logDebug("CheapLiveCapture", "publishFaceFrame received: ${json.take(120)}...")
         if (json.length > FaceFrameValidator.MAX_MESSAGE_BYTES) {
-            android.util.Log.w("CheapLiveCapture", "publishFaceFrame rejected: too large (${json.length} bytes)")
+            logWarn("CheapLiveCapture", "publishFaceFrame rejected: too large (${json.length} bytes)")
             return "{\"ok\":false,\"reason\":\"too large\"}"
         }
         return try {
             val obj = JSONObject(json)
             val type = obj.optString("type", "")
             if (type != "face-frame") {
-                android.util.Log.w("CheapLiveCapture", "publishFaceFrame rejected: wrong type=$type")
+                logWarn("CheapLiveCapture", "publishFaceFrame rejected: wrong type=$type")
                 return "{\"ok\":false,\"reason\":\"wrong type\"}"
             }
             val ver = obj.optInt("version", 0)
             if (ver != FaceFrameValidator.VERSION) {
-                android.util.Log.w("CheapLiveCapture", "publishFaceFrame rejected: wrong version=$ver")
+                logWarn("CheapLiveCapture", "publishFaceFrame rejected: wrong version=$ver")
                 return "{\"ok\":false,\"reason\":\"wrong version\"}"
             }
             val source = obj.optString("source", "unknown")
-            android.util.Log.i("CheapLiveCapture", "publishFaceFrame: source=$source, seq=${obj.optLong("seq")}, avatar=${obj.optString("avatar")}")
+            logInfo("CheapLiveCapture", "publishFaceFrame: source=$source, seq=${obj.optLong("seq")}, avatar=${obj.optString("avatar")}")
 
             val p = obj.getJSONObject("params")
             val frame = FaceFrame(
@@ -112,6 +133,117 @@ class CaptureBridge(
         }
     }
 
+    /** Strict, metadata-only pose bridge. No image bytes or arbitrary fields cross into native code. */
+    @JavascriptInterface fun publishPoseFrame(json: String): String {
+        if (json.length > 32_768) return "{\"ok\":false,\"reason\":\"too large\"}"
+        return try {
+            val input = JSONObject(json)
+            if (input.optString("type") != "pose-frame" || input.optInt("schemaVersion") != 1) {
+                return "{\"ok\":false,\"reason\":\"wrong protocol\"}"
+            }
+            val inputSequence = input.optLong("sequence", -1L)
+            val timestampMs = input.optDouble("timestampMs", -1.0)
+            val revision = input.optLong("revision", -1L)
+            val confidence = input.optDouble("confidence", Double.NaN)
+            val sourceId = input.optString("sourceId", "")
+            if (inputSequence < 0 || revision < 0 || !timestampMs.isFinite() || timestampMs < 0.0 ||
+                !confidence.isFinite() || confidence !in 0.0..1.0 || sourceId.isEmpty() || sourceId.length > 64 ||
+                input.optString("coordinateSpace") != "normalized-camera" ||
+                !input.has("tracking") || !input.has("mirrored")
+            ) return "{\"ok\":false,\"reason\":\"invalid metadata\"}"
+
+            val inputLandmarks = input.optJSONObject("landmarks")
+                ?: return "{\"ok\":false,\"reason\":\"invalid landmarks\"}"
+            val sanitizedLandmarks = JSONObject()
+            val keys = inputLandmarks.keys()
+            while (keys.hasNext()) {
+                val name = keys.next()
+                if (name !in poseLandmarkNames) return "{\"ok\":false,\"reason\":\"unknown landmark\"}"
+                val point = inputLandmarks.optJSONObject(name)
+                    ?: return "{\"ok\":false,\"reason\":\"invalid landmark\"}"
+                val x = point.optDouble("x", Double.NaN)
+                val y = point.optDouble("y", Double.NaN)
+                val z = point.optDouble("z", Double.NaN)
+                val visibility = point.optDouble("visibility", Double.NaN)
+                if (!x.isFinite() || x !in 0.0..1.0 || !y.isFinite() || y !in 0.0..1.0 ||
+                    !z.isFinite() || z !in -2.0..2.0 || !visibility.isFinite() || visibility !in 0.0..1.0
+                ) return "{\"ok\":false,\"reason\":\"invalid landmark\"}"
+                sanitizedLandmarks.put(name, JSONObject().put("x", x).put("y", y).put("z", z).put("visibility", visibility))
+            }
+
+            val sequence = session.seq++
+            val output = JSONObject().apply {
+                put("type", "pose-frame")
+                put("schemaVersion", 1)
+                put("sequence", sequence)
+                put("timestampMs", timestampMs)
+                put("revision", revision)
+                put("sourceId", sourceId)
+                put("tracking", input.optBoolean("tracking"))
+                put("confidence", confidence)
+                put("coordinateSpace", "normalized-camera")
+                put("mirrored", input.optBoolean("mirrored"))
+                put("landmarks", sanitizedLandmarks)
+            }
+            broadcast.broadcastFrame(output.toString())
+            val telemetryNow = System.currentTimeMillis()
+            appState?.takeIf { telemetryNow - lastPoseTelemetryAtMs >= 500L }?.let { state ->
+                lastPoseTelemetryAtMs = telemetryNow
+                state.updatePoseTelemetry(
+                    status = if (input.optBoolean("tracking")) "tracking" else "tracking-lost",
+                    fps = state.poseFps,
+                    inferenceMs = state.poseInferenceMs,
+                    skipped = state.poseFramesSkipped,
+                    dropped = state.poseDroppedMessages,
+                    confidence = confidence,
+                    landmarkCount = sanitizedLandmarks.length(),
+                )
+            }
+            "{\"ok\":true,\"sequence\":$sequence}"
+        } catch (_: Exception) {
+            "{\"ok\":false,\"reason\":\"parse\"}"
+        }
+    }
+
+    @JavascriptInterface fun reportPoseStats(json: String): String {
+        if (json.length > 4_096) return "{\"ok\":false,\"reason\":\"too large\"}"
+        return try {
+            val stats = JSONObject(json)
+            appState?.let { state ->
+                state.updatePoseTelemetry(
+                    status = state.poseCaptureStatus,
+                    fps = stats.optDouble("effectiveFps", stats.optDouble("fps", 0.0)),
+                    inferenceMs = stats.optDouble("averageInferenceMs", stats.optDouble("inferenceMs", 0.0)),
+                    skipped = stats.optLong("skippedFrames", 0L),
+                    dropped = stats.optLong("droppedFrames", stats.optLong("droppedMessages", 0L)),
+                    confidence = state.poseTrackingConfidence,
+                    landmarkCount = state.poseLandmarkCount,
+                )
+            }
+            "{\"ok\":true}"
+        } catch (_: Exception) {
+            "{\"ok\":false,\"reason\":\"parse\"}"
+        }
+    }
+
+    @JavascriptInterface fun reportPoseStatus(status: String, detail: String): String {
+        val safeStatus = status.take(48)
+        val safeDetail = detail.take(160)
+        appState?.let { state ->
+            state.updatePoseTelemetry(
+                status = safeStatus,
+                fps = state.poseFps,
+                inferenceMs = state.poseInferenceMs,
+                skipped = state.poseFramesSkipped,
+                dropped = state.poseDroppedMessages,
+                confidence = state.poseTrackingConfidence,
+                landmarkCount = state.poseLandmarkCount,
+                error = if (safeStatus == "error") safeDetail else "",
+            )
+        }
+        return "{\"ok\":true}"
+    }
+
     @JavascriptInterface fun reportCaptureState(state: String, detail: String) {
         onStateChange(state, detail)
     }
@@ -165,7 +297,7 @@ class CaptureBridge(
             if (data.isEmpty()) {
                 return "{\"ok\":false,\"reason\":\"empty data\"}"
             }
-            android.util.Log.i("CheapLiveAudio", "publishAudioChunk: seq=$seq, effectMode=$effectMode, mimeType=$mimeType, dataSize=${data.length}")
+            logInfo("CheapLiveAudio", "publishAudioChunk: seq=$seq, effectMode=$effectMode, mimeType=$mimeType, dataSize=${data.length}")
             val frameJson = JSONObject().apply {
                 put("type", "audio-chunk")
                 put("version", 1)
@@ -180,7 +312,7 @@ class CaptureBridge(
             broadcast.broadcastFrame(frameJson)
             "{\"ok\":true,\"seq\":$seq}"
         } catch (e: Exception) {
-            android.util.Log.e("CheapLiveAudio", "publishAudioChunk error: ${e.message}")
+            logError("CheapLiveAudio", "publishAudioChunk error: ${e.message}")
             "{\"ok\":false,\"reason\":\"parse\"}"
         }
     }

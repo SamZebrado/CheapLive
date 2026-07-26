@@ -25,6 +25,21 @@ These components are bundled with the web application and distributed to end use
 - **License File**: `src/face-tracking/mediapipe/LICENSE`
 - **Attribution**: Copyright 2023 The MediaPipe Authors. Licensed under Apache-2.0.
 
+### MediaPipe Pose Landmarker Lite
+
+- **Name**: MediaPipe Pose Landmarker Lite / BlazePose GHUM 3D
+- **Version**: float16/1
+- **License**: Apache-2.0
+- **SPDX**: Apache-2.0
+- **Purpose**: Opt-in local upper-body landmark inference
+- **Distribution**: Bundled with the web/Android application; not downloaded at runtime
+- **Canonical file**: `src/shared/models/pose_landmarker_lite.task`
+- **File size**: 5,777,746 bytes
+- **SHA-256**: `59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a`
+- **Upstream**: https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task
+- **License File**: `src/face-tracking/mediapipe/LICENSE`
+- **Additional inventory**: `MODEL_LICENSES.md`
+
 ### SoundTouchJS
 
 - **Name**: SoundTouchJS

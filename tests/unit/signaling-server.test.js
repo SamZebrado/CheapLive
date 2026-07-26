@@ -1,342 +1,249 @@
-/**
- * Signaling Server 单元测试
- *
- * 测试覆盖：
- * - 设备注册（POST /register）
- * - 设备心跳（POST /heartbeat/:id）
- * - 设备列表查询（GET /devices）
- * - 设备下线（DELETE /unregister/:id）
- * - WebRTC信令转发（POST /signal/:targetId）
- * - SSE实时推送（GET /events/:id）
- */
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import { after, before, beforeEach, describe, it } from 'node:test';
 
-import http from 'http';
-import { describe, it, before, after, beforeEach } from 'node:test';
-import assert from 'node:assert';
-import url from 'url';
+import { createSignalingService } from '../../src/multi-device/signaling-server.js';
 
-// 测试模式下启动服务器
-process.env.TEST_MODE = 'true';
-process.env.SIGNAL_PORT = '18766'; // 使用不同端口避免冲突
+const TEST_TOKEN = 'local-test-token';
+let service;
 
-// 导入服务器模块（动态导入以确保环境变量生效）
-const signalingModule = await import('../../src/multi-device/signaling-server.js');
-const { server, devices, sseClients, PORT } = signalingModule;
+async function request(pathname, options = {}) {
+  const headers = { ...(options.headers ?? {}) };
+  if (options.token !== null) headers.Authorization = `Bearer ${options.token ?? TEST_TOKEN}`;
+  let body;
+  if (options.rawBody !== undefined) {
+    body = options.rawBody;
+  } else if (options.body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    body = JSON.stringify(options.body);
+  }
+  const response = await fetch(`${service.baseUrl}${pathname}`, {
+    method: options.method ?? 'GET',
+    headers,
+    body,
+    signal: AbortSignal.timeout(2_000),
+  });
+  const text = await response.text();
+  return {
+    status: response.status,
+    headers: response.headers,
+    body: text ? JSON.parse(text) : {},
+  };
+}
 
-const BASE_URL = `http://localhost:${PORT}`;
-
-function makeRequest(method, path, body = null) {
-  return new Promise((resolve, reject) => {
-    const parsedUrl = url.parse(BASE_URL + path);
-    const options = {
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port,
-      path: parsedUrl.path,
-      method: method,
-      headers: { 'Content-Type': 'application/json' }
-    };
-
-    const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const json = data ? JSON.parse(data) : {};
-          resolve({ status: res.statusCode, headers: res.headers, body: json });
-        } catch (e) {
-          resolve({ status: res.statusCode, headers: res.headers, body: data });
-        }
-      });
-    });
-
-    req.on('error', reject);
-    req.setTimeout(2000, () => {
-      req.destroy();
-      reject(new Error('Request timeout'));
-    });
-
-    if (body) {
-      req.write(JSON.stringify(body));
-    }
-    req.end();
+async function register(id, room = 'default', role = 'capture') {
+  return request('/register', {
+    method: 'POST',
+    body: { id, room, role },
   });
 }
 
-describe('Signaling Server', () => {
-  before(async () => {
-    // 在测试模式下手动启动服务器
-    await new Promise((resolve) => {
-      server.listen(PORT, '0.0.0.0', () => {
-        resolve();
-      });
+function parseSseChunk(chunk) {
+  const line = String(chunk).split('\n').find((value) => value.startsWith('data: '));
+  return line ? JSON.parse(line.slice(6)) : null;
+}
+
+function connectSse(deviceId) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(`${service.baseUrl}/events/${encodeURIComponent(deviceId)}?token=${TEST_TOKEN}`, (res) => {
+      res.setEncoding('utf8');
+      res.once('data', (chunk) => resolve({ req, res, initial: parseSseChunk(chunk) }));
     });
+    req.setTimeout(2_000, () => req.destroy(new Error('SSE connect timeout')));
+    req.on('error', reject);
+  });
+}
+
+async function waitFor(predicate, message) {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(message);
+}
+
+describe('local signaling service', () => {
+  before(async () => {
+    service = createSignalingService({
+      host: '127.0.0.1',
+      port: 0,
+      token: TEST_TOKEN,
+      heartbeatIntervalMs: 0,
+      logger: { error() {} },
+    });
+    const address = await service.start();
+    assert.equal(address.address, '127.0.0.1');
+    assert.ok(address.port > 0);
   });
 
   after(async () => {
-    // 关闭服务器
-    server.close();
+    await service.stop();
   });
 
   beforeEach(() => {
-    // 清空设备表
-    devices.clear();
-    sseClients.clear();
+    for (const response of service.sseClients.values()) response.end();
+    service.sseClients.clear();
+    service.devices.clear();
+    service.lastSequences.clear();
   });
 
-  describe('设备注册 POST /register', () => {
-    it('正常注册应返回成功', async () => {
-      const res = await makeRequest('POST', '/register', {
-        id: 'device-001',
-        name: 'Test Device',
-        ip: '192.168.1.100',
-        port: 8765,
-        role: 'capture'
-      });
-
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.body.success, true);
-      assert.ok(res.body.ttl > 0);
-    });
-
-    it('缺少id应返回400', async () => {
-      const res = await makeRequest('POST', '/register', {
-        name: 'Test Device',
-        role: 'capture'
-      });
-
-      assert.strictEqual(res.status, 400);
-      assert.strictEqual(res.body.error, 'Missing id or role');
-    });
-
-    it('缺少role应返回400', async () => {
-      const res = await makeRequest('POST', '/register', {
-        id: 'device-002'
-      });
-
-      assert.strictEqual(res.status, 400);
-      assert.strictEqual(res.body.error, 'Missing id or role');
-    });
-
-    it('无效JSON应返回400', async () => {
-      // 手动发送无效JSON
-      const res = await new Promise((resolve, reject) => {
-        const parsedUrl = url.parse(BASE_URL + '/register');
-        const options = {
-          hostname: parsedUrl.hostname,
-          port: parsedUrl.port,
-          path: parsedUrl.path,
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        };
-
-        const req = http.request(options, (res) => {
-          let data = '';
-          res.on('data', chunk => data += chunk);
-          res.on('end', () => {
-            try {
-              resolve({ status: res.statusCode, body: JSON.parse(data) });
-            } catch (e) {
-              resolve({ status: res.statusCode, body: { error: 'parse error' } });
-            }
-          });
-        });
-
-        req.on('error', reject);
-        req.write('invalid json');
-        req.end();
-      });
-
-      assert.strictEqual(res.status, 400);
-      assert.strictEqual(res.body.error, 'Invalid JSON');
-    });
-
-    it('重复注册应更新设备信息', async () => {
-      await makeRequest('POST', '/register', {
-        id: 'device-003',
-        name: 'First Name',
-        role: 'capture'
-      });
-
-      const res = await makeRequest('POST', '/register', {
-        id: 'device-003',
-        name: 'Updated Name',
-        role: 'receiver'
-      });
-
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.body.success, true);
-
-      const listRes = await makeRequest('GET', '/devices');
-      const device = listRes.body.devices.find(d => d.id === 'device-003');
-      assert.strictEqual(device.name, 'Updated Name');
-      assert.strictEqual(device.role, 'receiver');
-    });
+  it('rejects requests with no token or a wrong token', async () => {
+    const missing = await request('/devices', { token: null });
+    const wrong = await request('/devices', { token: 'wrong-token' });
+    assert.equal(missing.status, 401);
+    assert.equal(wrong.status, 401);
+    assert.equal(missing.body.error, 'Unauthorized');
   });
 
-  describe('设备心跳 POST /heartbeat/:id', () => {
-    it('正常心跳应返回成功', async () => {
-      await makeRequest('POST', '/register', {
-        id: 'device-004',
-        role: 'capture'
-      });
-
-      const res = await makeRequest('POST', '/heartbeat/device-004');
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.body.success, true);
-    });
-
-    it('设备不存在应返回404', async () => {
-      const res = await makeRequest('POST', '/heartbeat/nonexistent');
-      assert.strictEqual(res.status, 404);
-      assert.strictEqual(res.body.error, 'Device not found');
-    });
+  it('registers two clients and isolates rooms', async () => {
+    assert.equal((await register('capture-a', 'room-a')).status, 200);
+    assert.equal((await register('receiver-a', 'room-a', 'receiver')).status, 200);
+    assert.equal((await register('capture-b', 'room-b')).status, 200);
+    const roomA = await request('/devices?room=room-a');
+    const roomB = await request('/devices?room=room-b');
+    assert.deepEqual(roomA.body.devices.map((device) => device.id).sort(), ['capture-a', 'receiver-a']);
+    assert.deepEqual(roomB.body.devices.map((device) => device.id), ['capture-b']);
   });
 
-  describe('设备列表查询 GET /devices', () => {
-    it('空设备表应返回空列表', async () => {
-      const res = await makeRequest('GET', '/devices');
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.body.devices.length, 0);
+  it('forwards messages to a connected SSE client', async () => {
+    await register('sender');
+    await register('receiver', 'default', 'receiver');
+    const sse = await connectSse('receiver');
+    assert.equal(sse.initial.type, 'deviceList');
+    const eventPromise = new Promise((resolve) => {
+      sse.res.once('data', (chunk) => resolve(parseSseChunk(chunk)));
     });
-
-    it('应返回已注册设备', async () => {
-      await makeRequest('POST', '/register', {
-        id: 'device-005',
-        name: 'Device A',
-        role: 'capture'
-      });
-
-      await makeRequest('POST', '/register', {
-        id: 'device-006',
-        name: 'Device B',
-        role: 'receiver'
-      });
-
-      const res = await makeRequest('GET', '/devices');
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.body.devices.length, 2);
+    const result = await request('/signal/receiver', {
+      method: 'POST',
+      body: { from: 'sender', sequence: 1, payload: { type: 'offer', sdp: 'test' } },
     });
+    const event = await eventPromise;
+    assert.equal(result.status, 200);
+    assert.equal(result.body.delivered, true);
+    assert.equal(event.type, 'signal');
+    assert.equal(event.from, 'sender');
+    assert.equal(event.sequence, 1);
+    sse.req.destroy();
   });
 
-  describe('设备下线 DELETE /unregister/:id', () => {
-    it('正常下线应返回成功', async () => {
-      await makeRequest('POST', '/register', {
-        id: 'device-007',
-        role: 'capture'
-      });
-
-      const res = await makeRequest('DELETE', '/unregister/device-007');
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.body.success, true);
-
-      const listRes = await makeRequest('GET', '/devices');
-      assert.strictEqual(listRes.body.devices.length, 0);
+  it('reports a registered target without SSE as offline', async () => {
+    await register('sender');
+    await register('receiver', 'default', 'receiver');
+    const result = await request('/signal/receiver', {
+      method: 'POST',
+      body: { from: 'sender', sequence: 1, payload: { type: 'offer' } },
     });
-
-    it('设备不存在应返回404', async () => {
-      const res = await makeRequest('DELETE', '/unregister/nonexistent');
-      assert.strictEqual(res.status, 404);
-      assert.strictEqual(res.body.error, 'Device not found');
-    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.delivered, false);
+    assert.equal(result.body.reason, 'Target offline');
   });
 
-  describe('WebRTC信令转发 POST /signal/:targetId', () => {
-    it('目标在线应返回delivered=true', async () => {
-      // 注册两个设备
-      await makeRequest('POST', '/register', {
-        id: 'sender-001',
-        role: 'capture'
-      });
-
-      await makeRequest('POST', '/register', {
-        id: 'receiver-001',
-        role: 'receiver'
-      });
-
-      // 模拟SSE连接（简单测试，不实际建立SSE）
-      // 在真实场景中，SSE连接需要长连接，这里只测试信令转发逻辑
-
-      const res = await makeRequest('POST', '/signal/receiver-001', {
-        from: 'sender-001',
-        payload: { type: 'offer', sdp: 'test-sdp' }
-      });
-
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.body.success, true);
-      // 由于没有实际SSE连接，delivered应为false
-      assert.strictEqual(res.body.delivered, false);
+  it('rejects cross-room forwarding', async () => {
+    await register('sender', 'room-a');
+    await register('receiver', 'room-b', 'receiver');
+    const result = await request('/signal/receiver', {
+      method: 'POST',
+      body: { from: 'sender', sequence: 1, payload: { type: 'offer' } },
     });
-
-    it('目标离线应返回delivered=false', async () => {
-      await makeRequest('POST', '/register', {
-        id: 'sender-002',
-        role: 'capture'
-      });
-
-      const res = await makeRequest('POST', '/signal/offline-target', {
-        from: 'sender-002',
-        payload: { type: 'offer', sdp: 'test-sdp' }
-      });
-
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.body.success, true);
-      assert.strictEqual(res.body.delivered, false);
-      assert.strictEqual(res.body.reason, 'Target offline');
-    });
-
-    it('无效JSON应返回400', async () => {
-      const res = await new Promise((resolve, reject) => {
-        const parsedUrl = url.parse(BASE_URL + '/signal/target-001');
-        const options = {
-          hostname: parsedUrl.hostname,
-          port: parsedUrl.port,
-          path: parsedUrl.path,
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        };
-
-        const req = http.request(options, (res) => {
-          let data = '';
-          res.on('data', chunk => data += chunk);
-          res.on('end', () => {
-            try {
-              resolve({ status: res.statusCode, body: JSON.parse(data) });
-            } catch (e) {
-              resolve({ status: res.statusCode, body: {} });
-            }
-          });
-        });
-
-        req.on('error', reject);
-        req.write('invalid json');
-        req.end();
-      });
-
-      assert.strictEqual(res.status, 400);
-      assert.strictEqual(res.body.error, 'Invalid JSON');
-    });
+    assert.equal(result.status, 404);
+    assert.equal(result.body.error, 'Target unavailable');
   });
 
-  describe('OPTIONS预检请求', () => {
-    it('OPTIONS应返回204', async () => {
-      const res = await makeRequest('OPTIONS', '/register');
-      assert.strictEqual(res.status, 204);
+  it('rejects duplicate and out-of-order sequences', async () => {
+    await register('sender');
+    await register('receiver', 'default', 'receiver');
+    const send = (sequence) => request('/signal/receiver', {
+      method: 'POST',
+      body: { from: 'sender', sequence, payload: { type: 'frame' } },
     });
+    assert.equal((await send(5)).status, 200);
+    const duplicate = await send(5);
+    const stale = await send(4);
+    assert.equal(duplicate.status, 409);
+    assert.equal(duplicate.body.error, 'Duplicate sequence');
+    assert.equal(stale.status, 409);
+    assert.equal(stale.body.error, 'Stale sequence');
   });
 
-  describe('未知路径', () => {
-    it('未知路径应返回404', async () => {
-      const res = await makeRequest('GET', '/unknown-path');
-      assert.strictEqual(res.status, 404);
-      assert.strictEqual(res.body.error, 'Not found');
+  it('rejects non-finite payload numbers and invalid sequences', async () => {
+    await register('sender');
+    await register('receiver', 'default', 'receiver');
+    const nonFinite = await request('/signal/receiver', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      rawBody: '{"from":"sender","sequence":1,"payload":{"x":1e999}}',
     });
+    const invalidSequence = await request('/signal/receiver', {
+      method: 'POST',
+      body: { from: 'sender', sequence: -1, payload: { type: 'frame' } },
+    });
+    assert.equal(nonFinite.status, 400);
+    assert.equal(nonFinite.body.error, 'Invalid payload number');
+    assert.equal(invalidSequence.status, 400);
   });
 
-  describe('CORS头', () => {
-    it('所有响应应包含CORS头', async () => {
-      const res = await makeRequest('GET', '/devices');
-      assert.strictEqual(res.headers['access-control-allow-origin'], '*');
-      assert.ok(res.headers['access-control-allow-methods']);
+  it('cleans up a disconnected SSE client and permits reconnect', async () => {
+    await register('receiver', 'default', 'receiver');
+    const first = await connectSse('receiver');
+    assert.equal(service.sseClients.size, 1);
+    first.req.destroy();
+    await waitFor(() => service.sseClients.size === 0, 'SSE client was not removed after disconnect');
+    const second = await connectSse('receiver');
+    assert.equal(service.sseClients.size, 1);
+    second.req.destroy();
+    await waitFor(() => service.sseClients.size === 0, 'SSE client was not removed after reconnect close');
+  });
+
+  it('unregister removes device and active SSE state', async () => {
+    await register('receiver', 'default', 'receiver');
+    const sse = await connectSse('receiver');
+    const result = await request('/unregister/receiver', { method: 'DELETE' });
+    assert.equal(result.status, 200);
+    assert.equal(service.devices.has('receiver'), false);
+    assert.equal(service.sseClients.has('receiver'), false);
+    sse.req.destroy();
+  });
+
+  it('returns bounded errors for invalid JSON and unknown routes', async () => {
+    const invalid = await request('/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      rawBody: '{bad',
     });
+    const missing = await request('/unknown');
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error, 'Invalid JSON');
+    assert.equal(missing.status, 404);
+  });
+
+  it('returns CORS preflight headers', async () => {
+    const result = await request('/register', { method: 'OPTIONS', token: null });
+    assert.equal(result.status, 204);
+    assert.match(result.headers.get('access-control-allow-headers'), /Authorization/);
+  });
+
+  it('supports concurrent dynamic ports without collisions', async () => {
+    const first = createSignalingService({ host: '127.0.0.1', port: 0, heartbeatIntervalMs: 0 });
+    const second = createSignalingService({ host: '127.0.0.1', port: 0, heartbeatIntervalMs: 0 });
+    const firstAddress = await first.start();
+    const secondAddress = await second.start();
+    assert.notEqual(firstAddress.port, secondAddress.port);
+    await first.stop();
+    await second.stop();
+  });
+
+  it('releases its port after stop so another server can bind', async () => {
+    const first = createSignalingService({ host: '127.0.0.1', port: 0, heartbeatIntervalMs: 0 });
+    const address = await first.start();
+    await first.stop();
+    const second = createSignalingService({
+      host: '127.0.0.1',
+      port: address.port,
+      heartbeatIntervalMs: 0,
+    });
+    await second.start();
+    assert.equal(second.server.address().port, address.port);
+    await second.stop();
   });
 });

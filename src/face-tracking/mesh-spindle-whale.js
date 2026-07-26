@@ -738,23 +738,27 @@ export function deformSpindle(mesh, params = {}) {
     return { ...v, tx: r.x, ty: r.y, tz: r.z, nx: r.nx, ny: r.ny, nz: r.nz, isTop: newIsTop, isBottom: newIsBottom };
   });
 
-  // 鼻端平滑：将 apex 顶点向第一环中心轻微混合，
-  // 防止抬头时鼻端三角面被拉成尖刺
-  const rows = mesh.rows;
-  const ringStart = 1; // col=1 顶点起始索引
-  let ringCenterX = 0, ringCenterY = 0, ringCenterZ = 0;
-  for (let row = 0; row <= rows; row++) {
-    ringCenterX += transformed[ringStart + row].tx;
-    ringCenterY += transformed[ringStart + row].ty;
-    ringCenterZ += transformed[ringStart + row].tz;
+  const hasRotation = ['angleX', 'angleY', 'angleZ']
+    .some((key) => Number.isFinite(params[key]) && Math.abs(params[key]) > 1e-9);
+  if (hasRotation) {
+    // 鼻端平滑：只在旋转时将 apex 向第一环中心轻微混合，
+    // 防止抬头时鼻端三角面被拉成尖刺。中性姿态必须保持原始 mesh。
+    const rows = mesh.rows;
+    const ringStart = 1; // col=1 顶点起始索引
+    let ringCenterX = 0, ringCenterY = 0, ringCenterZ = 0;
+    for (let row = 0; row <= rows; row++) {
+      ringCenterX += transformed[ringStart + row].tx;
+      ringCenterY += transformed[ringStart + row].ty;
+      ringCenterZ += transformed[ringStart + row].tz;
+    }
+    ringCenterX /= (rows + 1);
+    ringCenterY /= (rows + 1);
+    ringCenterZ /= (rows + 1);
+    const BLEND = 0.15;
+    transformed[0].tx = transformed[0].tx * (1 - BLEND) + ringCenterX * BLEND;
+    transformed[0].ty = transformed[0].ty * (1 - BLEND) + ringCenterY * BLEND;
+    transformed[0].tz = transformed[0].tz * (1 - BLEND) + ringCenterZ * BLEND;
   }
-  ringCenterX /= (rows + 1);
-  ringCenterY /= (rows + 1);
-  ringCenterZ /= (rows + 1);
-  const BLEND = 0.15;
-  transformed[0].tx = transformed[0].tx * (1 - BLEND) + ringCenterX * BLEND;
-  transformed[0].ty = transformed[0].ty * (1 - BLEND) + ringCenterY * BLEND;
-  transformed[0].tz = transformed[0].tz * (1 - BLEND) + ringCenterZ * BLEND;
 
   const transformedFaces = mesh.faces.map((f) => ({
     ...f,
