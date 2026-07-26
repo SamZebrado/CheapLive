@@ -37,3 +37,9 @@ MediaPipe's Emscripten WASM loader needs `importScripts`; CheapLive therefore st
 - Android JVM cases prove bridge allowlisting/range checks, sanitized broadcasting, aggregate-only telemetry, default-off controls, and settings validation.
 
 Live device performance and human-body acquisition must be recorded separately; software tests do not substitute for that evidence.
+
+## Black-screen capture interaction
+
+The Android foreground-only black-screen mode leaves this page and its Web Worker attached and resumed; it does not enable pose capture, load the pose model, create another camera stream, or rebuild the Worker. When pose is already enabled, face and pose continue to share the existing camera while the Activity remains foreground and screen-on. When pose is disabled, entering black-screen mode does not load the model.
+
+This is not background motion capture. An intentional lock or background transition remains subject to Android's Activity/WebView camera lifecycle. `CaptureServerService` may keep LocalServer available independently; that server state is not evidence that pose inference continues. See `BLACK_SCREEN_CAPTURE.md` and `architecture/BACKGROUND_CAMERA_OPTIONS.md`.
