@@ -40,7 +40,10 @@ async function fixture(t, serverToken, enteredToken) {
     signalingToken: { value: enteredToken },
     status: { textContent: '' },
     receiverStatus: { textContent: '' },
+    receiverSignalingStatus: { textContent: '' },
+    receiverSignalingError: { classList: new Set(['hidden']) },
   };
+  elements.receiverSignalingError.classList.remove = (name) => elements.receiverSignalingError.classList.delete(name);
   const registrations = [];
   class LocalClient extends SignalingClient {
     detectServerUrl() { return service.baseUrl; }
@@ -118,11 +121,15 @@ for (const [label, enteredToken] of [['missing', ''], ['wrong', 'synthetic-wrong
     }
     assert.match(elements.status.textContent, /Authentication failed/);
     assert.equal(elements.receiverStatus.textContent, '信令服务不可用');
+    assert.equal(elements.receiverSignalingError.classList.has('hidden'), false);
+    assert.match(elements.receiverSignalingStatus.textContent, /认证失败.*Token.*重试/);
+    assert.equal(elements.receiverSignalingStatus.textContent.includes(fixtureToken), false);
   });
 }
 
 test('shipped roles keep working with an empty field when server authentication is disabled', async (t) => {
-  const { service, results } = await fixture(t, '', '');
+  const { service, results, elements } = await fixture(t, '', '');
   assert.ok(results.every((result) => result.success));
   assert.equal(service.devices.size, 2);
+  assert.equal(elements.receiverSignalingError.classList.has('hidden'), true);
 });
