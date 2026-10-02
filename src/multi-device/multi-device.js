@@ -296,7 +296,9 @@ class Sender {
   }
 
   initSignaling() {
-    this.signalingClient = new SignalingClient(this.id);
+    this.signalingClient = new SignalingClient(this.id, {
+      token: document.getElementById('signalingToken')?.value || '',
+    });
     this.signalingClient.onDeviceList = (devices) => {
       // 发送端不需要显示设备列表，但可用于调试
       console.log('[Sender] Device list updated:', devices);
@@ -644,7 +646,9 @@ class Receiver {
   }
 
   initSignaling() {
-    this.signalingClient = new SignalingClient(this.id);
+    this.signalingClient = new SignalingClient(this.id, {
+      token: document.getElementById('signalingToken')?.value || '',
+    });
     this.signalingClient.onDeviceList = (devices) => {
       this.discoveredDevices = devices.filter(d => d.role === 'sender');
       this.updateDeviceList();

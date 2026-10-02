@@ -178,6 +178,8 @@ node src/multi-device/signaling-server.js
 
 - 此服务仅推荐在受信任的局域网内使用
 - 默认未设置认证；可通过 `SIGNAL_TOKEN` 启用共享 token，仍只用于受信任局域网，不要暴露到公网
+- 启用认证后，在每台设备的 [多端互动页面](src/multi-device/index.html) 选择发送端/接收端前，在“信令共享 Token”密码框输入与服务器 `SIGNAL_TOKEN` 完全相同的值；未启用认证时留空。值仅保留在当前页面，返回模式选择可修改，重新加载后需再次输入。注册失败时不会启动心跳或 SSE。
+- `SIGNAL_TOKEN` 不会自动传给网页；`/devices` 验证请求也需携带 `Authorization: Bearer <共享 token>`。HTTP 请求使用认证头，浏览器 SSE 使用编码后的 token 查询参数（原生 EventSource 不支持自定义认证头），因此不要记录或分享 SSE URL。
 - 所有信令消息为 HTTP 明文传输（WebRTC 媒体流自身加密）
 
 ### ✅ 开源可用：CheapLive Capture Android App
