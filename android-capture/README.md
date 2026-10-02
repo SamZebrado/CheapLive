@@ -181,3 +181,7 @@ MIT License
 ---
 
 > **注意**：本项目源码已于 2026-07-22 开源。详见根目录 [docs/POST_CONTEST_OPEN_SOURCE_DECISION.md](../docs/POST_CONTEST_OPEN_SOURCE_DECISION.md)。
+## Build shell requirement
+
+The Unix `gradlew` launcher uses Bash arrays and requires Bash as well as Java 17.
+Run `./gradlew` directly (or `bash ./gradlew`); do not invoke it with `sh`.

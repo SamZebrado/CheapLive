@@ -6,7 +6,7 @@
 
 ## 1. 项目文件总览
 
-仓库根：`/Users/samzebrado/Documents/PersonalCodingLocal/CheapLive`
+仓库根：`<repository-root>`
 
 关键前端文件（全部位于 `src/face-tracking/`）：
 
@@ -26,7 +26,8 @@
 ## 2. 如何在本地查看效果
 
 ```bash
-cd /Users/samzebrado/Documents/PersonalCodingLocal/CheapLive/src/face-tracking
+# Run from the repository root
+cd src/face-tracking
 python3 -m http.server 8000   # 或任何可用端口（如 9876）
 ```
 浏览器打开 `http://localhost:8000/index.html`，页面上方可见：
@@ -163,8 +164,8 @@ s→0 时 rx→ry→0，导致 T_θ → 零向量，叉乘结果也为零。归�
 在任何时候可以写一段 `.mjs` 脚本来 dry-run 网格生成和可见性判断：
 
 ```javascript
-// 保存为 /tmp/diag.mjs 然后 node /tmp/diag.mjs
-import { createSpindleMesh, deformSpindle } from '/Users/samzebrado/Documents/PersonalCodingLocal/CheapLive/src/face-tracking/mesh-spindle-whale.js';
+// 在仓库根目录保存为 diag.mjs，然后运行 node ./diag.mjs
+import { createSpindleMesh, deformSpindle } from './src/face-tracking/mesh-spindle-whale.js';
 
 const mesh = createSpindleMesh();
 const deformed = deformSpindle(mesh, { angleY: 0, angleX: 0, angleZ: 0 });
@@ -172,8 +173,8 @@ const deformed = deformSpindle(mesh, { angleY: 0, angleX: 0, angleZ: 0 });
 let visible = 0, hidden = 0;
 for (const f of deformed.faces) {
   let avgNz = 0;
-  for (let k = 0; k < 4; k++) avgNz += f.vertices[k].nz;
-  if (avgNz * 0.25 > -0.05) visible++; else hidden++;
+  for (const v of f.vertices) avgNz += v.nz;
+  if (avgNz / f.vertices.length > -0.05) visible++; else hidden++;
 }
 console.log(`可见=${visible}, 隐藏=${hidden}, 总=${deformed.faces.length}`);
 console.log('正面应该可见的面数 ≥ 200（大致合理）；若 < 50 说明法线方向反了');

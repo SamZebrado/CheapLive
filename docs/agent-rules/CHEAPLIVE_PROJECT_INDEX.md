@@ -28,7 +28,7 @@
 
 | 项 | 值 |
 |---|---|
-| 正式主仓库 | `/Users/samzebrado/Documents/PersonalCodingLocal/CheapLive` |
+| 正式主仓库 | `<repository-root>` |
 | 正式主分支 | `migration/android-source-from-verify` |
 | GitHub remote | `origin` → `github.com/SamZebrado/CheapLive` |
 | Gitee remote | `gitee` → `gitee.com/samzebrado/CheapLive` |

@@ -156,7 +156,7 @@
 - [ ] 虹膜 radius stability 验证
 - [ ] 虹膜 movementNotSizePass 验证
 - [ ] 主 panel vs 右侧 panel irisRatioToHead 一致性验证
-- [x] Android 正式仓库 CONFIRMED — 路径 `/Users/samzebrado/Documents/PersonalCodingLocal/CheapLive/android-capture`，applicationId=com.cheaplive.capture，namespace=com.cheaplive.capture，versionName=0.1.0，versionCode=1
+- [x] Android 正式仓库 CONFIRMED — 路径 `<repository-root>/android-capture`，applicationId=com.cheaplive.capture，namespace=com.cheaplive.capture，versionName=0.1.0，versionCode=1
 - [ ] Android assembleDebug 构建验证
 - [ ] Android 真机视觉同步验证（Android 当前不加载 contest-demo，需后续集成方案）
 - [ ] 平板浏览器交互验证（屏幕 PIN 锁定，待人工解锁）
@@ -174,7 +174,7 @@
 - 本轮任务: fish eye bilateral 修复 + cat/fish iris gaze + mocap shell + 测试 + 文档
 
 ### Android source discovery (CONFIRMED)
-- Android 项目路径: `/Users/samzebrado/Documents/PersonalCodingLocal/CheapLive/android-capture`
+- Android 项目路径: `<repository-root>/android-capture`
 - applicationId: com.cheaplive.capture ✓
 - Android app 加载: `file:///android_asset/web/demo/demo.html`（旧版 demo，不含 contest-demo）
 - contest-demo 改动无需同步到 Android（Android 不加载 contest-demo）
