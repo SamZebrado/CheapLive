@@ -296,7 +296,9 @@ class Sender {
   }
 
   initSignaling() {
-    this.signalingClient = new SignalingClient(this.id);
+    this.signalingClient = new SignalingClient(this.id, {
+      token: document.getElementById('signalingToken')?.value || '',
+    });
     this.signalingClient.onDeviceList = (devices) => {
       // 发送端不需要显示设备列表，但可用于调试
       console.log('[Sender] Device list updated:', devices);
@@ -644,7 +646,10 @@ class Receiver {
   }
 
   initSignaling() {
-    this.signalingClient = new SignalingClient(this.id);
+    document.getElementById('receiverSignalingError').classList.add('hidden');
+    this.signalingClient = new SignalingClient(this.id, {
+      token: document.getElementById('signalingToken')?.value || '',
+    });
     this.signalingClient.onDeviceList = (devices) => {
       this.discoveredDevices = devices.filter(d => d.role === 'sender');
       this.updateDeviceList();
@@ -655,6 +660,10 @@ class Receiver {
     this.signalingClient.onError = (type, msg) => {
       console.warn(`[Receiver] Signaling error (${type}):`, msg);
       document.getElementById('receiverStatus').textContent = '信令服务不可用';
+      document.getElementById('receiverSignalingStatus').textContent = msg.startsWith('Authentication failed')
+        ? '信令认证失败：请返回模式选择，修改共享 Token 后重新选择接收端重试。'
+        : '信令服务不可用：请检查服务器，然后返回模式选择并重新选择接收端重试。';
+      document.getElementById('receiverSignalingError').classList.remove('hidden');
     };
 
     // 注册为接收端
@@ -705,10 +714,13 @@ class Receiver {
   }
 
   initUI() {
-    document.getElementById('backFromReceiver').addEventListener('click', () => {
-      this.disconnect();
+    const returnToModes = () => {
+      this.destroy();
       showModeSelect();
-    });
+      document.getElementById('signalingToken')?.focus();
+    };
+    document.getElementById('backFromReceiver').addEventListener('click', returnToModes);
+    document.getElementById('retryReceiverSignaling').addEventListener('click', returnToModes);
 
     document.getElementById('connectBtn').addEventListener('click', () => {
       const targetId = document.getElementById('targetId').value.trim();

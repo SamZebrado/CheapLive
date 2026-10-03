@@ -96,6 +96,38 @@ describe('local signaling service', () => {
     assert.equal(missing.body.error, 'Unauthorized');
   });
 
+  it('rejects missing/wrong credentials on every protected route without changing state', async () => {
+    await register('sender');
+    await register('receiver', 'default', 'receiver');
+    const originalHeartbeat = service.devices.get('sender').lastHeartbeat;
+    for (const token of [null, 'synthetic-wrong']) {
+      for (const [pathname, method, body] of [
+        ['/register', 'POST', { id: 'intruder', role: 'sender' }],
+        ['/devices', 'GET'],
+        ['/heartbeat/sender', 'POST'],
+        ['/signal/receiver', 'POST', { from: 'sender', sequence: 1, payload: { type: 'fixture' } }],
+        ['/events/receiver', 'GET'],
+        ['/unregister/sender', 'DELETE'],
+      ]) {
+        const result = await request(pathname, { method, body, token });
+        assert.equal(result.status, 401, `${method} ${pathname} must require authentication`);
+        assert.equal(result.body.error, 'Unauthorized');
+      }
+    }
+    assert.deepEqual([...service.devices.keys()], ['sender', 'receiver']);
+    assert.equal(service.devices.get('sender').lastHeartbeat, originalHeartbeat);
+    assert.equal(service.sseClients.size, 0);
+    assert.equal(service.lastSequences.size, 0);
+  });
+
+  it('rejects missing/wrong SSE query credentials for a registered device', async () => {
+    await register('receiver', 'default', 'receiver');
+    for (const query of ['', '?token=synthetic-wrong']) {
+      assert.equal((await request(`/events/receiver${query}`, { token: null })).status, 401);
+    }
+    assert.equal(service.sseClients.size, 0);
+  });
+
   it('registers two clients and isolates rooms', async () => {
     assert.equal((await register('capture-a', 'room-a')).status, 200);
     assert.equal((await register('receiver-a', 'room-a', 'receiver')).status, 200);

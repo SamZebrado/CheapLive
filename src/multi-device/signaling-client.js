@@ -55,6 +55,11 @@ class SignalingClient {
           room: this.room,
         }),
       });
+      if (!res.ok) {
+        throw new Error(res.status === 401
+          ? 'Authentication failed: check signaling token'
+          : `Registration failed (${res.status})`);
+      }
       const data = await res.json();
       if (data.success) {
         this.startHeartbeat();

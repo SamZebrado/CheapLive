@@ -12,7 +12,7 @@
 
 | 项 | 值 |
 |---|---|
-| 项目路径 | `/Users/samzebrado/Documents/PersonalCodingLocal/CheapLive/android-capture` |
+| 项目路径 | `<repository-root>/android-capture` |
 | 分支 | `migration/android-source-from-verify` |
 | HEAD | `4d88ca4` |
 | applicationId | `com.cheaplive.capture` |
@@ -225,7 +225,7 @@ assets/web/demo/
 
 ## 6. 相关文件
 
-- Android 源码：`/Users/samzebrado/Documents/PersonalCodingLocal/CheapLive/android-capture/`
+- Android 源码：`<repository-root>/android-capture/`
 - AvatarDemoActivity：`app/src/main/java/com/cheaplive/capture/AvatarDemoActivity.kt`
 - 当前加载路径：`file:///android_asset/web/demo/demo.html?avatar=$safeKind`
 - Contest demo 源码：`src/contest-demo/`

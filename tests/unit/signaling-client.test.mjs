@@ -11,7 +11,7 @@ beforeEach(() => {
   calls = [];
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url, options });
-    return { json: async () => ({ success: true, devices: [] }) };
+    return { ok: true, json: async () => ({ success: true, devices: [] }) };
   };
 });
 
@@ -70,4 +70,21 @@ test('device listing sends room and authorization header', async () => {
   await client.fetchDeviceList();
   assert.equal(calls[0].url, 'http://127.0.0.1:9999/devices?room=room-a');
   assert.equal(calls[0].options.headers.Authorization, 'Bearer test-token');
+});
+
+test('rejected registration reports a bounded auth error even if its body claims success', async () => {
+  const client = new SignalingClient('sender', 'http://127.0.0.1:9999', { token: 'synthetic-wrong' });
+  let heartbeatStarted = false;
+  let sseStarted = false;
+  let reported;
+  client.startHeartbeat = () => { heartbeatStarted = true; };
+  client.connectSSE = () => { sseStarted = true; };
+  client.onError = (type, message) => { reported = { type, message }; };
+  globalThis.fetch = async () => ({ ok: false, status: 401, json: async () => ({ success: true }) });
+  const result = await client.register('Sender', null, null, 'sender');
+  assert.deepEqual(result, { error: 'Authentication failed: check signaling token' });
+  assert.deepEqual(reported, { type: 'register', message: result.error });
+  assert.equal(heartbeatStarted, false);
+  assert.equal(sseStarted, false);
+  assert.equal(client.connected, false);
 });

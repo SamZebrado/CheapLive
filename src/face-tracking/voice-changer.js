@@ -266,13 +266,12 @@ class VoiceChanger {
 
     for (const { src, label } of urls) {
       try {
-        await new Promise((resolve, reject) => {
-          const script = this._document.createElement('script');
-          script.src = src;
-          script.onload = () => resolve();
-          script.onerror = () => reject(new Error('加载失败'));
-          this._document.head.appendChild(script);
-        });
+        // SoundTouch 0.1.29 is an ES module, including the bundled fallback.
+        const engine = await import(src);
+        if (typeof engine.SoundTouch !== 'function') {
+          throw new Error('SoundTouch 模块缺少处理器');
+        }
+        this._window.soundtouch = engine;
         this._engineSource = label;
         return;
       } catch (e) {}

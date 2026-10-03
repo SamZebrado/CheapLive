@@ -1,6 +1,6 @@
 # CheapLive - 便宜直播
 
-🚧 **CheapLive 当前处于积极开发阶段**。本仓库提供早期功能 Demo。部分功能仍属实验性、开发中或后续规划，请先查看下方功能状态，再决定使用方式。
+**CheapLive 的既有实现已基本完成，当前以试玩和缺陷维护为主。** 本仓库保留浏览器 Demo 与 Android Capture；实验功能和未实现的规划见下表，不代表正在扩展功能。
 
 > 低成本浏览器端虚拟形象面捕实验项目：打开网页即可体验，无需安装。
 
@@ -22,7 +22,7 @@ CheapLive 在 TRAE AI 创造力大赛初赛中获得**专业评分 TOP 2000**，
 | 程序化球形头像 | 可体验 | 支持头部和表情参数 |
 | 程序化纺锤鲸鱼 | 可体验 | 支持表情及尾巴动画 |
 | 实时变声 | 实验性 | 自动测试覆盖有限，真实麦克风和听感待验证 |
-| 多设备信令服务器 | 扩展玩法/待开发 | 局域网内多设备协作，需手动搭建 Node.js 服务 |
+| 多设备信令服务器 | 实验性扩展 | 局域网内多设备协作，需手动搭建 Node.js 服务 |
 | 网页旧多端模式 | 实验性 | 当前部署和真实跨设备连接仍有限制 |
 | CheapLive Capture Android App | ✅ 开源可用 | 源码已公开，支持构建和安装 |
 | Android 黑屏采集 | 前台模式 | 防止自动超时并以纯黑 overlay 降低屏幕发光；不支持后台摄像头 |
@@ -80,9 +80,11 @@ CheapLive 是一个基于纯浏览器技术栈的**低成本移动端虚拟形�
 
 ```bash
 cd CheapLive
-python3 -m http.server 8080
-# 手机浏览器访问 http://电脑IP:8080/src/face-tracking/
+python3 -m http.server 8080 --bind 127.0.0.1
+# 本机浏览器访问 http://localhost:8080/src/face-tracking/
 ```
+
+摄像头需要浏览器安全上下文：本机使用 `localhost`；手机请使用上面的 HTTPS Pages 或可信 HTTPS 开发服务器。普通 `http://电脑IP` 通常不能获取摄像头权限。
 
 ### 方式三：Android Capture App
 
@@ -90,7 +92,7 @@ python3 -m http.server 8080
 # 进入 Android 项目目录
 cd android-capture
 
-# 构建 APK（需要 Java 17）
+# 构建 APK（需要 Java 17 和 Bash）
 JAVA_HOME=/path/to/java17 ./gradlew assembleDebug
 
 # 安装到设备
@@ -143,7 +145,7 @@ CheapLive/
 - **实时变声**：基于 Web Audio API，功能存在但听感和跨浏览器兼容仍待验证
 - **网页旧多端模式**：保留在 `src/multi-device/`，依赖本地局域网信令服务；作为开发者实验入口保留，不作为当前推荐用户路径
 
-### 🛠️ 扩展玩法 / 待开发：多设备信令服务器
+### 🛠️ 实验性扩展：多设备信令服务器
 
 > **手动搭建，不包含在默认体验中**。适合有一定 Node.js 使用经验的开发者。
 
@@ -175,7 +177,9 @@ node src/multi-device/signaling-server.js
 **注意事项**：
 
 - 此服务仅推荐在受信任的局域网内使用
-- 不包含认证机制，不要暴露到公网
+- 默认未设置认证；可通过 `SIGNAL_TOKEN` 启用共享 token，仍只用于受信任局域网，不要暴露到公网
+- 启用认证后，在每台设备的 [多端互动页面](src/multi-device/index.html) 选择发送端/接收端前，在“信令共享 Token”密码框输入与服务器 `SIGNAL_TOKEN` 完全相同的值；未启用认证时留空。值仅保留在当前页面，返回模式选择可修改，重新加载后需再次输入。注册失败时不会启动心跳或 SSE。
+- `SIGNAL_TOKEN` 不会自动传给网页；`/devices` 验证请求也需携带 `Authorization: Bearer <共享 token>`。HTTP 请求使用认证头，浏览器 SSE 使用编码后的 token 查询参数（原生 EventSource 不支持自定义认证头），因此不要记录或分享 SSE URL。
 - 所有信令消息为 HTTP 明文传输（WebRTC 媒体流自身加密）
 
 ### ✅ 开源可用：CheapLive Capture Android App
@@ -186,7 +190,7 @@ node src/multi-device/signaling-server.js
 - Token 鉴权机制，确保局域网内安全访问
 - Capture 页面：使用 MediaPipe 进行面部捕捉
 - Receiver 页面：接收面捕参数并渲染虚拟形象
-- 后台服务生存能力，支持锁屏状态下继续运行
+- 黑屏采集保持 Activity 与 WebView 在前台；后台服务不保证摄像头在后台或锁屏后继续运行
 
 **开发说明**：详见 [android-capture/README.md](android-capture/README.md)。
 
@@ -199,7 +203,7 @@ node src/multi-device/signaling-server.js
 
 ## 隐私说明
 
-- **面部捕捉数据**：由 MediaPipe 模型在你的设备本地实时计算，所有数据（关键点、表情参数）留在浏览器中，不会上传到服务器
+- **面部捕捉数据**：由 MediaPipe 模型在你的设备本地实时计算，单机模式的关键点与表情参数留在本机；多端模式会向局域网接收端传输参数，不向云端上传原始画面
 - **摄像头画面**：仅在本地显示；单机模式不主动上传摄像头画面
 - **实验性功能**（变声、旧多端模式）可能触发额外的浏览器内处理，但不会向云端上传原始音频或视频流
 - **Android Capture** 在局域网内仅传输少量面捕参数，不传输摄像头视频

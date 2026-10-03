@@ -24,6 +24,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          # The removed legacy 'tools' package is not required by this build.
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
       - uses: gradle/actions/wrapper-validation@v4
       - uses: gradle/actions/setup-gradle@v4
       - run: npm ci

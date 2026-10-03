@@ -36,6 +36,10 @@
     <!-- 模式选择 -->
     <div class="mode-select" id="modeSelect">
       <h2>选择模式</h2>
+      <label for="signalingToken">信令共享 Token（服务器未启用认证时留空）</label>
+      <input id="signalingToken" class="text-input" type="password" autocomplete="off"
+             aria-describedby="signalingTokenHint">
+      <p id="signalingTokenHint">启用 SIGNAL_TOKEN 时，每台设备在选择模式前输入相同值；仅在当前页面保留。</p>
       <div class="mode-cards">
         <div class="mode-card" data-mode="sender">
           <div class="mode-icon">📤</div>
@@ -183,6 +187,11 @@
       <div class="panel-header">
         <h2>📥 接收端</h2>
         <button class="btn-small" id="backFromReceiver">返回</button>
+      </div>
+
+      <div class="connection-info hidden" id="receiverSignalingError">
+        <p id="receiverSignalingStatus" role="alert"></p>
+        <button class="btn-small" id="retryReceiverSignaling">返回修改 Token 并重试</button>
       </div>
 
       <div class="connection-setup" id="connectionSetup">
